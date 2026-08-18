@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>书斋 · 社交预览卡</title>
+<style>
+/*
+ * 书斋的社交预览卡 1280×640 —— GitHub 的 Settings → Social preview。
+ * 那是分享到微信 / X / Slack 时那张卡，**不是** README 首屏那张截图：
+ * 前者在信息流里按缩略图看，只剩大色块和大字；后者是进了仓库页之后看细节的。
+ * 所以这张是画出来的，不是截图导一份。
+ *
+ * 重画（注意 --base build，字体是相对路径引的）：
+ *   node ~/.claude/skills/html-shot/render.mjs build/brand/social-card.html
+ *     build/brand/social-card.png --base build --palette
+ * 画完**按缩略图尺寸再看一遍**（thumb.html，或 --dpr 0.28）：那才是它真正被看到的样子。
+ *
+ * ── 这一版换了构图：书架 ─────────────────────────────
+ *
+ * 上一版右边是**一墙封面**（照着应用的封面墙画）。这一版换成**一排书脊 + 架板**，
+ * 左边留大片纸。换的是构图不是判据：下面那几条（主体亮、只有一处红、
+ * 品牌标记用图标母版、颜色走应用自己那份、副文用定稿）一条都没松。
+ *
+ * ⚠️ **「书脊」和「藏书印」都是图标那边否掉过的两版**（见 README「换掉的那两版」），
+ * 所以这里要说清楚为什么不算走回头路：那两条否决**是按 16px 图标判的**——
+ * 印在 16px 糊成一个红点、文件夹+书脊在任务栏和资源管理器撞脸。
+ * 社交卡最小也有 360px 宽，两条都不成立。**但有一条适用**：
+ * 品牌标记必须用图标母版，卡上不许再手画一个——所以左上角那个是
+ * master-small.png，不是画一方红印。手画就成了第二份要跟着同步的东西。
+ */
+
+/* 正文字体跟应用发布的那份走，别指望渲染机器上装了什么。
+   ⚠️ 引它就必须 --base build，否则静默回退到系统字体（README 记着那次） */
+@font-face {
+  font-family: 'HarmonyOS Sans SC';
+  src: url('../fonts/HarmonyOS Sans SC.ttf') format('truetype');
+  font-weight: 400;
+}
+
+:root {
+  --paper: #f1ece1;                      /* 书斋-白天的底色，和 styles.css 同一个值 */
+  --ink: #2b2723;
+  --muted: #6f6659;
+  --line: #ded6c7;
+  /* 架板。⚠️ 别写成 accent + opacity——半透明会让斜书扎进去的那个角**透出来**，
+     实测在板上留下一块 40px 宽的污渍 */
+  --board: #917a53;
+  --sans: 'HarmonyOS Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  /* 标语用楷体，和应用给用户那句书评排的是同一套（styles.css 的 --say-font）。
+     ⚠️ **没有 @font-face 兜着**：build/fonts/ 里没有楷体，而 LXGW 多半没装——
+     提交的这张 PNG 是用 KaiTi 渲的。装了 LXGW 的机器重画会得到不一样的字形，
+     这是**认下的代价**，不是没想到：为一张卡往仓库里塞一个中文字体不划算。 */
+  --kai: 'LXGW WenKai Screen', 'LXGW WenKai', 'KaiTi', '楷体', 'STKaiti', serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  width: 1280px; height: 640px; margin: 0;
+  background: var(--paper); color: var(--ink);
+  font-family: var(--sans);
+  overflow: hidden; display: flex;
+}
+
+/* ── 左：纸上的字 ───────────────────────────────── */
+.say { width: 748px; padding: 74px 0 66px 82px; display: flex; flex-direction: column; }
+
+.brand { display: flex; align-items: center; gap: 18px; }
+/* 品牌标记＝图标的小尺寸母版，见顶上那段。**全图唯一的一处红也在它身上**
+   （那道朱签），所以别再往别处加红 */
+.brand img { width: 64px; height: 64px; display: block; }
+.brand .name { font-size: 40px; font-weight: 600; letter-spacing: .12em; }
+
+/* 标语。⚠️ **不许折行**：折了会把「斋」一个字甩到第二行，
+   而这是整张卡最要紧的一句（第一版就是这么翻的车） */
+.lede {
+  margin: 34px 0 0; font-family: var(--kai);
+  font-size: 52px; line-height: 1.35; white-space: nowrap;
+}
+
+/* 副文用 README 那张「定稿」表里的原话，一个字都没改——
+   那张表是下一份资产（商店页、投稿正文）的取用处，这里改了就分叉 */
+.facts { margin: 26px 0 0; font-size: 25px; line-height: 1.75; color: var(--muted); }
+
+.foot { margin-top: auto; font-size: 21px; color: var(--muted); display: flex; align-items: center; gap: 13px; }
+.rule { width: 44px; height: 1px; background: var(--line); }
+
+/* ── 右：书架 ──────────────────────────────────── */
+.shelf { flex: 1; position: relative; }
+
+/* 架板：书脊得站在什么东西上，否则整排读起来是**柱状图**不是书架（第一版就是） */
+.board { position: absolute; left: 0; right: 0; bottom: 74px; height: 13px; background: var(--board); border-radius: 2px; z-index: 2; }
+.board::after { content: ''; position: absolute; left: 6px; right: 0; top: 13px; height: 16px; background: linear-gradient(rgba(43, 39, 35, .16), rgba(43, 39, 35, 0)); }
+
+/* ⚠️ **最后一本露一半是算出来的**：这一排内容宽 568px，而可见区
+   （left: 30px 起到卡片右沿）只有 502px——差出来的 66px 就是被裁掉的那一截。
+   改宽度或间距都会动到这个差值，改完看一眼是不是还露着半本。 */
+.books { position: absolute; left: 30px; bottom: 87px; z-index: 1; display: flex; align-items: flex-end; gap: 9px; }
+
+.spine {
+  position: relative;                    /* 痕迹是绝对定位挂上去的，见下 */
+  color: #fff; writing-mode: vertical-rl; text-orientation: upright;
+  font-size: 26px; font-weight: 600; letter-spacing: .15em;
+  padding: 22px 0 0;
+  /* ⚠️ **横向居中要用 align-items，不是 justify-content。**
+     竖排里主轴是**竖的**，justify-content 管的是上下——第一版拿它去居中，
+     结果每个书名都贴在书脊右缘，而**最后那本被裁掉的正好只剩左半边，
+     书名一个像素都没渲染出来**（走查逐像素扫出来的）。 */
+  display: flex; align-items: center;
+  border-radius: 3px 3px 1px 1px;
+  box-shadow: 0 2px 5px rgba(43, 39, 35, .22);
+  flex: 0 0 auto;
+}
+/*
+ * ── 书脊上的「痕迹」──────────────────────────────
+ *
+ * ⚠️ **一排光书脊说的是「书很多」，而 Calibre、legado 的截图也是这么说的**
+ * （README「社交卡也换了主张」那节记着换掉上一版的正是这个理由）。
+ * 差异化在**你留下的痕迹**：读到哪、打了几分。所以书脊上挂两样，
+ * 值和样式都照抄应用里的真实控件（`.book-rating` / `.book-progress`），**抄值不抄截图**。
+ *
+ * ⚠️ **不挂朱签。** 「全卡只有一处红」是钉住的判据，而那一处已经在左上角
+ * 图标里那道签上了——再往书脊上加一条就是两处红互相抢。
+ */
+.star {
+  position: absolute; left: 8px; bottom: 10px;
+  writing-mode: horizontal-tb;           /* 书脊是竖排的，这两个记号要横着读 */
+  font-size: 17px; font-weight: 700; letter-spacing: 0;
+  color: #f0c85a; background: rgba(0, 0, 0, .42);
+  padding: 1px 6px; border-radius: 3px;
+}
+/* 读到哪。同应用里封面下沿那条，但**要离架板远一点**：
+   贴到 bottom: 0 就被板挤成一条看不清的渣（试过） */
+.prog { position: absolute; left: 10px; right: 10px; bottom: 14px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .3); }
+.prog i { display: block; height: 100%; border-radius: 3px; background: #d8bd7e; }
+
+/* 斜靠着邻居的那本——一眼把「柱状图」读成「书架」的就是它。
+   绕 bottom left 转，右下角会扎到板面以下约 104×sin6.5° ≈ 12px，
+   那正是真书斜放的样子：靠 z-index 让板挡住就行，**别去抬它**（抬了会悬空）。 */
+.lean { transform: rotate(6.5deg); transform-origin: bottom left; }
+</style>
+</head>
+<body>
+  <div class="say">
+    <div class="brand">
+      <img src="master-small.png" alt="">
+      <div class="name">书斋</div>
+    </div>
+
+    <p class="lede">你的文件夹，就是你的书斋</p>
+    <p class="facts">有封面、有目录、记得你读到哪。<br>读完打个分，下次不用再想「这本我看过没」。</p>
+    <div class="foot"><span class="rule"></span>不导入，不上传，离线可用</div>
+  </div>
+
+  <div class="shelf">
+    <div class="board"></div>
+    <div class="books">
+      <!--
+        ⚠️ **颜色走应用自己那份**（`cover-art.ts` 的 `书衣色`：h = (h*31 + 码位) % 360
+        逐字滚，再 % 6 落到六匹书衣上），不是随手挑几个匀开的角度——
+        **这几本书在真实应用里就是这个颜色**。第一版是我挑的，五本里四本对不上，
+        同一本书在两份品牌资产里成了两种颜色。
+
+        ⚠️ **书是挑过的：五本落在五匹不同的布上。** 颜色不能挑（挑了就违反上面那条），
+        但书可以——换成六匹布之后，原来那五本里「两京旧事」和「青史几行」都落在赭石上，
+        右边成了棕—红—棕一片糊。把最后一本换成《孤舟》（蟹壳青）就分开了，
+        而它仍然是「这本书在应用里真的这个色」。改书名之前先跑一遍 `cover-art.ts`
+        的 `书衣色` 看落在哪匹布上。
+
+        ⚠️ **这里原来是 `hsl(h 34% 34%) → hsl(h+40 30% 26%)` 的渐变，照抄的是老 `Cover.tsx`。**
+        占位封面已经从「按书名算一个 0–360 的色相画渐变」换成六匹素色书衣了，
+        而这张卡没跟上——**品牌资产和应用一样会过期，只是没有任何一条测试守着它**
+        （`stale-refs.mjs` 查的是「文件 的 函数」，「应用自己的 hueOf」这种说法它认不出来，
+        所以那个函数删掉之后这儿一声都没响）。改配色时回来看一眼这张卡。
+      -->
+      <div class="spine" style="width: 100px; height: 404px; background: #2c3a52;">惊蛰<span class="prog"><i style="width: 62%"></i></span></div>
+      <div class="spine" style="width: 112px; height: 452px; background: #7a4d33;">两京旧事</div>
+      <div class="spine" style="width: 92px;  height: 376px; background: #3d5741;">长夜将尽<b class="star">★4</b></div>
+      <div class="spine lean" style="width: 104px; height: 430px; background: #6b2f31;">旧山河</div>
+      <div class="spine" style="width: 124px; height: 466px; background: #2f5753;">孤舟</div>
+    </div>
+  </div>
+</body>
+</html>

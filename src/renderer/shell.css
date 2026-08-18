@@ -1,0 +1,1285 @@
+/* 应用外壳的版式。
+
+   原来的书架是一张管理后台式的表格——书名/作者/字数/章数一列列排开，
+   每行末尾还挂四个按钮。那是给人「管数据」的，不是给人「找书看」的。
+
+   现在按看小说的习惯来：左边一条窄导航管「看哪一类」，主区是封面墙，
+   管理功能（扫描、规则、备份）沉到侧栏底部——它们一天用不到一次，
+   不该天天占着最显眼的一横排。 */
+
+.app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── 左侧导航 ─────────────────────────────── */
+
+.nav {
+  width: 12.5rem;
+  flex: none;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/*
+ * 侧栏顶部那个搜索框（照 legado：品牌下面第一个东西，圆角、整条宽）。
+ * 它原来挤在书架标题那一行里跟三个批量按钮抢地方，而「找一本书」是这个应用里
+ * 最常做的动作——该有一个固定的、一眼看得见的位置。
+ */
+.nav .search-box {
+  width: 100%;
+  box-sizing: border-box;
+  /* ⚠️ **`min-width` 要一起覆盖掉。** 基础那条给的是 `min-width: 15rem`（240px），
+     而侧栏只有 199px 宽——只写 `width: 100%` 的话 min-width 赢，输入框冒出侧栏，
+     底下多一条**通栏的横滚条**。截图上那条我一开始以为是别的东西撑的。 */
+  min-width: 0;
+  margin: 0 0 1rem;
+  /* 放大镜画在左边，所以左内边距要给它留位置（基础那条的 1.9rem） */
+  padding: .45rem .8rem .45rem 1.9rem;
+  border-radius: 999px;
+  font-size: .85rem;
+}
+
+
+.nav-brand {
+  padding: 1rem 1rem 0.7rem;
+  font-size: 1.02rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.nav-group {
+  padding: 0.5rem 0 0.2rem;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0.42rem 1rem;
+  font-size: 0.87rem;
+  color: var(--fg);
+  cursor: pointer;
+}
+.nav-item:hover {
+  background: var(--bg);
+}
+.nav-item[aria-current='true'] {
+  background: var(--bg);
+  box-shadow: inset 3px 0 0 var(--accent);
+  font-weight: 600;
+}
+.nav-item .count {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.nav-spacer {
+  flex: 1;
+}
+
+.nav-foot {
+  border-top: 1px solid var(--line);
+  padding: 0.35rem 0 0.6rem;
+}
+
+/* 管理入口排两列。竖着排是 12 行四百多像素，而上面的书架只有 4 行 */
+.nav-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  /* 左右各 0.5rem 而不是 0.6：**六个字的名字要正好放得下**。
+     实测「按书名打标签」在 0.6rem 时被截成「按书名打标…」——
+     截断的菜单名比长菜单名难懂得多 */
+  padding: 0.5rem 0.5rem 0.7rem;
+}
+
+/* 这些是**动作**不是导航档位，所以不用 .nav-item 那条 inset accent 竖条——
+   那条竖条的意思是「你现在在这儿」，而点「备份」不会让你留在备份里 */
+.nav-tool {
+  padding: 0.34rem 0.3rem;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  /* 名字比格子长时截断而不是撑破两列的对齐 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nav-tool:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--fg);
+}
+.nav-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── 主区 ─────────────────────────────────── */
+
+.main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 1.1rem 1.6rem 3rem;
+}
+
+.main-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.main-head h1 {
+  font-size: 1.22rem;
+  margin: 0;
+  font-weight: 600;
+}
+.main-head .sub {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/*
+ * 搜索框。**放大镜画成背景图，不另加一个元素**——加个 <span> 就要再套一层
+ * 定位容器，而这只是一个图标。SVG 内联成 data URI：这个应用不连任何外部资源。
+ *
+ * `stroke='currentColor'` 在 data URI 里不生效（背景图没有继承上下文），
+ * 所以颜色写死成一个在暖纸和夜间都看得清的中性灰。
+ */
+.search-box {
+  margin-left: auto;
+  min-width: 15rem;
+  padding-left: 1.9rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23978e7d' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 0.5rem center;
+  background-size: 0.9rem;
+}
+/* 原生清除按钮在深色下是黑的、几乎看不见。反相一下就够，不用自己画 */
+[data-theme='night'] .search-box::-webkit-search-cancel-button {
+  filter: invert(1);
+}
+
+/* ── 封面墙 ────────────────────────────────── */
+
+.wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.2rem, 1fr));
+  gap: 1.3rem 1.1rem;
+}
+
+.book {
+  position: relative;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--fg);
+}
+.book-art {
+  position: relative;
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  transition: transform 0.14s ease-out;
+}
+/*
+ * 封面那个按钮（键盘打开这本书的入口，理由在 App.tsx 那段注释里）。
+ * 这几行**只是把浏览器给 button 的默认样式抹掉**，一个像素都不新增：
+ * `<Cover/>` 自己是 `width: 100%` + `aspect-ratio`，尺寸仍由格子决定。
+ */
+.book-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.book:hover .book-art {
+  transform: translateY(-3px);
+}
+/*
+ * 系统开了「减少动态效果」：**位移照给，动画不做**。
+ *
+ * 抬起来那 3px 是个有用的反馈（告诉你现在指着哪一本），所以留着；
+ * 动的过程去掉。判据和阅读器翻页那条一样（`styles.css` 里
+ * `.reader-body.page-mode` 那段），只是那处守了、这处一直没守——
+ * **同一份代码里一处守一处不守，那是漏不是决定**。
+ *
+ * 这条在书架上尤其算数：鼠标横扫一排封面会连着触发上百次位移，
+ * 而这是个长文阅读应用，前庭敏感的人正是它的用户
+ * （同 `settings.ts` 的 `滚动方式` 那段）。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .book-art { transition: none; }
+}
+
+/*
+ * ── 占位封面：素色书衣 + 一张题签 ─────────────────────
+ *
+ * **九成的书架是这块**（真实库 8287 本里只有 773 本有真封面），
+ * 所以它不是个兜底样式，它就是这个应用的底色。
+ *
+ * 形状取自线装书：**书衣是一匹素色的布，书名写在贴上去的一张题签上，竖排。**
+ * 那正是这些文件的真实处境——一本 txt 的封面从来没人画过，
+ * 画一张假的封面画是在替它编一个不存在的东西，而一件装帧不编任何东西。
+ * 颜色和字也不是新起的一套：`--bg` 那张米纸、`--seal` 那枚朱印、
+ * 书评那手楷体，本来就都在这个应用里了，占位封面是最后一处还在讲别的话的地方。
+ *
+ * ⚠️ **题签上是宋体，不是楷体。** 楷体在这个应用里是**留给「我说的话」**的
+ * （`--say-font`，书评那一档，`styles.css` 里写着「界面别处一律不用它」）。
+ * 书名是**书自己的名字**，不是我的话。宋体是中文印本的那张脸，
+ * 于是三种字面各说一件事：黑体＝界面，宋体＝书，楷体＝我。
+ * （`settings.ts` 那句「把按钮菜单换成宋体只会更难认」说的是界面控件，
+ * 不是书名——那一条在这里不适用。）
+ *
+ * ⚠️ **题签靠左上，角标在右上，两边永远撞不上**（算式在 `Cover.tsx` 的
+ * `题签字号` 上）。原来书名是整宽起排的，于是要在首行浮一个空盒子给角标让位，
+ * 让几行还得数有几个角标——那套 `cornerBadge` 连同它的算术一起没了。
+ * 守卫留着：`audit.mjs`「封面上的字被角标压住」。
+ */
+.cover-ph {
+  /* 题签的字号写成 cqw，量的是这张封面自己的宽度——封面墙的格子是
+     `minmax(8.2rem, 1fr)`，卡片从 131px 一路撑到两百多，字要跟着走 */
+  container-type: inline-size;
+  position: relative;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/*
+ * 题签。**高度是内容撑出来的**（封顶 76%）：书名短，签就短——真的题签本来
+ * 就是照着书名裁的。宽度同理，一列字加内边距，所以不用写死。
+ *
+ * ⚠️ **`white-space: nowrap` 不能省。** 竖排下不写它，长书名会折出第二列，
+ * 而第二列是往**左**长的（`vertical-rl`），盒子却是从左边起排的——
+ * 签会一路胖到右边去撞角标。收成一列、长了就出省略号：
+ * 完整书名印在封面正下方那一行，题签不负责说全。
+ * `text-overflow: ellipsis` 同时让 `audit.mjs` 的「文字被硬切」和
+ * 「竖着被切断」两条正确地放过它（那两条都明写着 ellipsis 例外）。
+ */
+.cover-ph > span {
+  position: absolute;
+  top: 8%;
+  left: 9%;
+  /* 长度照着书名裁，但**短书名也还是一条签**：两个字的《剑来》不设下限会裁成
+     32x53 的一块方牌，四个字的旁边一摆就不像同一件东西了。真的题签本来就是
+     裁好的一条，字写在上头，下面空着 */
+  min-height: 34%;
+  max-height: 76%;
+  box-sizing: border-box;
+  padding: 0.22em 0.16em 0.3em;
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 毛边纸，比 --bg 那张桌面纸再白一点：题签是贴在书衣上的另一张纸。
+     墨压在它上面 12.3:1，这一处不受夜间主题影响——书不会因为你关灯就换个颜色 */
+  background: #efe7d2;
+  color: #282320;
+  /* ⚠️ **钉死宋体，别把思源宋体排到前面。** 竖排下一个汉字占多长是**按脸算的**：
+     当场量到宋体和系统 serif 都是 1em，而思源宋体是 **1.44em**（vhea 带着行间距）。
+     `cover-art.ts` 的 `题签字号` 那个式子按 1em 解的，换张脸它就整个作废——
+     症状是五个字的书名被截成三个，而屏幕上只看得见一个省略号 */
+  font-family: 'SimSun', '宋体', serif;
+  line-height: 1.22;
+}
+/* 书名和那行元信息都夹到两行。`.wall` 的行高是隐式的——
+   一张卡因为书名或作者名长而变高，**整排卡片跟着变高**。
+   四条声明是一个不可拆的组合，所以合成一条规则，别抄第二份 */
+.book-title,
+.book-sub,
+.book-note {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.book-title {
+  font-size: 0.85rem;
+  line-height: 1.35;
+  margin-top: 0.45rem;
+}
+.book-sub {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+  /*
+   * **中文在任意两个汉字之间都能断行**，所以这一行会折成「2 万」/「字」——
+   * 一个孤零零的「字」占掉第二行，而卡片只给两行。
+   * `format.ts` 的 `wan()` 已经在数字和单位之间用了不换行空格，但它只挡住
+   * 「2 |万字」，挡不住「2 万|字」：那两个都是汉字，中间本来就是合法断点。
+   *
+   * `keep-all` 把连续汉字当成一个词，于是只在 ` · ` 那几个真正的空格处断行。
+   * `break-word` 是兜底：万一作者名一个人就超过一行宽，还是允许硬断，
+   * 不然会横着溢出去被 `overflow: hidden` 直接切掉。
+   */
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+/* 自己写的那句短评。**引号是画上去的**——一行没有标记的小字混在
+   作者、字数、进度中间，看起来像又一条元数据，而它是这张卡上唯一
+   「我说的话」。左边一道竖线 + 引号，一眼看得出这是评语不是数据 */
+.book-note {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--fg);
+  margin-top: 0.25rem;
+  padding-left: 0.4rem;
+  border-left: 2px solid var(--accent);
+  /*
+   * **两行，不是一行。** 实测：21 个字的书评在一行里只印得下 11–13 个字，
+   * 用户看到的是「前面三卷神作，后面像换」——**而结论（「烂尾，别看」）
+   * 正好在被切掉的那半**。这个功能的成败点就是那句结论要在点开之前出现，
+   * 一行的话它基本上永远出不来。两行到 22–26 个字，够装下绝大多数一句话书评。
+   *
+   * （顺带量到的：1920 反而比 1280 少印两个字——窗口越宽列越多、卡片越窄。
+   * 「一个数在更大的屏幕上更糟」这次是真的，不是探针错了。）
+   *
+   * 只有写过短评/弃坑原因的卡片才有这一行，所以不写评价的人一行都不多长
+   * （同标签行那条）。超过两行仍然收成省略号，全文在悬停的 title 里。
+   */
+  /*
+   * **两行由上面 `.book-title, .book-sub, .book-note` 那条统一给**，
+   * 这里不再抄一份（那条规则自己就写着「四条声明是一个不可拆的组合，
+   * 别抄第二份」——我抄了一次，删掉了）。
+   *
+   * 为什么必须两行：实测 21 个字的书评排一行只印得下 11-13 个字，
+   * 用户看到的是「前面三卷神作，后面像换」——**而结论（「烂尾，别看」）
+   * 总在句子末尾，正好在被切掉的那半**。这个功能的成败点就是那句结论要在
+   * 点开书之前出现，一行的话它基本上永远出不来。
+   * （顺带：1920 比 1280 还少印两个字——窗口越宽列越多、卡片越窄。）
+   *
+   * ⚠️ 那三行 `-webkit-` 别当成「老写法」删掉：**只留标准的 `line-clamp: 2` 不生效**——
+   * 排出来超过两行、也不收省略号。Chromium 150 上量过一次，升到 **152 又量了一次**，
+   * 行为没变（**具体排几行不记**：那跟容器宽度走，记下来就是个会过期的数）。
+   */
+}
+.book-note {
+  /*
+   * **两行要匀开，别让第二行只剩一个字。**
+   * 「看完黑暗森林那段没睡着」这种十来个字的短评，一行差一点装不下，
+   * 折出来就是 10 个字 + 1 个字——中文在任意两个汉字之间都能断，
+   * 所以这种孤字特别容易出现，看起来像话没写完（走查那条判据抓的就是它，
+   * 而且这一条正是被我自己造的测试数据抓出来的）。
+   * `balance` 让浏览器把两行匀成 6+5。
+   */
+  text-wrap: balance;
+}
+.book-note::before { content: '「'; }
+.book-note::after { content: '」'; }
+
+/* 「读到 505/608 · 3个月前」。**只有读过的书才有这一行**，
+   否则八千张卡片凭空长高一截（标签行是同一条道理）。
+   用 accent 而不是 muted：这一行说的是「我和这本书的关系」，
+   跟上面那行作者字数不是一类信息 */
+.book-read {
+  font-size: 0.72rem;
+  color: var(--accent);
+  margin-top: 0.15rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 进度压在封面下沿，一眼扫过去就知道读到哪了 */
+.book-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.28);
+}
+.book-progress > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/*
+ * 角标**排成一列，不是各自绝对定位**。
+ *
+ * 原来每个角标自己 `absolute; top:.35rem; right:.35rem`——它们本来就叠在同一个点，
+ * 只是当时那几个条件互斥（「未解析」要求 `file_status === 'ok'`），碰巧没撞上。
+ * 加了格式角标之后就撞了：一本标了「读完」的 PDF，两个角标画在同一个坐标上。
+ * 靠「条件互斥」维持的布局，加一个条件就塌——改成容器排布，加多少个都不会叠。
+ */
+.book-badges {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  /* 角标是标记不是控件，别挡住点封面 */
+  pointer-events: none;
+}
+
+/* 绝大多数书一个角标都没有（txt、正常、没读过）。React 把 false 渲染成空，
+   `:empty` 命中它——布局阶段直接不建这个绝对定位的 flex 盒 */
+.book-badges:empty {
+  display: none;
+}
+
+.book-badge {
+  font-size: 0.68rem;
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+}
+.book-badge.warn {
+  background: var(--danger);
+}
+
+/*
+ * 封面下沿的两层：评分在上、悬停才出现的工具条在下。
+ *
+ * 和上面 `.book-badges` 同一个道理，只是这回撞上了：评分自己 `bottom: 4px`、
+ * 工具条自己 `bottom: 3px` 通栏——**一悬停，工具条整条盖住评分**，
+ * 而短评就藏在评分的 title 里，正是「点进去之前要看到」的那句话。
+ * 堆在一个容器里，工具条一出现评分自动往上让，不用谁记着谁多高。
+ */
+.book-foot {
+  position: absolute;
+  inset: auto 0 3px; /* 3px 是让开进度条 */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+/*
+ * 悬停时才出现的小操作条，平时不占视觉。
+ *
+ * ⚠️ **不能用 `display: none` 藏它。** 那样的元素**根本不在 tab 序里**——
+ * 于是卡片上那排「编辑 / 章节 / 改名 / 评价 / 导出」全部只能用鼠标，
+ * 而「评价」正是这个应用的核心动作。`:hover` 在触屏上也不存在。
+ *
+ * 更糟的是**走查报不出来**：`keyboard.mjs` 只能报「Tab 到的地方有没有焦点标记」，
+ * 报不了「压根不在 tab 序里的东西」——同本文件「查 rpc 没被调用只能发现一半」
+ * 那条，缺席不会报错。
+ *
+ * 做法：留在 DOM 里、`height: 0` 折起来（静止时和 `display:none` 占的空间一样，
+ * 卡片一个像素都不长），但它仍然**可聚焦**；焦点一进来 `:focus-within` 就把它展开。
+ * `opacity` 和 `pointer-events` 一起管，免得看不见的按钮挡住点击。
+ */
+.book-tools {
+  align-self: stretch;
+  display: flex;
+  gap: 0.2rem;
+  padding: 0 0.25rem;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
+}
+.book:hover .book-tools,
+.book:focus-within .book-tools {
+  height: auto;
+  padding: 0.25rem;
+  overflow: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+.book-tools button {
+  flex: 1;
+  font-size: 0.7rem;
+  padding: 0.12em 0;
+  /*
+   * ⚠️ **点击目标下限 24px**（WCAG 2.2 AA 的 2.5.8）。
+   *
+   * 0.7rem + 0.12em 的内边距算出来只有 16px 上下，而这排键是悬停才露出来的——
+   * `audit.mjs` 平时量不到它（鼠标不在卡片上就是 height: 0），
+   * 760×520 那次是光标恰好停在一张卡上才报出来：`71x22`。
+   * **只在某个分辨率下报，不代表只在那个分辨率下存在**——它一直是 16px，
+   * 只是别的分辨率下光标没落在卡片上。
+   *
+   * 字号不动：这排键在封面图上，再大就压住书名了。加高度不加字号。
+   */
+  min-height: 24px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #222;
+  border: none;
+}
+
+/* ── 视图切换 · 临时筛选 · 表格 ─────────────── */
+
+/* 三个键挨在一起当一组，中间不留缝——它们是一个单选组，不是三个独立按钮 */
+.viewpick {
+  display: flex;
+  gap: 0.2rem;
+}
+
+/* 正在生效的临时筛选。**摆在书架正上方**，理由在 App.tsx 那段注释里 */
+.adhoc {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.6rem;
+}
+.adhoc-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-right: 0.15rem;
+}
+/* 这几个只是在说「现在按这些筛着」，点不动——别给手型光标 */
+.adhoc .chip.sm {
+  cursor: default;
+}
+
+/*
+ * 表格视图。**横滚关在自己这个盒子里**——页面本身横滚是走查里单独一条判据，
+ * 而八列在 760 那一档（窗口自己的下限）一定装不下。
+ * `audit.mjs` 认得真的横滚容器（那一支是标签条横滚时补的），不会误报「跑出右边界」。
+ */
+.tablewrap {
+  overflow-x: auto;
+}
+.booktable {
+  width: 100%;
+  /*
+   * ⚠️ **`min-width` 不能省，否则外面那个 `overflow-x` 永远用不上。**
+   *
+   * 光有 `width: 100%` 的话，表格窄到装不下时**宁可压缩也不溢出**——
+   * 实测 560 宽（窗口下限那一档正文区的宽度）下作者列被压到「敢」「为」
+   * 一个字一行、状态列「已」「读」「完」竖着排、题材芯片叠成一竖条。
+   * 一张读不了的表，而且一条溢出警告都不会报（它确实没溢出）。
+   * 给个下限，低于它就横滚——而横滚是这一屏本来就该有的行为。
+   */
+  /* ⚠️ **加一列就要回来调这个数**，否则新列一挤，上面说的那件事又会发生一次
+     （不报警告地被压扁）。现在是十列 */
+  min-width: 62rem;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.booktable th,
+.booktable td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+/*
+ * 表头**钉在顶上**。`.main` 是滚动容器，八千本滚下去之后没有表头的话，
+ * 中间那几列（评分/状态/读完）根本认不出是什么。
+ */
+.booktable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* 表头那个排序键：把 button 的壳抹掉，只留点击区 */
+.th-sort {
+  padding: 0.1rem 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.th-sort:hover {
+  color: var(--accent);
+}
+.th-sort[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+/* 评价那一列是最宽的：这一屏的正事就是它。其余几列各自收着 */
+.booktable .col-say {
+  width: 38%;
+}
+.booktable .col-title {
+  /* 评价浮层挂在这一格上（`.rate-pop` 是 absolute + top:100%），
+     所以它得是定位上下文。挂 <tr> 上各浏览器定位不一致 */
+  position: relative;
+  min-width: 9rem;
+}
+.booktable .col-when,
+.booktable .col-num {
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+/*
+ * 作者和状态那两列**不许在汉字之间断行**。
+ *
+ * `table-layout: auto` 按 min-content 分宽度，而中文任意两个汉字之间都是合法断点——
+ * 于是这两列的 min-content 是**一个字**，表格一挤就把「衣冠正伦」排成四行、
+ * 「已读完」排成三行。判据和 `.book-sub` 那条一模一样（连续汉字当一个词，
+ * 只在真的标点/空格处断），那边治的是卡片上的「2 万」/「字」。
+ */
+.booktable .col-by,
+.booktable .col-status {
+  word-break: keep-all;
+}
+/*
+ * ⚠️ **题材那一列的标签不许换行——摞起来会把行撑成两三倍高。**
+ *
+ * `.rv-tags` 是 `flex-wrap: wrap`，而 `table-layout: auto` 按 **min-content** 分宽度：
+ * 能换行的话 min-content 就是**最宽的那一个标签**（约 50px），于是列只拿到那么宽、
+ * 三个标签一个一行竖着摞，再加一行「+25」。带标签的行 130px、不带的 50px，
+ * 而表格存在的全部理由就是密着扫一屏。
+ *
+ * 关掉换行，min-content 变成「整排标签」，列自然被撑到该有的宽度（挤不下时
+ * `.tablewrap` 横滚，那本来就是它的活）。表格里只摆两个（组件里 slice(0, 2)）——
+ * 这一列在表格里是提示不是内容，完整那份在悬停的 title 里。
+ */
+.booktable .rv-tags {
+  flex-wrap: nowrap;
+}
+/*
+ * ⚠️ **4% 不是 6%。** 6% 那版走查在 760 和 1280 上报了四条「对比度不足」：
+ * 行底一压，`--muted` 的作者/状态/时间从 4.79 掉到 **4.46**，正好跌破 AA 的 4.5。
+ * 算过：4% → 4.54（夜间 4.65），5% 只有 4.50、贴着线不留余量。
+ * **悬停底色是装饰，它不该把这一行的字挤到读不清。**
+ */
+.booktable tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+/* 书名＝打开这本书 */
+.cell-open {
+  padding: 0.15rem 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cell-open:hover {
+  text-decoration: underline;
+}
+
+/*
+ * 评价那一格＝改评价。**空的时候也要能点**：「读过没评价」那一档整列都是空的，
+ * 而表格视图在那儿的全部意义就是一行行补下去。
+ */
+.cell-say {
+  display: block;
+  width: 100%;
+  padding: 0.15rem 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/*
+ * ⚠️ **夹行必须套在里面那个 span 上，不能压在 `<button>` 自己身上。**
+ *
+ * 直接给按钮 `display: -webkit-box` + `line-clamp` 实测是坏的：按钮内部有个
+ * 匿名的排版盒，和 `-webkit-box` 撞在一起——空评价那一格被撑到近百像素高，
+ * 而且那句「＋ 评价」跑到了正中间。整张表因此每隔几行就塌一块。
+ * 截图上一眼就看见，读 CSS 是看不出来的。
+ */
+.cell-say > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-wrap: pretty;
+}
+/*
+ * ⚠️ **这个类叫 `cell-blank`，不叫 `empty`——`.empty` 已经被占了。**
+ *
+ * 第一版写的是 `.cell-say.empty`，而 `shell.css` 底下那个 `.empty` 是**空书架
+ * 那句提示**（`padding: 2.5rem 0; text-align: center`）。两条都命中同一个按钮，
+ * 于是每个没写评价的格子被撑到 107px 高、那句「＋ 评价」跑到正中间，
+ * 整张表隔几行塌一块。**读 CSS 看不出来，截图一眼就看见**——
+ * 量出来才定的位：出问题那个 `padding=40px`（＝2.5rem）、`text-align=center`。
+ *
+ * 同 `docs/lessons.md`「那条横滚条是我自己招来的：类名撞车」那一条，
+ * 一模一样的形状：给新东西起了个通用名，撞上一个早就存在的通用名。
+ */
+.cell-say.cell-blank {
+  color: var(--muted);
+}
+.cell-say:hover {
+  color: var(--accent);
+}
+.cell-why {
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* 只画实心的那几颗，不补空心（理由在 `ReviewTable.tsx` 那段：
+   表格的列本来就等宽，补空心纯属装饰，还撞了对比度） */
+.cell-stars {
+  color: var(--accent);
+  white-space: nowrap;
+  letter-spacing: 0.05em;
+}
+
+/* ── 书评册（「我的书评」那一档） ────────────── */
+
+/*
+ * 这一档不走封面墙。为什么写在 `ReviewShelf.tsx` 顶上，这里只记版式上的几条判据。
+ *
+ * **一栏，而且收到 46rem。** 中文正文行长超过四十几个字就开始找不到下一行的行首；
+ * 46rem 在 `.rv-say` 那个字号上正好四十三个字上下（**别在这儿抄那个字号**：
+ * 原来写的「1.06rem」在收敛刻度那一轮就过期了，而这句话是这个文件里唯一
+ * 一个量出来的中文行长，它靠的那个数飘了就等于没量过）。宽屏上左对齐、不居中：
+ * 头上那行标题和控件是满宽的，正文居中会和它脱开。
+ */
+.reviews {
+  max-width: 46rem;
+}
+
+/*
+ * 月栏。**只在按评价时间排时才有**（判据在组件里）——
+ * 它编的是排序键本身，换一种排法还画着年月就是句假话。
+ */
+.rv-era {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 1.9rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.rv-era::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.rv-era:first-child {
+  margin-top: 0;
+}
+
+.rv {
+  display: grid;
+  grid-template-columns: 2.6rem 1fr;
+  gap: 0 0.9rem;
+  padding: 1.15rem 0;
+  border-top: 1px solid var(--line);
+  /* 评价浮层挂在这一条上（`.rate-pop` 是 absolute + top:100%）。
+     容器不能 overflow:hidden，否则浮层被整个裁掉——封面墙那边
+     把浮层挂在 `.book` 而不是 `.book-art` 上，同一个坑 */
+  position: relative;
+}
+/* 月栏底下那条横线已经在分隔了，紧跟着再画一条是同一件事说两遍 */
+.rv-era + .rv {
+  border-top: 0;
+}
+.rv-mark {
+  display: flex;
+  justify-content: center;
+}
+
+/*
+ * 朱印。**这一档就这一处张扬**，其余全部放轻。
+ *
+ * 不用五颗星形：一栏星星竖着排下来，四星和五星要数才分得出；
+ * 一枚印里的「四」和「五」是两个形状，扫一眼就分开了。
+ *
+ * 歪三度：印是盖上去的，不是排上去的。再多就像没对齐。
+ */
+.rv-seal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-top: 0.3rem;
+  border-radius: 3px;
+  background: var(--seal);
+  /*
+   * **两边都是白字，而这次是对的。** 仓库里那句「亮暗两边都写白字是最容易犯的
+   * 错」说的是 `--accent`——它在两边的亮度是**反**的（日间赭石、夜间浅金）。
+   * 印泥不反：两边都是深红，所以白字两边都成立。
+   * `app-palette.test.ts` 里有一条钉着，不靠这句话。
+   */
+  color: #fff;
+  font-family: var(--say-font);
+  font-size: 1.05rem;
+  line-height: 1;
+  transform: rotate(-3deg);
+  user-select: none;
+}
+
+/*
+ * 我写的那句话。**这一档里它是正文，不是一条元数据。**
+ * 不截断、不限行数——封面墙上那两行 clamp 是格子宽度逼出来的，
+ * 这里没有那个约束，再截就只是为了截。
+ *
+ * `text-wrap: pretty` 是浏览器自己的避孤字（中文在任意两个汉字之间都能断，
+ * 「最后一行只剩一个字」是走查里单独一条判据）。封面墙那行用的是 `balance`，
+ * 那是因为它恒定两行；这里行数不定，`pretty` 才是对的那个。
+ */
+.rv-say {
+  margin: 0;
+  font-family: var(--say-font);
+  font-size: 1.05rem;
+  line-height: 1.85;
+  color: var(--fg);
+  text-wrap: pretty;
+}
+
+/* 弃坑原因。同一张脸，小一号——它是注，不是题跋本文。
+   **不往淡里压**：只打了星、只写了弃坑原因的书，这一行就是正文 */
+.rv-why {
+  margin: 0.4rem 0 0;
+  font-family: var(--say-font);
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: var(--fg);
+  text-wrap: pretty;
+}
+/* 只写了弃坑原因、没写短评的书，这一行就是第一行——它得和印齐平，
+   不能因为「上面本来有段短评」那条边距往下掉半行 */
+.rv-why:first-child {
+  margin-top: 0;
+}
+.rv-label {
+  margin-right: 0.45rem;
+  font-family: system-ui, 'Microsoft YaHei', sans-serif;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* 落款那一行：书名作者 · 标签 · 什么时候写的 · 改评价。
+   全部回到界面字体——上面那几行是我说的话，这一行是应用说的话 */
+.rv-foot {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+  margin-top: 0.55rem;
+}
+
+/*
+ * 书名就是「打开这本书」那个键。把全局 `button` 那套壳抹掉，只留点击区：
+ * 0.95rem + 上下 0.25rem 内边距 ≈ 34px，过 WCAG 2.5.8 那条 24px。
+ * （封面墙上不给书名做入口，是因为那行只有 18px 高——两边不矛盾。）
+ */
+.rv-book {
+  padding: 0.25rem 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--accent);
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+}
+.rv-book:hover {
+  text-decoration: underline;
+}
+.rv-by {
+  margin-left: 0.45rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.rv-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+}
+/* 这里的标签只是在说「它带了这几个」，点不动——别给手型光标。
+   ⚠️ **标签名自己不许断行**：表格那一列窄的时候，「诸天都市剧」会被逐字折成
+   五行，那一行凭空高出一截（封面墙的 `.book-tags .chip.sm` 早有同一条）。
+   一个标签名断开就不是那个名字了，宁可让它把列撑宽 */
+.rv-tags .chip.sm {
+  cursor: default;
+  white-space: nowrap;
+}
+/* 落款那一组推到行尾。**日期和「改评价」捆在一起换行**，理由在组件那段注释里 */
+.rv-sign {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-left: auto;
+}
+.rv-when {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+/*
+ * 「改评价」**长成一行字，不是一个按钮壳**。
+ *
+ * 一屏十几条书评，每条右边挂一个描了边的浅色按钮，一竖排下来比朱印还抢眼——
+ * 而这一档张扬的地方只该有一处。字一直在（不做悬停才出现那种，
+ * 那是封面墙上五个键挤在一张卡里才需要的省地方办法），
+ * 只是把边框和底色收起来，鼠标过去或者 Tab 到了再显出来。
+ *
+ * `border-color: transparent` 不是 `border: 0`：边一直占着那 1px，
+ * 悬停时不会整行跳一下。
+ */
+.rv-edit {
+  padding: 0.22em 0.6em;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.rv:hover .rv-edit,
+.rv-edit:hover,
+.rv-edit:focus-visible {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--fg);
+}
+
+.empty {
+  color: var(--muted);
+  padding: 2.5rem 0;
+  text-align: center;
+  line-height: 2;
+}
+
+/* ── 状态条 ────────────────────────────────── */
+
+.statusbar {
+  position: fixed;
+  left: 12.5rem;
+  right: 0;
+  bottom: 0;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  padding: 0.35rem 1.6rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  z-index: 3;
+}
+/*
+ * ── 通知浮层 ──────────────────────────────────────────────
+ *
+ * 报错 / 扫描报告 / 迁移提示。**从版面里拿出来浮在右下角**——它们原来是内联的，
+ * 一扫描完就把整个书架往下顶一大截。
+ *
+ * ⚠️ **有下一步可做的才留着等人点，没有下一步的自己走**（判据在 `App.tsx` 的
+ * `报告要等人处理()`，同一个函数决定「给不给按钮」和「走不走」）。
+ * 自己走的那种留 12 秒、鼠标停上去暂停——报告里那几档跳过是要读的。
+ *
+ * ⚠️ **容器 `pointer-events: none`，卡片自己 `auto`。** 容器为了给卡片留位置
+ * 会占一块地方，不关掉的话它会挡住底下书架的点击——而那块地方**看不见**，
+ * 用户只会觉得「右下角这几本书点不动」。
+ */
+.toasts {
+  position: fixed;
+  right: 1.6rem;
+  bottom: 1rem;
+  /*
+   * ⚠️ **要压过弹窗遮罩（`.modal-backdrop` 是 10），不是躲在它底下。**
+   *
+   * 第一版写的是 4——「压过状态条（3），但在弹窗遮罩底下」，听起来很守规矩，
+   * 实际上是**把通知藏起来**：弹窗开着的时候报错渲染在遮罩后面，等于没发生。
+   * 而通知恰恰是「刚才那个动作的结果」，最需要被看见的时刻就是这种时候。
+   *
+   * 排查过一遍现有路径：App 那几条 `setError` 里，走弹窗的那条
+   * （「我的笔记」点一条书打不开）**在跳转前先 `setDialog(null)` 关掉了弹窗**，
+   * 所以今天还撞不上。**但这是巧合不是设计**——层序本身是错的，
+   * 下一个在弹窗里触发 App 级报错的人就会踩到，而症状是「点了没反应」。
+   *
+   * 20：在遮罩（10）之上、评价浮层（`.rate-pop` 30）之下。
+   */
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  width: min(26rem, calc(100vw - 3.2rem));
+  pointer-events: none;
+}
+/* 扫描时底部那条状态条在，浮层往上让一截，别叠在它身上 */
+.toasts-lift {
+  bottom: 3.2rem;
+}
+.toasts:empty {
+  display: none;
+}
+
+.toast {
+  width: 100%;
+  margin: 0;
+  pointer-events: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+  /*
+   * 扫描报告能很长（五档跳过 + 不收的格式 + 失败清单），**自己滚，别顶破屏幕**。
+   * 40vh 是留给它的上限：再高就把书架整个盖住了，而它只是个报告。
+   */
+  max-height: 40vh;
+  overflow-y: auto;
+}
+/* 报错那条：按危险色描一道边，字也用危险色。
+   ⚠️ 选择器原来是 `p.toast.danger`——那是它还是个 `<p class="danger">` 的时候；
+   现在统一走 `Toast` 组件（一个 div），按元素名挑就再也命不中了 */
+.toast-danger {
+  border-color: var(--danger-ink);
+  color: var(--danger-ink);
+}
+
+/*
+ * **出口钉在卡片底沿。** 报告有了 `max-height` 就会内滚，而「知道了」原来跟着
+ * 内容一起滚出视野——760 那一档实测就是这样。`audit.mjs` 里有一条判据专门量
+ * 「出口要不要滚才够得到」，这次是自己做出来的，所以自己钉回去。
+ *
+ * 背景不能透明：它压在正在滚动的正文上面。负的左右外边距 + 内边距，
+ * 是为了让那条背景铺满卡片宽度（卡片本身有 0.9rem 的左右内边距）。
+ */
+.toast-actions {
+  position: sticky;
+  bottom: -0.6rem;
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.5rem -0.9rem -0.6rem;
+  padding: 0.5rem 0.9rem 0.6rem;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+/* 删除记录里那条完整路径。**要能全看见**：网络盘那种一长串，是「去哪儿找回来」
+   的唯一线索，截断了等于没记。等宽 + 自己换行，不做省略号 */
+.log-path {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.statusbar .path {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+
+/* 目录开关。横排、一眼看全、多选——树那种「一次只能选一个、还要点开点回去」
+   的形态不适合一个设一次就不再动的偏好 */
+.dir-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 0.7rem;
+}
+/*
+ * 标签条 = **分组标签页**，照抄用户那台 legado 的做法（放大量过它的样子）：
+ *
+ *   - **纯文字，没有药丸边框、没有填充**；
+ *   - 选中＝**主色 + 一条下划线**，未选中是正文色；
+ *   - 整条一根**贯穿的细基线**，选中那条压在基线上；
+ *   - 间距很松（它那边约 30px）；
+ *   - **看不见滚动条**——宽度不够就横滚，但那条横杠不出现。
+ *
+ * 为什么不是换行的 chip 块：标签数量完全不受控（用户自己打的），
+ * 24 个就占三行、80 个占十行，**会把书架整个顶下去**。
+ * 当初为此加过一个「+N」展开器，还要单独处理「收起时把正在生效的那几个带回来」——
+ * 一行横滚之后这两件事一起没了。
+ */
+.dir-chips.shelf-tabs {
+  /*
+   * ⚠️ **类名不能叫 `tabs`。** 这个文件里早就有一个 `.tabs`（设置弹窗那两页），
+   * 它写着 `display: inline-flex`、而且排在后面——同特异度后来者赢，
+   * 于是这一条整个变成 inline 盒子：**按内容撑到 1361px，把 `.main` 顶出一条
+   * 页面级横滚条**（用户看到的正是那条「太丑」的横杠）。
+   * 我这条声明里没写 display，所以完全没察觉。
+   */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: 1.4rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.7rem;
+  /* ⚠️ **滚动条藏起来。** 那条横杠是这一排最丑的东西（用户原话），
+     而 legado 那边一根都没有 */
+  scrollbar-width: none;
+  /*
+   * ⚠️ **藏了滚动条，就得另给一个「还有」的信号。**
+   *
+   * 量出来的（一本书 28 个标签）：这一条**可视 1189 / 内容 2163**，
+   * 760 窄屏更狠——**可视 493 / 内容 2163**，四分之一都不到。
+   * 而 `overflow-x: auto` + 藏起来的滚动条 = **桌面上一点提示都没有**：
+   * 右边那个被切掉一半的标签，看着像排版坏了，而不像「往右还有」。
+   * legado 那边是触屏，一划就知道；这是个鼠标应用，没有那一划。
+   *
+   * 用右缘渐隐，不是把滚动条放回来——那条横杠是用户点名说丑的那一样。
+   * 不判「到底有没有溢出」（CSS 查不了）：**没溢出时右边本来就是空白，
+   * 渐隐一段空白看不出来**，所以静态的就够，不值得为它引一段 JS。
+   */
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.6rem), transparent);
+}
+.dir-chips.shelf-tabs::-webkit-scrollbar { display: none; }
+
+.dir-chips.shelf-tabs > .chip {
+  /* 不许被挤扁：横滚容器里 flex 项默认会缩，缩到一半标签名就断了 */
+  flex: none;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--fg);
+  padding: 0.3rem 0 0.45rem;
+  /* 选中那条下划线画在这儿，未选中留着同样的位置——不然一选中整排会跳一下 */
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.dir-chips.shelf-tabs > .chip[aria-pressed='true'] {
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.dir-chips.shelf-tabs > .chip:hover {
+  color: var(--accent);
+  border-bottom-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+/* 「不按标签筛」那个是动作不是分组，压淡、不给下划线 */
+.dir-chips.shelf-tabs > .chip-clear {
+  border-style: none;
+  color: var(--muted);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+/*
+ * **选中 = 淡色填充，不是只换个边框色。**
+ *
+ * 原来选中态只是 `border-color: var(--accent)`——1px 的颜色差，在一排
+ * 二十几个 chip 里根本认不出哪个是开着的。填充是把「状态」画进整块面积里，
+ * 一眼就能扫到。（同样的做法在 legado 那边是 Element Plus 的 el-tag 默认值，
+ * 配色不照抄：那套灰蓝在暖纸底上是外来的。）
+ */
+/* 14% 时 accent 文字压在自己的淡底上只有 4.45，差 0.05 过不了 AA。12% = 4.58 */
+.chip[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--panel));
+  color: var(--accent);
+  font-weight: 600;
+}
+.chip:hover {
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+.chip-n {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.chip-clear {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+
+/* 设置弹窗。原来是六段挤在一个滚动条里、还混着两套保存语义，
+   现在分两页、全部即时生效 */
+.modal.settings {
+  max-width: 38rem;
+  max-height: 82vh;
+  overflow-y: auto;
+}
+.modal.settings h3 {
+  font-size: 0.92rem;
+  margin: 1.1rem 0 0.4rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+}
+.tabs {
+  display: inline-flex;
+  gap: 0.15rem;
+  margin-left: 0.8rem;
+}
+.tabs button {
+  padding: 0.2rem 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.tabs button:first-child { border-radius: 4px 0 0 4px; }
+.tabs button:last-child { border-radius: 0 4px 4px 0; }
+.tabs button[aria-current='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  /* 同 `.primary`：夜间 accent 是浅金色，白字只有 2.46:1 */
+  color: var(--on-accent);
+}
+
+/* 一行一个设置：标签宽度对齐，控件跟在后面 */
+.field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+}
+.field > .muted:first-child {
+  min-width: 4.5rem;
+}
+.field input[type='number'] {
+  width: 4.2rem;
+}
+
+/* 会造成不可逆后果、或者把数据发给第三方的，用这个说明样式——
+   和普通 muted 说明区分开，那些已经砍掉了 */
+.warn-line {
+  font-size: 0.82rem;
+  color: var(--muted);
+  border-left: 2px solid var(--accent);
+  padding-left: 0.6rem;
+  margin: 0.3rem 0 0.5rem;
+}
+button.mini {
+  font-size: 0.75rem;
+  padding: 0.1em 0.5em;
+  margin-right: 0.25rem;
+}

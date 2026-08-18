@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>书斋 · 小尺寸图标</title>
+<style>
+/*
+ * 16 / 32 px 用的那一版。**不是把大图缩小，是换一张更简单的画**——
+ * 再好的降采样也救不回细节，`icons.mjs --small` 存在就是为了这个。
+ *
+ * ⚠️ **几何和 `icon.html` 逐个坐标相同**，48px 是两张画的交界，
+ * 比例一变用户会在那个尺寸上看出跳变。差别只有三样：
+ * 这张全是平涂、没有书脊上那道压印线、描边略粗。
+ *
+ * 16px 上量出来的三块（这是选这张画的全部理由——只有三块）：
+ *
+ *   | 块 | 16px 上多宽 |
+ *   |---|---|
+ *   | 书脊（赭） | 2.7px |
+ *   | 纸 | 4.0px |
+ *   | 朱签 | **3.4px** ← 落眼点 |
+ *   | 签右边那条纸 | 2.1px |
+ *
+ * ⚠️ 主体必须是**亮的**。上上版栽过一次：深棕主体（L*≈33）贴在 L*≈13 的
+ * 深色任务栏上，白底上看着没问题，**只在白底上看图会得出错误结论**。
+ */
+html, body { margin: 0; height: 100%; }
+svg { display: block; width: 100vmin; height: 100vmin; }
+</style></head>
+<body>
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <rect x="8" y="8" width="84" height="88" rx="5"
+        fill="#f2e6cd" stroke="#6a4f27" stroke-width="3" stroke-linejoin="round"/>
+
+  <path d="M 13 8 H 27 V 96 H 13 Q 8 96 8 91 V 13 Q 8 8 13 8 Z" fill="#9c7840"/>
+  <path d="M 27 8 V 96" stroke="#6a4f27" stroke-width="1.6" stroke-opacity=".55"/>
+
+  <path d="M 55 1 H 77 V 78 L 66 68 L 55 78 Z" fill="#b03a28"/>
+</svg>
+</body></html>

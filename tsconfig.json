@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "skipLibCheck": true,
+    // vite/client 提供 *.css 等资源导入的类型声明，缺了 tsc 会报 TS2882
+    "types": ["node", "vite/client"],
+
+    // import 里带 .ts 后缀是 Node 原生跑 TypeScript 的要求，不是笔误。
+    // 配上这两项 tsc 才认，且只做类型检查、不产出文件（编译由 Node / Vite 各自负责）
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+
+    // 主进程 .ts 靠 Node 的 strip-only 类型剥离直接跑，没有构建步骤。
+    // 参数属性简写（`constructor(private x: T)`）这类"剥了类型就跑不动"的语法
+    // 它不支持，但默认 tsc 检查不出来——只会在真的启动 exe 时才炸
+    // （ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX，这仓库真的踩过）。这个开关专门查这个
+    "erasableSyntaxOnly": true
+  },
+  "include": ["src", "vite.config.ts"]
+}

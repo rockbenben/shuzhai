@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>书斋 · 图标：一本书，一道朱签</title>
+<style>
+/*
+ * **一本书，压着一道朱红的书签。**
+ *
+ * ⚠️ 这一版换掉了「文件夹里的书」。换的理由不是不好看，是**它画错了主语**：
+ *
+ * 文件夹说的是「书在你自己的目录里、不导入不上传」——那是**凭什么信**。
+ * 本文件旁边那份 README 早就为**标语**论证过这件事（定位是定心丸、该待在副文里，
+ * 普通用户没被云端下架过书，拿它当钩子 get 不到），然后**图标又照定位画了一遍**。
+ * 同一条判据在两个地方给出相反的结论，这次让图标跟上。
+ *
+ * 还有一条更实际的：文件夹图标在任务栏上和资源管理器撞脸，
+ * 旧 README 自己在对照表里给它记的独特性就是「△ 满大街」。
+ *
+ * 那画什么？画**用户得到的东西**。铁律 3 把它说得最准：
+ * 书和章节都能重扫恢复，**唯独你留下的痕迹不能**——读到哪、书签、划线、评分。
+ * 这个应用真正保管的是那道痕迹。所以：一本书（安静、暖、亮），
+ * 一道朱红的签（响、偏右——偏右就是「读到后面了」）。
+ *
+ * 沿用旧版量出来的三条判据，一条都没放松：
+ *
+ *   | 量什么 | 判据 | 这一版 |
+ *   |---|---|---|
+ *   | 主体明度 | 深色任务栏是用户的实际环境，主体必须亮 | 纸色 L*≈93 |
+ *   | 落眼点 | 16px 上只认得出明度块 | 朱签 3.4px 宽，压在纸上 |
+ *   | 两张画的几何 | 48px 是交界，比例不一样会看出跳变 | **和 icon-small.html 逐个坐标相同** |
+ *
+ * 大小两张的差别只有三样：这张有渐变、有书脊上那道压印线；小的全是平涂。
+ */
+html, body { margin: 0; height: 100%; }
+svg { display: block; width: 100vmin; height: 100vmin; }
+</style>
+</head>
+<body>
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2=".35" y2="1">
+      <stop offset="0" stop-color="#f7eeda"/><stop offset="1" stop-color="#e5d3ad"/>
+    </linearGradient>
+    <linearGradient id="spine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ab8349"/><stop offset="1" stop-color="#8b6732"/>
+    </linearGradient>
+    <linearGradient id="silk" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c44832"/><stop offset="1" stop-color="#9b2e1f"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 书身。**顶满画布**：16px 上少一圈留白就是少一整像素的书 -->
+  <rect x="8" y="8" width="84" height="88" rx="5"
+        fill="url(#paper)" stroke="#6a4f27" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- 书脊。颜色是应用自己的 accent 家族（shuzhai-白天 #7b6135） -->
+  <path d="M 13 8 H 27 V 96 H 13 Q 8 96 8 91 V 13 Q 8 8 13 8 Z" fill="url(#spine)"/>
+  <path d="M 27 8 V 96" stroke="#6a4f27" stroke-width="1.4" stroke-opacity=".5"/>
+
+  <!-- **四针眼订线**——线装书的装订。这是整张图里唯一「只属于书斋」的一笔：
+       去掉它就是一张任何阅读器都能用的「书 + 书签」。小尺寸那张没有它
+       （32px 以下它只糊成一条脏线），这正是两张画分开存在的理由 -->
+  <path d="M 17.5 25 V 81" stroke="#5d431f" stroke-width="1" stroke-opacity=".3"/>
+  <circle cx="17.5" cy="25" r="2.2" fill="#5d431f" fill-opacity=".55"/>
+  <circle cx="17.5" cy="44" r="2.2" fill="#5d431f" fill-opacity=".55"/>
+  <circle cx="17.5" cy="62" r="2.2" fill="#5d431f" fill-opacity=".55"/>
+  <circle cx="17.5" cy="81" r="2.2" fill="#5d431f" fill-opacity=".55"/>
+
+  <!-- 书口：右边露出来的那叠页。让它是「书」不是「本子」 -->
+  <path d="M 84 8 H 87 Q 92 8 92 13 V 91 Q 92 96 87 96 H 84 Z" fill="#fbf5e6"/>
+  <path d="M 84 8 V 96" stroke="#6a4f27" stroke-width="1.2" stroke-opacity=".4"/>
+  <path d="M 88 14 V 90" stroke="#c2ab82" stroke-width="1" stroke-opacity=".8" stroke-linecap="round"/>
+
+  <!-- 朱签。**顶上露出来那一截才让它是书签**，不是一道条纹；底下燕尾收口。
+       停在 78% 而不是正中 = 读到后面了 -->
+  <path d="M 55 1 H 77 V 78 L 66 68 L 55 78 Z" fill="url(#silk)"/>
+  <!-- 夹进书页的那一道。没有它，签看起来是贴在封面上的 -->
+  <path d="M 55 8.7 H 77" stroke="#8c2a1c" stroke-width="2" stroke-opacity=".7"/>
+</svg>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<style>
+/* 缩略图体检：社交卡在信息流里不是 1280 宽看的。
+   X 的时间线卡片约 500px、Slack 约 360、微信聊天里更小。
+   这里按真实展示宽度并排，看到那一档字糊了，那一档就是噪点。 */
+@font-face{font-family:'H';src:url('../fonts/HarmonyOS Sans SC.ttf') format('truetype')}
+body{margin:0;width:1500px;padding:30px 36px;background:#ebe5d8;font-family:'H',sans-serif;color:#262626}
+h2{font-size:16px;font-weight:400;margin:0 0 14px}
+.row{display:flex;align-items:flex-start;gap:22px}
+.c{text-align:center}
+.c img{display:block;border:1px solid #d3cfc6;border-radius:4px}
+.cap{font-size:12px;color:#5f5a52;margin-top:6px}
+</style></head><body>
+<h2>社交卡在真实展示宽度下</h2>
+<div class="row">
+  <div class="c"><img src="social-card.png" width="500"><div class="cap">500 · X 时间线</div></div>
+  <div class="c"><img src="social-card.png" width="360"><div class="cap">360 · Slack</div></div>
+  <div class="c"><img src="social-card.png" width="260"><div class="cap">260 · 微信/列表</div></div>
+</div>
+</body></html>

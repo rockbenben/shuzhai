@@ -1,0 +1,17 @@
+node_modules/
+dist/
+release/
+
+# 本机数据，不进版本库：库文件在 userData 下，不在仓库里，但别人可能软链过来
+*.db
+*.db-wal
+*.db-shm
+
+# 走查用的 Electron 档案目录。`scripts/ui-check/` 那几个脚本要 `--user-data-dir`，
+# 而 AGENTS.md 说「档案目录一律用正斜杠」——于是 `--user-data-dir=tmpXXXX` 这种
+# 相对路径会直接落在仓库里，每跑一轮多一个几百 MB 的 Chromium 缓存目录。
+tmp*/
+
+# 抓来的第三方帮助中心全文（GoodNotes / MarginNote 4），做笔记功能时的参考材料。
+# 本机留着好用，但那是别人的文档，不该随这个仓库分发出去。
+docs/reference/

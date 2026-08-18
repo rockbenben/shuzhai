@@ -1,0 +1,137 @@
+# 干净克隆 + npm ci + 全量测试。**这个 workflow 从来没有真的跑过**——仓库还没有
+# 远程，是本地项目。等公开之后第一次 push 才会验证它，那次红了是预期内的，
+# 照着日志改就是（AGENTS.md 里「一条永远绿的断言等于没有断言」的同一个道理：
+# 一个从没跑过的 workflow 不算数）。
+#
+# ── 为什么只有 windows-latest ──
+#
+# 这是个 Windows 桌面应用（NSIS 安装包、`%APPDATA%\shuzhai\library.db`、
+# `fs.watch({recursive:true})` 在 Windows 上实测可用）。更要紧的是：
+# **本仓库的测试从来没有在 Linux 上跑过一次**，加一条 ubuntu 只会得到
+# 一个我无法预判、也没法在本地复现的红。要加就等这里绿了之后单独开一次，
+# 把它当一件事做——那时候 ubuntu 报出来的才是真的平台假设，不是噪音。
+#
+# ── 为什么不跑 `npm run dist` ──
+#
+# electron-builder 出 NSIS 安装包每次几分钟、产物好几百 MB，而它已经在本地实测过
+# （判据和当次结果都在 AGENTS.md「打包基线」那节——**具体数字不抄到这儿**，
+# 那节自己就写着「产物体积一律不写进文档」，抄过来的第二天就是错的：
+# 这行原来记着一个「asar 里几个 .ts」的数，改过一次又过期了——**所以现在一个数都不记**。
+# ⚠️ 上一版为了说明这件事，顺手把**当场量到的那个数**写了进来：一句「不记数」的话
+# 自己带着一个会过期的数，这个仓库已经栽过三次（AGENTS.md 开头那段警告栽过一次，
+# 走查那条「吃过两次亏」栽过一次）。要准数就跑 `node scripts/counts.mjs`）。
+# CI 该守的是「代码还编得过、测试还全绿」，不是每次都出一遍包。
+# 出包那件事现在有自己的流程了：`release.yml`，按 tag 触发，传成草稿。
+# ⚠️ **两边的闸门是各跑各的**：这个 workflow 的触发是 `branches: [main]`，
+# **打 tag 不触发它**，所以 `release.yml` 里又跑了一遍 typecheck / test / lint:ui——
+# 那不是重复，那是「tag 指到哪个提交都能发出去」的唯一一道拦。
+#
+# ── ELECTRON_SKIP_BINARY_DOWNLOAD ──
+#
+# typecheck / test / build 一样都不需要 Electron 的二进制：测试是 node:test 跑
+# `src/core`，而 `main.ts` 和 `cover-fetcher.ts` 那两个 import electron 的文件
+# 本来就没有测试（AGENTS.md 说过它们测不了，判据已经拆进 `core/pacing.ts`）。
+# ⚠️ **这个变量今天其实是空转的**（2026-09-04 当场查的）：`node_modules/electron/`
+# 和 `@electron/get` 里一处都没有它，它是老版本 `postinstall` 时代的约定，
+# 而 42 之后连 `postinstall` 都没有——**`npm ci` 本来就不会去下那份二进制**。
+# 留着无害（万一哪天上游又加回来），但别把「设了它才没下」当成因果；
+# 真要下得显式跑 `npx install-electron`，`release.yml` 里就是这么干的。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# ⚠️ **别加 `paths-ignore` 把 docs 排掉。** 那是这类 workflow 最常见的一条「优化」，
+# 在这个仓库是错的：`lint:ui` 里的 `stale-refs.mjs` **会扫 `docs/`**（只排掉
+# `docs/reference/`），改文档正好可能改坏指路——那条守卫真的抓到过两次写错的文件名。
+# 只改 markdown 也要跑，这不是浪费。
+
+# 同一个分支/PR 连推几次，把前面还在跑的取消掉：一趟几分钟，
+# 连推三次就是三个 runner 在算同一份注定被覆盖的结果。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # ⚠️ **main 上不取消**：那几次跑的是**已经合进去**的提交，取消掉等于那个提交
+  # 从来没被验过——和这个文件开头「一个从没跑过的 workflow 不算数」是同一条。
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# 这个 workflow 只读代码：不发包、不写 release、不碰 issue。
+# 默认令牌的权限比这大得多，收窄是白拿的。
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    # 卡住的任务默认能烧满 GitHub 的 6 小时。本地全套跑完不到一分钟，
+    # 15 分钟已经宽得离谱——真超了就是卡死，不是慢。
+    timeout-minutes: 15
+    # engines 里钉的是 >=24.0.0，而且不是随便写的：这个仓库靠 `.ts` 原生剥类型
+    # 和 `node:sqlite` 两件只有 24 才默认开启的能力（AGENTS.md）。
+    # 不跑更高的 Current：Electron 自带的就是 Node 24 线（当前 44 = 24.19.0），跑一条别的线
+    # 得到的红跟这个应用实际运行的环境没关系。
+    name: windows · node 24
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # 这两个 action 都是**第一方 `actions/*`**，钉在大版本标签上（v7 是当前最高，
+      # 2026-09-03 查的：checkout v7.0.1 / setup-node v7.0.0）。
+      # 不钉 commit SHA——第一方 + 大版本标签是这类 workflow 的通行做法，
+      # SHA 钉死换来的那点供应链收益，代价是每次升级都要手动改哈希。
+      #
+      # ⚠️ **这里原来还写着「不引第三方 action」，那条现在只对本文件成立。**
+      # `release.yml` 用了 `softprops/action-gh-release@v3`——不是松了口，是它
+      # 比自带的 `gh` 多一件事：**对已存在的 release 是覆盖更新**，上传中途断了
+      # 重跑一次就好，而 `gh release create` 会直接撞「release already exists」。
+      # 这条判据是 `020-Clockwork` 记下来的，同系列 008 / 010 / 020 / 023 / 033
+      # 五个项目都用它。CI 这边没有对应的需求，所以照旧只用第一方。
+      #
+      # ⚠️ **没有 dependabot 帮着跟**（试着加过，撤了）。大版本标签本身会跟着
+      # 补丁走，所以平时不用管；真正要留神的是**跳大版本**（v7 → v8 那种），
+      # 那得自己来：`gh api repos/actions/checkout/releases/latest --jq .tag_name`
+      # 和 setup-node 同理，各查一次就够。
+      - uses: actions/setup-node@v7
+        with:
+          # ⚠️ **写死 '24'，别改成 `node-version-file: package.json`。**
+          # 那样看着能少一处重复（engines 里写着 `>=24.0.0`），可 setup-node 会
+          # 按那个范围装**最新满足的**——25、26 出来之后就跑到别的线上去了，
+          # 而上面那段注释说的正是「不跑更高的 Current」。这一处重复是有意的。
+          node-version: '24'
+          # ⚠️ **保留缓存。** setup-node 从 v7 起在自己文档里加了一句
+          # 「不需要就关掉自动缓存」（cache poisoning）。这里不关，理由是可验证的：
+          # 我们跑的是 `npm ci`，它对每个包按 `package-lock.json` 里的 `integrity`
+          # （SHA-512）校验，缓存里塞了被改过的东西会当场校验失败，而不是被装进去。
+          # 换来的是每次省掉一趟完整的 npm 下载——Windows runner 上那是最慢的一步。
+          cache: npm
+
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      # 静态走查那一组（**几个看 `package.json` 的 `lint:ui`，别在这儿记**——
+      # 原来写「三个」，加了 `dup-decls.mjs` 之后就成了假的，
+      # AGENTS.md 里那份自己的拷贝也栽过同一次）。
+      # **除了 `dead-fields.mjs`，其余都会因为「查出问题」而让这一步红**：
+      #
+      #   dead-fields.mjs  算出来了没人读的字段 —— 它自己就说「这是筛子不是判据」，
+      #                    列完一串可疑接口照样 exit 0。在 CI 里它唯一会红的情况
+      #                    是自检没过（源码目录读不到、或 fellBack/exactDuplicate
+      #                    这两个已知字段扫不着）。**别指望它在 CI 里发现新问题**，
+      #                    那份清单是给人看的，而 CI 的日志没人看。
+      #                    （几条不写死在这儿——加个接口字段就变，同 AGENTS.md
+      #                    「别记一个会过期的数」那条。）
+      #   dead-mounts.mjs  挂不上的组件 —— 查到就 exit 1。（「漏进界面的 markdown
+      #                    星号」不归它，那条在 npm test 的 no-literal-markdown.test.ts）
+      #   stale-refs.mjs   注释/文档指向的文件和函数还在不在 —— 查到就 exit 1
+      #   dup-decls.mjs    同名的第二份声明（渲染进程 vs core、core 内部、rpc 返回类型）
+      #                    —— 查到就 exit 1
+      #
+      # 会红的那几个也各自带自检（解析不出足够多就报错退出，而不是报「一切正常」）。
+      - run: npm run lint:ui

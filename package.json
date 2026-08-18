@@ -1,0 +1,45 @@
+{
+  "_name": "这个字段就是数据目录名（%APPDATA%\\shuzhai）。改它必须同时写一条迁移（src/main/migrate-userdata.ts，由 main.ts 在 openDb 之前调），否则应用会在空目录里重新开张——阅读进度和书签重扫恢复不了。别再搬第三次，理由见 AGENTS.md 开头",
+  "name": "shuzhai",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "main": "src/main/main.ts",
+  "scripts": {
+    "test": "node --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "lint:ui": "node scripts/dead-fields.mjs && node scripts/dead-mounts.mjs && node scripts/stale-refs.mjs && node scripts/dup-decls.mjs",
+    "dev": "vite",
+    "build": "vite build",
+    "start": "electron .",
+    "dist": "vite build && electron-builder",
+    "dist:dir": "vite build && electron-builder --dir"
+  },
+  "dependencies": {
+    "opencc-js": "^1.4.1"
+  },
+  "_overrides": "epubjs 0.3.93 钉着 @xmldom/xmldom ^0.7.5，那条线有 6 条 XML 注入/DoS 告警（<=0.8.14）。它在浏览器里其实一次都不会跑——epub.js 只在 DOMParser/XMLSerializer 不存在或 IE 时才退回它——但它照样被打进渲染包，也照样让每个 clone 这个仓库的人 npm audit 看到一条 high。换渲染引擎不是换个依赖：EPUB 划线的锚是 epub.js 的 CFI，存在 highlight.cfi 里，那是铁律 3 的数据。所以钉的是这个传递依赖，用 xmldom 自己打的 lts 标签（0.8.15），不动 epubjs。",
+  "overrides": {
+    "@xmldom/xmldom": "^0.8.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "electron": "^44.1.1",
+    "electron-builder": "^26.15.3",
+    "epubjs": "^0.3.93",
+    "pdfjs-dist": "^6.2.108",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "author": "rockbenben",
+  "license": "MIT",
+  "description": "你的文件夹就是你的书斋：txt 小说自动配封面、切目录、记得你读到哪，读完打个分，下次不用再想这本我看过没"
+}

@@ -1,0 +1,189 @@
+# 按 tag 出包：打 `v1.0.0` → 构建 → 传成一个**草稿** release。
+#
+# AGENTS.md 里一直写着「真要出包，等有 release 流程时按 tag 触发单开一个 workflow」，
+# 这就是那个 workflow。`ci.yml` 不出包也不该出包（那边专门有一节写为什么），
+# 两件事分开：**CI 守的是「代码还编得过」，这里守的是「包发得出去」**。
+#
+# ── ⚠️ 这个 workflow 至今没有真的跑过 ──
+#
+# 和 `ci.yml` 一样，写下来不等于验过。所以留了两道口子，**第一次发版前先走一遍**：
+#
+#   1. `workflow_dispatch` —— 不打 tag 也能手动跑一次，验的是**构建这一半**
+#      （下面那个 `install-electron` 的坑就在这一半）。没有 tag 时上传那几步自己跳过，
+#      所以手跑一次不会误发一个 release 出去。
+#   2. 出来的 release 是**草稿**（`draft: true`）。草稿不出现在 releases/latest 上、
+#      也不通知任何人——**先自己把那个 exe 下下来真跑一次**，再点 Publish。
+#      这一条不是客套：CI 打的包在你按下发布之前，没有任何人运行过它。
+#      （本地那条路至少每次都真的启动过 exe，换成 CI 就把这一步丢了，得自己补回来。）
+#
+# ── ⚠️ `npm ci` 之后必须自己下 Electron 的运行时 ──
+#
+# 从 Electron 42 起那个包**不再有 `postinstall`**，改成暴露一个显式的 `install-electron`
+# （装好的 `node_modules/electron/package.json` 里一个 `scripts` 字段都没有）。
+# 少了那一步，`npm run dist` 报的是
+#   The specified electronDist does not exist: node_modules/electron/dist
+# 而 `npm ci` / `npm test` / `npm run build` 全都不碰那个二进制——**四道闸门全绿也
+# 说明不了包打得出来**。这条在干净机器上第一次打包必然撞上，而 CI 每次都是干净机器。
+#
+# ⚠️ **别指望 `ELECTRON_SKIP_BINARY_DOWNLOAD` 能控制这一步——当场查过，它管不着。**
+# 装好的 `node_modules/electron/` 和 `@electron/get` 里**一处都没有**这个变量
+# （`grep -rn` 两个目录都是空的）。它是老版本 `postinstall` 时代的约定，
+# 而 42 之后连 `postinstall` 都没有了，所以它今天在哪儿都是空转。
+# 这句原来写的是「install.js 认这个变量，设了它这一步会静静地什么都不做」——
+# **那是我想当然，不是查出来的**。真正管用的只有一件事：显式跑上面那一步。
+#
+# 附带一条：`ci.yml` 里那个 `ELECTRON_SKIP_BINARY_DOWNLOAD: 1` 现在也是空转
+# （`npm ci` 本来就不会去下），留着无害，但别把「设了它才没下」当成因果。
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# 默认令牌只读。逐项给，不用 write-all。
+permissions:
+  contents: write        # 建 release、传资产
+  id-token: write        # attest 那步拿 OIDC 令牌去签来源证明
+  attestations: write    # 把证明写回 GitHub 侧
+
+jobs:
+  build:
+    runs-on: windows-latest
+    # 本地一次 dist 是几分钟，CI 慢一档也不该到半小时——超了就是卡死不是慢
+    timeout-minutes: 30
+    name: windows · 打包并建草稿
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # ⚠️ **版本对不上就当场停，别等打完几百 MB 再发现。**
+      # 打 v1.0.1 而 package.json 还写着 1.0.0 的话，产物名叫 shuzhai-1.0.0-…，
+      # 传上去就是「tag 说 1.0.1、文件说 1.0.0」——而那时候包已经打完了。
+      #
+      # ⚠️ **这一步不加 `if`，无论有没有 tag 都要跑**：下面 Release 那步要用它吐出来的
+      # 版本号去拼资产名（产物走 `${name}-${version}`，名字里**没有** tag 那个 v）。
+      # 加了 `if` 的话手跑一次（workflow_dispatch）这个 output 就是空的。
+      - name: 版本
+        id: ver
+        shell: pwsh
+        run: |
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ("${{ github.ref_type }}" -eq 'tag') {
+            $tag = "${{ github.ref_name }}" -replace '^v', ''
+            if ($tag -ne $pkg) { throw "tag 是 $tag，package.json 里是 $pkg，对不上" }
+          }
+          "version=$pkg" >> $env:GITHUB_OUTPUT
+          "版本 $pkg" >> $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/setup-node@v7
+        with:
+          # 写死 '24'，理由同 ci.yml：这个仓库押在 `.ts` 原生剥类型和 `node:sqlite` 上
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      # 见文件头那段。**这一步不能省，也不能设 ELECTRON_SKIP_BINARY_DOWNLOAD**
+      - name: 下 Electron 的运行时
+        run: npx install-electron
+
+      # ⚠️ **闸门要在这儿再跑一遍。** `ci.yml` 的触发是 `branches: [main]`，
+      # **打 tag 不会触发它**——不在这儿跑的话，tag 指到哪个提交都能发出去。
+      - name: 四道闸门
+        run: |
+          npm run typecheck
+          npm test
+          npm run lint:ui
+
+      # `npm run dist` 自己带 `vite build`。`--publish never` 是防 electron-builder
+      # 在 CI + tag 下自作主张去发布——这一步刻意不给它 token，发也发不成，
+      # 但显式写出来比靠「它没有 token」兜着强。
+      - name: 打包
+        run: npm run dist -- --publish never
+
+      # ⚠️ **只收安装包和免安装 zip。`.blockmap` 不发**——那是 electron-updater
+      # 做增量下载用的，这个应用没有自动更新，传上去只是让人多一个不知道干嘛的文件。
+      # ⚠️ **`Get-ChildItem release -Include …` 会返回 0 个。** `-Include` 不带 `-Recurse`
+      # 时要求路径本身带通配（`release\*`），否则它静静地什么都不匹配——
+      # 当场量过：`release` 返回 0，`release\*` 返回 2。少了那个星号，
+      # 下面那句「该有 2 个」会在**产物明明都在**的时候把整条流水线判红。
+      - name: 校验和
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem release\* -Include *-x64-setup.exe, *-x64.zip -File
+          if ($files.Count -ne 2) { throw "release/ 里找到 $($files.Count) 个产物，该有 2 个" }
+          $files | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
+            Set-Content release/SHA256SUMS.txt -Encoding ascii
+          Get-Content release/SHA256SUMS.txt | ForEach-Object { $_ >> $env:GITHUB_STEP_SUMMARY }
+
+      # **来源证明，比 SHA256SUMS 强一档**（同 020 / 033，它们记的那条判据）：
+      # sums 和它校验的文件挂在**同一个 release 页**上，能换资产的人也能换 sums；
+      # 而来源证明存在 GitHub 那边，用户跑
+      #   gh attestation verify <文件> -R rockbenben/shuzhai
+      # 验的是「这个文件确实由本仓库这条 workflow 构建出来的」。
+      # **两者串起来用，不是二选一。** 对这个项目尤其算数——安装包没有代码签名，
+      # 这是离「能验明正身」最近的一样东西。
+      #
+      # `subject-checksums` 吃的就是上一步那个文件：它按里面的 (摘要, 名字) 逐条签，
+      # **不需要再去磁盘上找那些文件**，所以 sums 里写的是裸文件名也不要紧。
+      #
+      # ⚠️ **和 Release 同一个 `if`**：证明是写回仓库的**副作用**，
+      # 而 `workflow_dispatch` 那条路存在的意义就是「手跑一次什么都不会留下」。
+      # 代价是这一步只在真打 tag 时才跑得到——它是三行第一方 action，认下这个代价。
+      - uses: actions/attest-build-provenance@v4
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          subject-checksums: release/SHA256SUMS.txt
+
+      # ⚠️ **草稿**。理由在文件头：CI 打的包在你点 Publish 之前没人运行过。
+      #
+      # **用 softprops 而不是 runner 自带的 `gh`**，和 008 / 010 / 020 / 023 / 033
+      # 同一套。理由是 `020-Clockwork` 记下来的那条：**它对已存在的 release 是覆盖更新**，
+      # 上传中途断了重跑一次就好；`gh release create` 会直接撞「release already exists」，
+      # 那时候只能手工删掉半截 release 再来。这是本仓库唯一一个第三方 action
+      # （`ci.yml` 那句「不引第三方 action」跟着改了，理由写在那儿）。
+      #
+      # 钉大版本标签 `@v3` 是**有意的**（同 020 / 033）：v3 会随补丁漂移，
+      # 修复不用任何人动手就能拿到。
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          # ⚠️ **名字写死，不用通配。** 同 020 那条：通配既可能看起来像漏了谁，
+          # 也可能因为重叠把同一个文件传两遍。`.blockmap` 因此天然不会混进来
+          # ——那是 electron-updater 做增量下载用的，这个应用没有自动更新。
+          files: |
+            release/shuzhai-${{ steps.ver.outputs.version }}-x64-setup.exe
+            release/shuzhai-${{ steps.ver.outputs.version }}-x64.zip
+            release/SHA256SUMS.txt
+          # ⚠️ **少一个文件就红**。不设它的话，产物名哪天变了会**静默发出一个少资产的
+          # release**——而那正是没人会去核对的东西。
+          fail_on_unmatched_files: true
+          draft: true
+          # GitHub 自己的 changelog 接在下面这段之后
+          generate_release_notes: true
+          body: |
+            ## 下载
+
+            - **安装版** `shuzhai-${{ steps.ver.outputs.version }}-x64-setup.exe`
+            - **免安装绿色版** `shuzhai-${{ steps.ver.outputs.version }}-x64.zip`，解压就能跑
+
+            Windows 10 及以上，64 位。32 位和 Win 8.1 跑不了——这是 Electron 的底线，不是没做。
+
+            ## 第一次运行会被 SmartScreen 拦一下
+
+            安装包**没有代码签名**，Windows 会提示「未知发布者」——点「更多信息 → 仍要运行」就行。证书一年好几百，这个项目先不买。不想凭信任点这一下，就自己构建一份（见 README 的「自己构建」）。
+
+            ## 想自己确认下到的是原件
+
+            没有签名，所以给两样东西——**它们答的不是同一个问题**：
+
+            - 附件里的 `SHA256SUMS.txt`：文件有没有被改过。
+            - **来源证明**：这个文件是不是真由这个仓库构建出来的。sums 和它校验的文件挂在同一页上，能换掉资产的人也能换掉 sums；来源证明存在 GitHub 那边，换不掉。
+
+            ```
+            gh attestation verify shuzhai-${{ steps.ver.outputs.version }}-x64-setup.exe -R rockbenben/shuzhai
+            ```

@@ -1,0 +1,2303 @@
+/*
+ * 应用外观（spec §6）。**只有亮和暗两档**——阅读纸色是另一件事，
+ * 由 JS 写成 `--read-*`，只作用在 `.reader` 里（见 settings.ts 的 Appearance）。
+ *
+ * **这里的亮色是暖的，不是纯白。** 拆分纸色之后有过一版纯白 + 墨绿的应用外观，
+ * 结果书架和阅读器像两个应用：一边冷白一边暖纸。书斋这个名字要的是同一张书桌，
+ * 所以应用外观也用同一套暖色，只是比正文那张纸更"桌面"一点。
+ * 强调色用赭石 `#8a6d3b`（书脊烫金的调子），不是那个到处都是的墨绿。
+ */
+
+:root {
+  /**
+   * 阅读器两条竖轨占掉多宽——正文左右内边距、设置浮层的位置都从它来。
+   * 之前这个数在四处各写一份字面量，改轨宽要人肉重算，
+   * 而漏掉哪一处的症状是「某个模式下轨压在正文上」。
+   */
+  --rail-clear: 5.2rem;
+
+  --bg: #f1ece1;
+  --fg: #2b2723;
+  --muted: #6f6659;
+  --line: #ded6c7;
+  --panel: #faf7f0;
+  /*
+   * **accent 要能当小字用，不只是当填充色。** 原来的 #8a6d3b 压在 `--panel`
+   * 上是 4.53（勉强过 AA），可它更常出现在**页面底色**上——「读到 2/60 · 3个月前」
+   * 那行、选中的标签——那里只有 4.12，不够。压暗一档到 5.37 / 4.88，
+   * 色相饱和度没动，看起来是同一个棕。
+   */
+  --accent: #7c6235;
+  --danger: #b04a3a;
+  /*
+   * **印泥。只给「我的书评」那一档的评分印用。**
+   *
+   * 值和 `--danger` 很近，但**不能借用它**：那个是「会毁掉东西」的填充色
+   * （删文件、还原备份），下一个人为了让删除按钮更醒目去调它的时候，
+   * 不该顺手把一屏书评的印色改了。两件事共用一个变量，就是等着这种事发生。
+   */
+  --seal: #a8332a;
+  /* 压在 accent 上的字。日间是白的，夜间不是——见夜间那块 */
+  --on-accent: #ffffff;
+  /*
+   * **危险色分两个：一个当填充，一个当文字。**
+   * 填充要让白字压得住，文字要在纸上读得清——亮暗两边这两个诉求是**反向**的。
+   * 日间同一个值就够（当文字 5.05 / 4.59，白字压它 5.40），夜间必须分开。
+   */
+  --danger-ink: #b04a3a;
+
+  /*
+   * **「我说的话」用的那张脸。** 中文书里给引文、序跋、批注排的是楷体，
+   * 而「我的书评」那一档整屏都是这种东西。界面别处一律不用它。
+   *
+   * `settings.ts` 那份正文字体是量过之后排的序，楷体在最后、标着「短读」
+   * （笔画有粗细变化和斜势，一读几小时累）——**一句短评正好是短读**，
+   * 那条结论在这里是正着用的，不是被违反的。
+   *
+   * 霞鹜文楷排在最前只是「装了就用」：它是屏幕优化过的楷体，没装自动落到
+   * Windows 自带的 KaiTi（回退链天生就干这件事，不用探测装没装）。
+   */
+  --say-font: 'LXGW WenKai Screen', 'LXGW WenKai', 'KaiTi', '楷体', 'STKaiti', serif;
+
+  /* 阅读器版式，JS 会覆盖 */
+  --read-size: 21px;
+  --read-line: 1.8;
+  --read-width: 53em;
+  --read-indent: 2em;
+}
+
+/*
+ * 暗色也是暖的：中性灰会让暖色的封面和插图看起来发绿。
+ * 面板比底色亮一档，和亮色那边同一个「桌上放着纸」的关系。
+ */
+:root[data-theme='night'] {
+  --bg: #191714;
+  --fg: #cdc7bd;
+  --muted: #8d857a;
+  --line: #302c27;
+  --panel: #211e1a;
+  --accent: #c2a06a;
+  /* **白字压在它上面**（.book-badge.warn）。第一版用 #d4756a 好看，
+     但白字对比只有 3.2:1，低于 AA——夜间的「文件缺失」角标读不清 */
+  --danger: #b0402f;
+  /*
+   * 印泥往亮里提一档。**提的不是白字那一头**（日间那个值白字已经 6.6:1），
+   * 是**印和纸**：`#a8332a` 压在夜间那张 `#191714` 的深纸上只有 2.7，
+   * 一枚方印糊在底色里；提到这个值是 3.5，白字仍然有 5.1。
+   */
+  --seal: #c2432f;
+  /*
+   * ⚠ **夜间的 accent 是浅金色，白字压上去只有 2.46:1**——`.primary` 那个
+   * 主按钮（「保存」「确定」）在夜间几乎读不出来，而它是每个弹窗里最该看清的
+   * 那一个。改用页面底色当字色：7.27:1。
+   * 亮暗两边都写白字是最容易犯的错——填充色在两边亮度是**反的**。
+   */
+  --on-accent: #191714;
+  /*
+   * 夜间：`--danger` 那个中深红当**文字**压在深纸上只有 2.86，
+   * 「其中 3 个不是完全重复」这种最该看清的警告反而最糊。往亮里提一档到 4.77。
+   * **不能直接把 `--danger` 一起改亮**——那是按钮的填充色，改亮之后白字就压不住了。
+   */
+  --danger-ink: #ee563f;
+}
+
+/*
+ * ── 字号刻度 ────────────────────────────────────────────────
+ *
+ * **加字号之前先在这条刻度上找**，找不到再问一句「真的需要一档新的吗」。
+ *
+ * 起因是量出来的：全应用一度有 **27 个不同的字号值**挤在 10–20px 之间，
+ * 其中 12 对相邻值只差 **0.16px**（`.83` 和 `.84`、`.85` 和 `.86`……）。
+ * 那种差别肉眼绝对分不出——**也就是说那些字号没有在传达任何层级**，
+ * 只是一处处随手写累积出来的。并掉之后剩 18 个，亚像素重复清零。
+ *
+ * 主干（用得最多的五档，覆盖了绝大多数界面）：
+ *
+ *   0.75rem  12.0px   最小的注解：路径、时间戳、卡片角标
+ *   0.78rem  12.5px   次要说明、弹窗里的补充句
+ *   0.8rem   12.8px   控件上的小字：下拉、次级按钮
+ *   0.82rem  13.1px   常规小字
+ *   0.85rem  13.6px   正文级的界面文字（最常用的一档）
+ *
+ * 两头那几档（0.65–0.72 / 0.9–1.22）用得少，各有出处，别当成随便可选的。
+ *
+ * ⚠️ **有几个值是量出来的，不许并到刻度上**：阅读器正文走 `--read-size`
+ * （用户自己调），封面墙那行短评的 0.72rem 是数过「一行印得下几个字」定的，
+ * 书评册那句书评（`.rv-say`）是按中文正文行长定的。这条刻度管的是**界面**，不管正文。
+ *
+ * ⚠️ **这里原来写着「书评册的 1.06rem」——而收敛刻度那一轮把 `.rv-say` 改成了
+ * 1.05rem，这句话当场就成了假的**（`shell.css` 里 `.reviews` 那段也跟着假了一处）。
+ * 所以现在指的是**声明本身**不是那个数：一个会跟着改的数，写进注释就会飘。
+ */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, 'Microsoft YaHei', sans-serif;
+  line-height: 1.7;
+}
+
+button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0.3em 0.8em;
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  /* 不是写死的 #fff：夜间 accent 是浅金色，白字只有 2.46:1。见调色板那节 */
+  color: var(--on-accent);
+}
+
+/*
+ * **会毁掉东西的那一下，按钮不能和「保存」长一个样。**
+ *
+ * 原来「确认移入回收站」用的就是 `.primary`——和「保存」「确定」同一个棕色，
+ * 唯一的区别在旁边那段说明文字里。而这个仓库的整套安全阀（预览、二次确认、
+ * 可撤销）都建立在「用户看清楚了再点」上，最后那一下却和别处没有区别。
+ *
+ * 只给**真的会丢东西**的动作用：删文件、还原备份（覆盖当前库）。
+ * 重命名不算——它有 `rename_log` 可以撤销。
+ */
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+button.danger:hover:not(:disabled) {
+  /* 悬停不变亮：这不是一个该被鼓励去点的按钮 */
+  border-color: var(--danger);
+  filter: brightness(0.92);
+}
+
+/*
+ * 复选框默认 13×13，而这个应用里它管的是「删不删这个文件」「启不启用这条
+ * 清洗规则」。放大到 20。
+ *
+ * **不是 24**（WCAG 2.2 的绝对下限）：那条准则自带「间距豁免」——周围 24px
+ * 内没有别的可点目标就算合格，这些表格一行一个、行高够，满足豁免。
+ * 而 24×24 的原生方框在密表里明显过大。
+ * **也别再试 padding**：Chromium 对原生控件直接忽略 padding，实测加了
+ * `padding: 3px` 量出来还是 18×18，白写。
+ */
+input[type='checkbox'],
+input[type='radio'] {
+  width: 20px;
+  height: 20px;
+  /*
+   * ⚠️ **上面那条「行高够、满足间距豁免」的推理只在宽屏成立。**
+   * 窗口能拖到 760×520（`main.ts` 的 minWidth/minHeight），那时行被压窄、
+   * 邻近的可点目标进到 24px 以内，豁免当场失效——走查在 760 和 900 上
+   * 各报了 20×20 的复选框，而 1280 以上一条都没有。
+   * 窄屏直接给足 24×24（WCAG 2.2 AA 的下限，够大就不用再谈豁免），
+   * 宽屏那些一行一个的密表照旧 20px，不受影响。
+   */
+  /* **flex 容器里会被压扁**：「整理书名」那个弹窗里实测被压到 16 宽 */
+  flex: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0.25em 0.5em;
+  /*
+   * `<select>` 会按**最长的那个选项**撑宽自己（系统语音那个下拉里有
+   * 「Microsoft Huihui - Chinese (Simplified)…」），实测把设置弹窗撑出
+   * 177px 的横向滚动条。**两行缺一不可**：flex 子项默认 `min-width: auto`，
+   * 只加 max-width 溢出纹丝不动。
+   */
+  max-width: 100%;
+  min-width: 0;
+}
+
+/*
+ * **不限宽。** 原来 `max-width: 64rem`——2560 的屏上书架只用左边三分之一，
+ * 右边 60% 空着，而顶上的搜索/排序那一条是全宽的，两者根本不对齐。
+ * 封面墙是 `auto-fill` 网格，宽屏上多排几列正是它该做的事；
+ * 限宽是给「一行文字」用的，不是给墙用的。
+ */
+.shelf {
+  padding: 1.4rem 2rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* 文字用 ink 那一支，按钮的填充仍然用 --danger（见 button.danger） */
+.danger {
+  color: var(--danger-ink);
+}
+
+/*
+ * **焦点环用应用自己的颜色。**
+ *
+ * 浏览器默认那个是橙色（实测 rgb(229,151,0)）——功能上没问题，键盘走一圈
+ * 每一站都看得见；但在这套量过的暖纸配色里，它是唯一一处外来色。
+ * `outline-offset` 留 2px，免得贴着按钮边框糊成一条。
+ */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.92rem;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+th {
+  color: var(--muted);
+  font-weight: 600;
+}
+tbody tr:hover {
+  background: var(--panel);
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+}
+
+/* ── 弹窗 ─────────────────────────────── */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 10;
+}
+
+.modal {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1.1rem 1.3rem;
+  width: min(44rem, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+/* 弹窗标题。**十三个弹窗原来各自内联同一组值**，加一个弹窗就再抄一遍，
+   而抄漏一处的下场是标题大小和别处差一档——没人会注意到，直到并排看见。
+   剩下五处**故意不一样**（编辑弹窗的下边距大一截、书签面板小一号），
+   它们的内联样式优先级更高，照旧生效，不用在这儿开例外 */
+.modal h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1.1rem;
+}
+
+/* ── 阅读器 ───────────────────────────── */
+
+.reader {
+  position: relative;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/*
+ * 目录是**浮层，不挤占正文**（参考用户给的 legado 阅读界面：那边目录是一大片
+ * 覆盖上来的面板，正文全程占满）。
+ *
+ * 原来它是 flex 行里一条 17rem 的实心侧栏。量出来的代价：**1280px 上正文栏
+ * 842px，只有 40 字一行**，而这个应用自己的默认版口是 53 字；收起来才是 1113px。
+ * 1600 以上 `--read-width: 53em` 先封顶，所以这条只在 1450px 以下咬人——
+ * 而 1366×768 / 1440×900 正是最常见的笔记本。
+ *
+ * `left` 让开左轨（轨在 `left: 1.1rem`，标签最长三个字，实测宽 85px），
+ * 于是开着目录时那几个键照样点得到——同参考里的样子。
+ */
+/*
+ * 目录浮层**盖在正文栏上，不是盖满整屏**（用户的原话：「阅读界面的目录、设置等，
+ * 都该在书的显示界面内显示，而不是直接用全屏了」）。
+ *
+ * 原来是 `left: 7rem; right: 0; top: 0; bottom: 0`——整片阅读区都被它铺满，
+ * 而正文栏在 1600 下只占中间 1113px：**一张覆盖整个窗口的面板，
+ * 去选一本书里的某一章**。现在它和纸同宽、同上沿，落在底栏之上，
+ * 看起来就是「在这本书里面翻目录」。
+ *
+ * `max()` 是窄窗口的兜底：放不下时退回「让开左轨、右边贴边」，
+ * 那时正文本来也占满。
+ */
+/*
+ * **浮层贴的是「正文栏外沿」还是「右边那排键的内沿」，取决于窗口有多宽。**
+ *
+ * 那排键在栏外面 4.6rem 处（`.reader-tools` 的 `right` 算式），但窗口一窄，
+ * 它的 `max(1.1rem, …)` 就把它按在窗口边上——占掉离右边 1.1～4.6rem 那一条。
+ * 而浮层原来贴的是 `max(1.1rem, 栏外沿)`，窄下来之后**正好压在那条上面**。
+ *
+ * 量出来的（高 800）：**901～1200 这一段全撞**，1280 往上才不撞——
+ * 因为那时正文栏才够得着它天然的 1113px 宽度，算式和真实边沿才对得上。
+ *
+ * 所以下限从 1.1rem 提到 **5.6rem**：4.6（键的外沿）+ 1rem 的缝。
+ * 四个右锚点（目录 / 设置·朗读那层 / 书内搜索那层 / 阅读器里的对话框）
+ * **共用这一个变量**——原来是四处各写一遍同一个算式，改一处漏三处。
+ */
+.reader {
+  --pop-right: max(5.6rem, calc(50% - var(--read-col, 1113px) / 2));
+}
+
+.toc {
+  position: absolute;
+  top: 2rem;
+  bottom: 3.4rem;
+  left: max(7rem, calc(50% - var(--read-col, 1113px) / 2));
+  right: var(--pop-right);
+  z-index: 8;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 14%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.toc-head {
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid var(--line);
+}
+.toc-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+/* 浮层的出口。做成文字键而不是图标——参考里那排也是文字（收起/倒序/顶部…），
+   而且这个仓库有一条硬判据：每个控件的可及名称里必须有能读的字 */
+.toc-close {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0.1em 0.3em;
+  font-size: 0.85rem;
+}
+.toc-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 0.3rem 0;
+}
+.toc-item {
+  /* 原来是 block + 自己截字。现在右边还挂一个「这一章有笔记」的记号，
+     所以改成 flex：**截字的活儿交给里面那个 .toc-t**，记号 flex-shrink: 0
+     不参与压缩——反过来的话，长章名会把记号挤没，而那正是要看的东西 */
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.87rem;
+  color: var(--fg);
+}
+.toc-t {
+  flex: 1 1 auto;
+  min-width: 0;              /* 不写这条，flex 子项按内容撑开，永远不截字 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 「这一章我留过东西」。**不是装饰，是这一行的第二条信息**，
+   所以给足对比度（用 --muted 而不是再调淡），字号只小一档 */
+.toc-mark {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.toc-item[aria-current='true'] .toc-mark {
+  color: var(--accent);
+}
+/* ── 个人评价体系 ────────────────────────────────────── */
+
+/* 封面角上的评分。用数字不用五个星形——卡片那么小，一排星形在封面图上糊成一团。
+   位置不归它自己管，见 shell.css 的 `.book-foot` */
+.book-rating {
+  margin-right: 4px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #ffd66b;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  cursor: help; /* 提示这里悬停有东西看——短评就藏在 title 里 */
+}
+
+/* 卡片底部的标签行。只在有标签时才渲染，否则八千张卡片凭空长高一截 */
+.book-tags {
+  display: flex;
+  /*
+   * ⚠️ **`nowrap`，不能 `wrap`。**
+   *
+   * 原来是 `flex-wrap: wrap` + `max-height: 1.3rem`，注释写着「多的靠 +N 收口」——
+   * **而那句话代码没兑现**：装不下的时候先掉到第二行的正是那个「+N」，
+   * 而第二行恰好被 `max-height` 切掉。实测 28 个标签的卡片，内容 52px 切在 21px 上，
+   * 屏幕上只剩三个标签，**「还有 25 个」这件事一个字都没说**。
+   * 不换行就不会掉行，「+N」永远留在行尾。
+   */
+  flex-wrap: nowrap;
+  gap: 0.2rem;
+  margin-top: 0.15rem;
+  overflow: hidden;
+}
+
+/* 标签名太长时自己收省略号，别把「+N」挤出去。全文在这一行的 title 里 */
+.book-tags .chip.sm {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 「+N」是收口，永远不参与压缩 */
+.book-tags > .muted {
+  flex: none;
+}
+.chip.sm {
+  font-size: 0.7rem;
+  padding: 0 0.3rem;
+  line-height: 1.25rem;
+}
+
+/* 评价浮层。贴着卡片，不是全屏对话框——「顺手标一下」经不起一次全屏跳转 */
+/*
+ * ⚠️ **设置里的标签一律只在标点处断行。**
+ * 中文在任意两个汉字之间都能断，于是「纸色、字号、行距、正文字体、朗读、自动滚动」
+ * 在 162px 宽的标签栏里折成两行，断点正好落在「正文」/「字体」中间——
+ * 屏幕上是两个看起来毫不相干的词，而「正文字体」本来是一样东西。
+ * 判据同 `.book-sub` 那条（连续汉字当一个词，只在真的标点/空格处断）。
+ * `overflow-wrap` 兜底：真来一个不带标点的长串（字体文件名之类）也不会横着溢出去。
+ */
+.field > span:first-child {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.rate-pop {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  top: 100%;
+  width: 17rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  padding: 0.6rem;
+  cursor: default;
+  /*
+   * ⚠️ **必须封顶再滚。** 这个浮层是纯 CSS 定位的（`top: 100%` 挂在卡片下面），
+   * 高度完全由内容说了算，而内容里有一段**没有上限的东西**：这本书的标签。
+   * 量出来（一本书 28 个标签）：1440×900 下浮层底边在 995，**出界 95px**；
+   * 760×520 下出界 **527px**，而浮层顶边 y=551 本身就已经在视口外了。
+   * `overflow` 是 visible、`max-height` 是 none，**滚都滚不动**——
+   * 也就是说标签一多，这个应用最核心的那个动作（打分 + 写一句话）就够不到。
+   *
+   * `audit.mjs` 抓不到：它的「弹窗超出屏幕」只查 `.modal` 和 `.reader-panel`，
+   * 而这是 `.rate-pop`，两个都不是（同「浮层盖住工具轨」那条，判据的扫描范围漏了一屏）。
+   */
+  max-height: 70vh;
+  overflow-y: auto;
+  /* 被滚进视口时留一条缝，别正好贴着边 */
+  scroll-margin: 0.6rem;
+}
+/* 卡片在最后一排时翻到它上方去开。判据和整段理由在 `RatePopover.tsx` 那个
+   effect 上——**这里只有翻转本身，别在这儿再写一遍什么时候翻** */
+.rate-pop.flip-up {
+  top: auto;
+  bottom: 100%;
+}
+.rate-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rate-stars {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  margin-bottom: 0.4rem;
+}
+/* 五颗星挨在一起，一颗只有 18×18——**点错一颗就是打错一分**，
+   而这是要长期留在库里的数据。撑到 24×24（WCAG 2.2 的下限），字号不变 */
+.rate-stars button {
+  background: none;
+  border: none;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--line);
+}
+.rate-stars button.on {
+  color: #f0b429;
+}
+.rate-stars .muted {
+  margin-left: 0.4rem;
+  font-size: 0.78rem;
+}
+.rate-comment,
+.rate-tag-input {
+  width: 100%;
+  margin-bottom: 0.4rem;
+}
+.rate-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.4rem;
+}
+.chip.on {
+  /* 那个 #3b6ea5 的兜底是上一版蓝色调色板的遗留——现在 --accent 一定有值，
+     留着只会在某天变量拼错时悄悄画出一个蓝色 chip */
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+}
+
+/* 「按书名打标签」的词云。用 grid 不用 flex——词长短不一，flex 换行后
+   每行高度不齐，扫起来很累 */
+.kw-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+  gap: 0.3rem;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+.kw-grid .chip {
+  text-align: left;
+}
+/* 已经建过同名标签的标灰——八千本靠几十次点击铺开，没有进度感是走不完的 */
+.chip.used {
+  opacity: 0.45;
+}
+
+/* 规则编辑器里「从这本书里找到的格式」那几条 */
+.suggest {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85rem;
+}
+.suggest:hover {
+  background: var(--bg);
+  border-color: var(--line);
+}
+.suggest-n {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 4.2rem;
+  text-align: right;
+}
+/* 样例可能很长，超出就截断——这一行是给人扫一眼判断的，不是给人读全的 */
+.suggest-eg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 目录窗口的两个端点：往前翻的按钮 / 往后加载的哨兵 */
+.toc-more {
+  display: block;
+  width: 100%;
+  text-align: center;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+button.toc-more:hover {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* 浮层之后一行放得下整个标题了（原来 17rem 的侧栏要截断）。
+   分隔线同参考：一条极细的横线，比方块背景安静 */
+.toc-list .toc-item {
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.toc-item:hover {
+  background: var(--bg);
+}
+.toc-item[aria-current='true'] {
+  color: var(--accent);
+  font-weight: 600;
+}
+.toc-item.read {
+  color: var(--muted);
+}
+.toc-vol {
+  padding: 0.5rem 0.8rem 0.2rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  margin-top: 0.3rem;
+}
+
+.reader-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/*
+ * 阅读器的壳。**两侧竖轨 + 中间一栏正文**，正文那一栏比页面底色浅一层。
+ *
+ * 原来是「一条横排工具条 + 下面通栏正文」：15 个同样大小的文字按钮压在最上面，
+ * 比正文还显眼，而且找一个要从头扫一遍。改成竖轨之后，正文是页面上唯一大块的东西。
+ *
+ * 双色是关键：`--bg` 是页面底色，`--panel` 是正文栏。单色的话页面就是一整片，
+ * 眼睛没有落点——那正是「看起来粗糙」的来源，跟具体用什么颜色关系不大。
+ */
+/*
+ * **阅读器整块换成「纸色」那一套变量。**
+ *
+ * 纸色和应用外观是两件事（见 settings.ts 的 Appearance）：应用只有亮/暗，
+ * 纸色只属于阅读页。在这里把 `--read-*` 映射回 `--bg/--fg/--panel/--line/--muted`，
+ * 于是**阅读器内部已有的样式一行都不用改**，而外面的书架、侧栏、对话框
+ * 完全不受纸色影响——「选了护眼，书架也变绿」那个毛病从根上没了。
+ *
+ * 顺带删掉了 Reader.tsx 里那行「离开阅读器把 data-theme 掰回日间」的补丁：
+ * 既然纸色根本不往外染，就没有需要掰回来的东西。
+ */
+.reader {
+  --bg: var(--read-desk);
+  --panel: var(--read-paper);
+  --fg: var(--read-ink);
+  --line: var(--read-edge);
+  --muted: var(--read-muted);
+  --accent: var(--read-accent);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/*
+ * 滚动条也跟着纸色走。**默认那条是浏览器画的、永远是浅灰**——夜间纸上一条
+ * 亮灰色的滚动条格外扎眼，而它恰恰紧挨着正文。
+ * `scrollbar-color` 是标准属性，Chromium 认；写在 `.reader` 上，
+ * 目录、正文两个滚动区一起吃到。
+ */
+.reader,
+.reader .toc-list,
+.reader .reader-body {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fg) 28%, transparent) transparent;
+}
+
+.reader-main {
+  position: relative;
+  background: var(--bg);
+}
+
+/* 在线朗读退回系统语音时的那一条。贴在底部状态条上方，跟着纸色走；
+   不做成弹窗——用户正在听，不该被一个要点掉的框打断 */
+.tts-fallback {
+  padding: 0.4rem 1rem;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 0.82rem;
+}
+
+/* ── 底部这一条：唯一的进度显示，也是控件 ────────────────────────────
+   原来右下角还有个百分比角标，和这里说的是同一件事——删了。
+   留下能拖的这条：它既显示也能操作，角标只能看 */
+.reader-foot .foot-at,
+.reader-foot .foot-pct {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 进度条原来用浏览器默认样式，在暖纸和夜间纸上都是一条突兀的蓝灰。
+   轨道用 --line、滑块用 --accent，跟着纸色走 */
+/*
+ * **视觉上是一条细线，可点区是 24px 高。**
+ *
+ * 原来整个 input 就 3px 高（加内边距 8px），要拖动它得把鼠标压在一条头发丝上——
+ * 一本 600 章的书，这条是唯一能大跨度跳章的控件。
+ * 做法：input 自己撑到 24px 高、背景透明，细线画在 track 伪元素上。
+ */
+.reader-foot .foot-range {
+  flex: 1;
+  min-width: 6rem;
+  appearance: none;
+  height: 24px;
+  background: none;
+  cursor: pointer;
+}
+.reader-foot .foot-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 3px;
+  background: var(--line);
+}
+
+.reader-foot .foot-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  /* 描一圈纸色：滑块压在细轨道上，没有这圈会糊成一团 */
+  box-shadow: 0 0 0 2px var(--panel);
+  cursor: grab;
+  /* track 现在有自己的高度了，滑块要自己往上提才能骑在线上
+     （(3 - 12) / 2 = -4.5） */
+  margin-top: -4.5px;
+}
+
+.reader-foot .foot-range:active::-webkit-slider-thumb { cursor: grabbing; }
+.reader-foot .foot-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/*
+ * 两条工具轨**贴着正文栏摆，不是钉在窗口两边**。
+ *
+ * 原来是 `left: 1.1rem` / `right: 1.1rem`——在宽屏上正文栏只有 1113px 居中，
+ * 两边各空出几百像素，于是按钮离正文老远，读的时候要横跨半个屏幕去够。
+ * 现在算到正文栏外沿：`50% - 正文栏一半 - 轨宽 - 一点缝`，
+ * 窗口窄到放不下时用 `max()` 退回贴边（那时正文本来就占满，贴边就是贴着正文）。
+ *
+ * **左轨在左上、右轨在右下**（用户的原话）：常驻动作在起手的位置，
+ * 读的时候临时用一下的落在手边——同参考里 legado 那两条的分工。
+ *
+ * ⚠️ 用 `--read-col`（像素）不能用 `--read-width`（em）：后者在这两个元素上
+ * 会按它们自己的字号解析，算出来是个不相干的数。
+ */
+.reader-rail,
+.reader-tools {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  /* 半透明 + 模糊：轨道压在正文上方，实心会切掉一条 */
+  backdrop-filter: blur(6px);
+}
+
+.reader-rail {
+  /* 和纸的上沿齐平（.reader-body 的 padding-top 就是 2rem） */
+  top: 2rem;
+  left: max(1.1rem, calc(50% - var(--read-col, 1113px) / 2 - 4.6rem));
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.reader-rail button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  width: 3.4rem;
+  padding: 0.5rem 0.2rem;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--fg);
+  font-size: 0.72rem;
+  line-height: 1.1;
+}
+
+.reader-rail button + button { border-top: 1px solid var(--line); }
+.reader-rail button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.reader-rail button:disabled { opacity: 0.35; }
+.reader-rail button[aria-current="true"] { color: var(--accent); }
+
+/* **和左轨长一个样，不是另立一套。** 原来这边是六个纯圆图标，一个字都没有——
+   而左边同样一条竖轨每格都带文字。同一个界面两套规矩，普通人只能挨个悬停去猜，
+   偏偏没名字的那几个正是书签、划线、朗读（书签和划线还是铁律 3 的不可再生数据）。
+   最要命的是「自动滚」的▷和「朗读」的耳机挨着，而看起来最像播放声音的那个不是声音。 */
+.reader-tools {
+  /* 右下：贴着正文栏的右外沿，落在底部状态条上方 */
+  bottom: 3.4rem;
+  right: max(1.1rem, calc(50% - var(--read-col, 1113px) / 2 - 4.6rem));
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.reader-tools button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  width: 3.4rem;
+  padding: 0.5rem 0.2rem;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--fg);
+  font-size: 0.72rem;
+  line-height: 1.1;
+}
+
+.reader-tools button + button { border-top: 1px solid var(--line); }
+.reader-tools button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.reader-tools button:disabled { opacity: 0.35; }
+/* 自动阅读、朗读、书签是**有状态**的。看不出开没开就只能靠试 */
+.reader-tools button.on { background: var(--accent); color: var(--on-accent); }
+
+/* 设置浮层挨着左轨的「设置」那一格，别飘到屏幕中间去 */
+/*
+ * 阅读设置浮层。**贴着正文栏的左上角**，不是贴窗口左上角——
+ * 同目录那条（用户：「都该在书的显示界面内显示」）。
+ * 原来是 `left: 5.2rem`，宽屏上它飘在正文左边几百像素的空桌子上。
+ */
+.reader-panel {
+  /*
+   * **贴着右下角那排键**，和 `.reader-pop`（书内搜索 / 书签划线 / 评价）
+   * 同一套锚点——用户的原话是「阅读、朗读的 modal 应该都贴着右下角按钮栏，
+   * 而且别覆盖了」。
+   *
+   * 原来它钉在正文栏的**左上角**（`top: 2.6rem`），而「朗读」那个键在**右下角**：
+   * 点一下，东西从对角线另一头冒出来。设置那个键虽然在左轨，但它开的是同一个
+   * 浮层——两个入口一个浮层，位置只能有一个，那就跟着**最常用的那个**走。
+   *
+   * `right` 算到正文栏外沿：右边那排键在栏外面（1600 宽时栏右沿 1357、
+   * 键在 1374–1430），所以**贴着栏边就不会盖住键**。
+   */
+  position: absolute;
+  bottom: 3.4rem;
+  right: var(--pop-right);
+  z-index: 6;
+  /*
+   * **19rem 不是 15rem。** 15rem 下那六项排版设置只能一行一个，浮层高 556px、
+   * 占掉 900 高窗口的六成，而六行长得一模一样（字号和「顶部留白」等重）。
+   * 加宽之后它们两列排得下，高度当场砍掉一小半——**宽比高值钱**：
+   * 这个浮层是贴着轨开的，横向有的是空地，纵向再高就要滚了。
+   */
+  width: 19rem;
+  /*
+   * ⚠️ **封顶再滚。** `anchor.ts` 夹得住这个浮层开在哪儿，**夹不住它多高**——
+   * 纸色那排色块和字体那排芯片加进来之后它是 724px，而窗口下限只有 520
+   * （`main.ts` 的 minHeight）。不封顶就是直接掉出屏幕，
+   * 而这个浮层里最要紧的那几项（阅读方式、自动滚）正好在最底下。
+   * 判据抄 `.rate-pop` 那条。
+   */
+  max-height: calc(100% - 4rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  /* **封顶再滚。** 朗读那一层有三组十来行，量到 608px 高——1280×720 下
+     离状态条只剩 28px，再多一行（音调只在系统语音时出现、定时跑起来还多一行）
+     就撞上去了。9rem 让开顶上那 2.6rem 和底下的状态条 */
+  max-height: calc(100% - 9rem);
+  overflow-y: auto;
+}
+
+
+/*
+ * **正文永远避开两条轨。**
+ *
+ * 两条轨是 `position: absolute` 浮在上层的。宽屏上正文栏（`--read-width`）
+ * 收在中间、两边大片留白，轨落在留白里，看不出问题；
+ * 而 1280 宽的笔记本上正文栏占满可用宽度，**轨就直接压在字上**——
+ * 实测「上一章 / 下一章」那两格盖掉了两行正文的开头。
+ *
+ * 所以左右内边距不能是固定的 1rem，要至少留出轨的宽度：
+ * 左轨 3.4rem + 1.1rem 边距，右轨 2.4rem + 1.1rem，取宽的那边对称留。
+ */
+.reader-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--read-pad) var(--rail-clear) 6rem;
+}
+
+/*
+ * **两边都留出滚动条的位置——只给滚动模式。**
+ *
+ * 滚动条只占右边的话，居中的那张纸会被往左推半条（实测 5px），
+ * 而底部状态条不在这个滚动容器里、按整幅居中——于是「第 N / M 章」
+ * 和纸的左沿差 5px。`both-edges` 让两头对称，纸回到整幅正中。
+ * 顺带治另一件事：章节长短不一、滚动条时有时无，没有它正文会横向抖一下。
+ *
+ * ⚠️ **翻页模式不能给**：那边根本不竖向滚动，白留两条槽只会把正文栏
+ * 挤窄 20px（实测 1113 → 1093），反而和底栏对不上了。
+ */
+.reader-body:not(.page-mode) {
+  scrollbar-gutter: stable both-edges;
+}
+
+/*
+ * 窄到连轨带正文都摆不下时，两条轨改横排、落到正文下面。
+ *
+ * **它们从绝对定位退回正常流**，不是挪一挪坐标。`.reader-main` 本来就是纵向
+ * flex，`order` 就够把它们排到正文和状态条之间——高度由内容自己撑，
+ * 谁也压不到谁。
+ *
+ * 之前是四个手调的常量互相咬着：轨 `bottom: 2.6rem`、右轨 `6.2rem`、
+ * 设置浮层 `9.6rem`、正文 `padding-bottom: 9rem`。
+ * 任何一条的高度一变——多一个按钮、字号大一点——上面三层全错位，
+ * 而错位的表现是「轨盖住了状态栏」：进度拖不动、翻页模式下页也翻不了
+ * （这个 bug 真出过，第一版把轨放在 `bottom: 0.8rem` 整条盖住了 `.reader-foot`）。
+ * 交给正常流之后这类事故没有发生的余地。
+ */
+@media (max-width: 900px) {
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 24px;
+    height: 24px;
+  }
+
+  /*
+   * **正文净化那张表：窄窗口收掉「正则」列。**
+   *
+   * 三列挤在 760px 里的时候，被压扁的是「说明」——而那一栏才是普通人
+   * 判断该不该开这条规则的依据（「不动『（全文完）』，那是作者写的结尾」）。
+   * 正则是给会写规则的人看的，而且**它本来就在 title 里**，鼠标停上去看得全。
+   * 走查在 760 和 900 上各报了两条「最后一行只剩一个字」，全在说明那一栏，
+   * 1024 上一条都没有——挤出来的毛病，给它地方就好了。
+   */
+  .clean-pattern {
+    display: none;
+  }
+
+  /* 轨不在两侧了，正文左右不用再让——**改这一个变量，滚动和翻页两个模式一起跟上** */
+  .reader-body { --rail-clear: 1rem; }
+
+  .reader-rail,
+  .reader-tools,
+  .reader-panel {
+    position: static;
+    align-self: center;
+    transform: none;
+    max-width: 100%;
+  }
+  .reader-rail,
+  .reader-tools { flex-direction: row; }
+  .reader-rail button + button { border-top: 0; border-left: 1px solid var(--line); }
+  .reader-tools { padding: 0.4rem 0; }
+
+  /*
+   * ⚠️ **窄屏这套是竖向排的，两条轨会被上面的浮层挤扁。** 量出来（760×520）：
+   * 浮层全关时轨的键是 54×50，开排版浮层剩 54×26，开朗读那一层只剩 **54×23**
+   * ——低于 24×24 那条最小点击目标，走查当场报「点击目标偏小且挨得近」。
+   *
+   * 挤的是 flex 收缩，所以判据是**别让它们收缩**：够大就不用去谈间距豁免
+   * （同「书库文件夹」那批复选框窄屏直接给 24×24 那条）。
+   * 让出来的地方由正文那一栏出——它本来就自己滚。
+   */
+  .reader-rail,
+  .reader-tools { flex-shrink: 0; }
+  .reader-rail button,
+  .reader-tools button { min-height: 2.2rem; }
+
+  /* 浮层在流里就是一段面板了，别让它把正文顶出屏幕 */
+  .reader-panel { width: min(22rem, 100%); max-height: 60vh; overflow-y: auto; }
+
+  /*
+   * ⚠️ **两个绝对定位的浮层也要跟着窄屏改，不然它们盖住的正是刚排到下面的那两条轨。**
+   * `.toc`（挂在 `.reader` 上）和 `.reader-pop`（挂在 `.reader-main` 上，那条规则
+   * 在这个文件里有两处，第二处给了它 `position: relative`）宽屏时靠 `left` / `right` 让开两侧竖轨、
+   * 靠 `bottom: 3.4rem` 让开状态条。**窄屏这两条前提都不成立**——轨已经排进流里贴着底。
+   * 量出来（760×520）：`.toc` 横跨 x∈[112, 670]、纵向一直到离底 54px，
+   * **把「目录」那个键本身盖住了**（Esc 和点一条章节还出得来，所以是死胡同不是死锁）。
+   *
+   * **不能照 `.reader-panel` 那样改成 `position: static`**：`.toc` 是 `.reader` 这条 flex
+   * **行**的子元素，static 之后就退回成一条挤占正文的侧栏——而它当初改成浮层，
+   * 正是因为那条侧栏把 1280 上的正文压到 40 字一行。所以留在浮层，
+   * 只把「让开两侧和底部」的 inset 换成「让开顶部、自己封顶高度」。
+   * （`width: auto` 是给 `.reader-pop` 的：它本来写死 `width`，left+right+width 三条一起
+   * 就过约束了，浏览器会把 `right` 丢掉。）
+   *
+   * ⚠️ **`audit.mjs` 量不到这一类**：它查溢出、裁切、点击目标、对比度、孤字，
+   * 没有一条查「浮层盖住了控件」——那五个分辨率全 0 不构成反证。
+   */
+  /*
+   * ⚠️ **选择器要带上 `.reader` 那一层，不是为了好看，是为了赢层叠。**
+   * `.reader-pop` 的基础规则排在这个 media 块**后面**（它在文件更下面），
+   * 同特异度时后来者赢——写成裸 `.reader-pop` 的话，我这儿的
+   * `bottom` / `right` / `width` / `max-height` 全部不生效，只有基础规则没声明的
+   * `top` 和 `left` 漏进来。第一版就是这样，量出来「没盖住」是
+   * **过约束碰巧解对了**，不是规则起了作用——下一个人动一下基础规则就散。
+   */
+  .reader .toc,
+  .reader .reader-pop {
+    top: 2rem;
+    bottom: auto;
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+    max-height: 60vh;
+  }
+
+  /* DOM 顺序是 轨→工具→浮层→正文→状态条，这里排成 正文→浮层→工具→轨→状态条 */
+  .reader-body { order: 0; }
+  .reader-panel { order: 1; }
+  .reader-tools { order: 2; }
+  .reader-rail { order: 3; }
+  .reader-foot { order: 4; }
+}
+
+/*
+ * 无限下滑：一章一张纸，往下摞。中间留一条缝——**章节交界看得见**才知道
+ * 自己翻篇了，而这个模式下底栏那个章号是唯一的另一个信号，滚动时没人盯着它。
+ */
+.reader-body.flow-mode .reader-text + .reader-text {
+  margin-top: 1.1rem;
+}
+
+/* 正文那一栏：比页面底色浅一层，两边留白靠 margin 居中。
+   `--read-width` 的单位是 em，所以要在这里定住 font-size，否则它按 16px 解析 */
+.reader-body:not(.page-mode) .reader-text {
+  font-size: var(--read-size);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 2.4rem clamp(1rem, 4vw, 3rem) 3rem;
+  /*
+   * **纸至少要有一屏高。** 短章节在 2560×1440 上只占屏幕上面三分之一，
+   * 剩下一大片空桌子——「桌上放着一张纸」这个模型当场就断了，看起来像
+   * 内容没加载完。一屏以内的章节铺满，长章节照常往下长。
+   *
+   * ⚠️ **是 `100%` 不是 `calc(100vh - …)`。** 原来写的是
+   * `calc(100vh - var(--read-pad) * 2 - 6rem)`，两个错凑在一起：
+   *   - `--read-pad` 只喂给上面那条 padding 的**第一格**（下边是写死的 6rem），
+   *     这里却按上下各一份算，多减了一份；
+   *   - 状态条那 41px 压根没减，是被多减的那份 pad 碰巧顶掉的。
+   * 默认 pad=2rem 时两个错差 9px，看不出来；实测把「顶部留白」拉到上限 8rem，
+   * 纸比可视区**矮 73px**，底下露出一条桌面色——正是这段注释说要防的那个症状。
+   * 拉到 0 则反过来高 41px，短章节凭空多出一段滚动。
+   *
+   * `100%` 直接按 `.reader-body` 的内容盒算，状态条、padding、窗口高度
+   * 全都不用自己再算一遍。三个 pad 值（0 / 2 / 8rem）实测误差都是 0。
+   */
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+/*
+ * ⚠️ **「纸至少一屏高」只留给最后一张。**
+ *
+ * 上面那条是为「短章节别只占屏幕上面三分之一」加的，而无限下滑时窗口里有好几张纸：
+ * 每张都撑到一屏的话，一段两千字的章节后面就凭空多出大半屏空白——
+ * 滚下去是一片空桌子，看起来像内容没加载完，正是那条规则本来要治的毛病。
+ * 最后一张照旧撑满，所以「桌上放着一张纸」在底部仍然成立。
+ */
+.reader-body.flow-mode .reader-text:not(:last-of-type) {
+  min-height: 0;
+}
+
+/*
+ * **右轨点出来的东西，落在正文栏的右下角。**
+ *
+ * 用户的原话：「阅读界面的右下角点击，出现的 modal 就应该在右下角的阅读区域，
+ * 比如搜索、书评等。」原来三个各在各的地方：书内搜索在**右上角**、
+ * 评价卡片 sticky 在正文**顶上**、书签与划线是**全屏居中**的对话框——
+ * 而点它们的那三个键都在右下角。手在右下，东西从左上冒出来。
+ *
+ * 位置和右轨用的是同一条算式（贴着正文栏，不贴窗口边），只是它们在栏**里面**、
+ * 轨在栏外面的空档里，所以不会打架。`bottom` 让开底部状态条。
+ */
+.reader-pop {
+  position: absolute;
+  bottom: 3.4rem;
+  right: var(--pop-right);
+  width: min(26rem, calc(100vw - 10rem));
+  max-height: min(60vh, 26rem);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  z-index: 6;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+
+/* 书签与划线是个真的对话框（有遮罩、点外面关掉），**只把盒子挪到右下**，
+   遮罩那套行为一个字不动——它是「点外面就关」的唯一实现 */
+.reader .modal-backdrop {
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding-bottom: 3.4rem;
+  padding-right: var(--pop-right);
+}
+
+
+/*
+ * **阅读器里冒出来的东西，一律收在正文栏里，不铺满窗口。**
+ *
+ * 用户的原话：「阅读界面的所有 modal 都应该在阅读区域，而不是全视图。
+ * 比如我刚才打开评价，又变成全视图的了。」
+ *
+ * 两类都要管，它们的病因不一样：
+ *
+ *   - **`.reader-body` 里那几张 sticky 卡片**（评价、划线、点开的笔记）——
+ *     它们是 `.reader-body` 的直接子元素，而那一层是**整个窗口宽**；
+ *     纸（`.reader-text`）只占中间一栏、靠 `margin: 0 auto` 居中。
+ *     于是卡片从左边缘一直铺到右边缘，比它压着的那张纸宽出一大截。
+ *   - **从阅读器打开的对话框**（书签与划线）——它是全屏 `.modal-backdrop`
+ *     居中的，1920 下有一千多像素宽，而你正在读的那一栏只有 1113。
+ *
+ * ⚠️ **宽度用 `--read-col`（像素）不能用 `--read-width`（em）**：后者只有在
+ * 正文那一栏上算才对，别的元素拿它做 calc 会按**自己的字号**解析，
+ * 得出一个不相干的数（本文件为底栏那条记过同样的坑）。
+ */
+.reader-body > .card {
+  max-width: min(var(--read-col, 1113px), 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/*
+ * 对话框只封顶宽度，**位置交给上面那条遮罩的 `flex-end`**。
+ *
+ * ⚠️ 这里原来也写着 `margin-right: auto`，而在 flex 容器里
+ * **auto margin 先把剩余空间吃光，`justify-content` 就说了不算**——
+ * 于是「书签与划线」右边缘落在 1046 而正文栏右边是 1357，差了 311px，
+ * 看着像定位算错了，其实是两条规则在抢同一件事。
+ */
+.reader .modal {
+  max-width: min(var(--read-col, 1113px), 100%);
+}
+
+
+/* 左右翻页：用 CSS 多列做分页，一「页」就是一列。
+   容器高度固定、横向不滚，靠 translateX 位移换页——
+   比自己算行高分页可靠得多，字号行距一变也不用重算。 */
+/*
+ * 左右翻页：一页 = CSS 多列里的一列，靠 translateX 换列。
+ *
+ * **容器的内容盒必须正好一列宽**，这是这套东西成立的前提：
+ * 原来容器左右各留 2rem，可视区约 1000px，而 `.reader-text` 被
+ * `max-width: var(--read-width)` 收在 38em（约 684px）——于是
+ *   ① 可视区比一列宽，相邻那列永远露出来一截（看起来「两页都在」）；
+ *   ② JS 的位移用的是 `clientWidth + gap`（1064），实际列距却是 684+64=748，
+ *      越翻越错位，还会跳过内容。
+ * 把左右内边距撑成 `(100% - 一列宽) / 2`，内容盒就正好是一列，
+ * 「一列 = 一屏」成立，`clientWidth + gap` 也就是真正的列距了。
+ *
+ * `font-size` 要跟着 `--read-size`：`--read-width` 的单位是 em，
+ * 不设的话它在容器上按 16px 解析、在文本上按 --read-size 解析，两边算出来不一样。
+ */
+.reader-body.page-mode {
+  /*
+   * **左右留白只算一次**，padding 和 clip-path 都用它——抄成两份的话，
+   * 改了一处另一处就悄悄错位。
+   * **下限是 5.2rem 不是 2rem**：这条 padding 简写会盖掉上面 `.reader-body` 的，
+   * 写 2rem 的话翻页模式下轨照样压在字上——1200 的窗口算出来只有 43.5px，
+   * 而左轨要 72px。滚动模式修好了、翻页模式还坏着，是最难发现的一种「修好了」
+   */
+  --page-gutter: max(var(--rail-clear), calc((100% - var(--read-width)) / 2));
+
+  overflow: hidden;
+  font-size: var(--read-size);
+  padding: var(--read-pad) var(--page-gutter) 6rem;
+
+  /*
+   * **`overflow: hidden` 裁的是 padding 盒，不是内容盒。**
+   *
+   * 而上面那行左右 padding 正是给工具轨让出来的地方——于是多列布局里
+   * 「下一页」那一列**从右边的 padding 里漏出来**：实测 1440 宽下有 83px 宽的
+   * 一条竖排残字（远/钟/散/处）压在右轨的按钮上。滚动模式没有横向溢出，
+   * 所以只有翻页模式坏，很难注意到。
+   *
+   * **不能改用 `overflow: clip` + `overflow-clip-margin: content-box`**——
+   * 那样 `.reader-body` 就不再是滚动容器，`flex: 1` 不再把它夹到可视高度，
+   * 它会长到内容那么高（实测 859 → 1611px），`.reader-text` 的 `height: 100%`
+   * 跟着变高，整章塞进**一列**，页数永远算成 1。翻页模式当场失效。
+   * 所以保留 hidden，另外拿 clip-path 把两边的白边裁掉。
+   */
+  clip-path: inset(0 var(--page-gutter));
+
+  /*
+   * **纸色画在这一层，不是画在 `.reader-text` 上。**
+   *
+   * 滚动模式的纸是 `.reader-body:not(.page-mode) .reader-text` 那条给的，
+   * 而翻页模式**整条选择器都被排除掉了**——于是正文直接落在桌面色上，
+   * 「桌上放着一张纸」这个模型只在滚动模式成立。主题那两条判据
+   * （正文对比度、桌/纸明度差 1.5–12，`builtin-themes.test.ts` 钉着）
+   * 量的是颜色本身，量不到「这两个颜色有没有真的同时出现在屏幕上」。
+   *
+   * 不能画在 `.reader-text` 上：它是那根多列的长条，翻页靠 `translateX`
+   * 位移它——背景会跟着一起横着滑走。这一层是固定的，而且 `clip-path`
+   * 正好把它裁成一页宽，画出来就是当前这一页的纸。
+   */
+  background: var(--panel);
+}
+/*
+ * **纸铺满之后，浮在正文上的那几张卡就没有底了。**
+ *
+ * `.reader-body` 里有三张 `position: sticky` 的 `.card`（划线配色、笔记、
+ * 读完记一句），它们的底色也是 `--panel`。滚动模式下它们落在桌面色上，
+ * 一眼看得出是浮层；翻页模式把整层刷成纸色之后，卡和背景同色，
+ * 只剩 1px 边框——而「读完记一句」一本书只出现一次，错过就没了。
+ * 换成桌面色，纸和桌的角色对调。**这一下换出来的是「正文色压在桌上」**——
+ * 而 `builtin-themes.test.ts` 原来量的全是「压在纸上」（fg vs panel），
+ * 桌纸明度差那条只管 bg 和 panel 差多少。这条注释一度写着「钉着」，
+ * 其实当时没有任何断言管它；现在那份测试里补了一条专门量 fg vs bg 的，
+ * 十张纸都在 4.5–15 之间。
+ */
+.reader-body.page-mode > .card {
+  background: var(--bg);
+}
+.reader-body.page-mode .reader-text {
+  /* 容器已经收到一列宽了，这里再收一次会让列比可视区窄，右边又露出缝 */
+  max-width: 100%;
+  height: 100%;
+  columns: 1;
+  column-gap: 4rem;
+  column-fill: auto;
+  transition: transform 0.18s ease-out;
+}
+/* 系统开了「减少动态效果」：翻页直接换页，不做位移动画（判据同 settings.ts 的 滚动方式） */
+@media (prefers-reduced-motion: reduce) {
+  .reader-body.page-mode .reader-text { transition: none; }
+}
+
+/*
+ * 屏幕外的段落交给浏览器跳过布局和绘制。
+ *
+ * 起因：解析再准，也总有个别章特别大（这个库里 78 章超过 1MB，最大的一章
+ * 171 万字 / 4.3 万段）。一次性铺进 DOM 实测**卡死 20 秒**——不是慢，是整个界面冻住。
+ * `content-visibility: auto` 让浏览器只对进入视口附近的段落做布局和绘制，
+ * DOM 节点照建（几万个 <p> 只要几百毫秒），省掉的是那 20 秒的排版和栅格化。
+ *
+ * `contain-intrinsic-size` 给未布局的段落一个高度估值，没有它滚动条会疯狂跳动。
+ * **只在滚动模式下开**：左右翻页靠 CSS 多列分页，而多列必须先把整章排完才知道有几列，
+ * 跳过布局会让页数算不出来。
+ */
+.reader-body:not(.page-mode) .reader-text p {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3em;
+}
+
+.reader-text {
+  max-width: var(--read-width);
+  margin: 0 auto;
+  font-size: var(--read-size);
+  /* 字体只作用于正文。界面其余部分不跟着变——把按钮菜单换成宋体只会更难认 */
+  font-family: var(--read-font, inherit);
+  /*
+   * **字重写死 400，不给用户调。**
+   *
+   * 在真实正文上量过（21px，五个字体各三档字重，量「每字宽」和「墨量」＝
+   * 平均暗度百分比，见 AGENTS.md）：随包发布的 HarmonyOS Sans SC 在 Regular
+   * 就有 **11.4% 墨量**，是四个黑体里 Regular 最重的一个，已经落在别家
+   * Medium 的下沿（MiSans 12.1 / 阿里 12.7 / 思源黑 13.2）。
+   * 它自己的 Medium 是 13.2——一整页那么重就吵了。
+   *
+   * 所以这个字重是**选好的不是留给用户选的**：默认就对，也省下再打包一个
+   * 8.2 MB 的 Medium。
+   */
+  font-weight: 400;
+  line-height: var(--read-line);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/*
+ * 正文里的插图。**宽度跟着正文栏走、不许撑破**，高度自适应——
+ * 那些图的原始尺寸是网站排版用的，直接放出来会横着顶出纸面。
+ */
+.para-img {
+  text-indent: 0;
+  text-align: center;
+  margin: 1.2em 0;
+}
+
+.body-img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+
+.reader-text p {
+  margin: 0 0 var(--read-para);
+  text-indent: var(--read-indent);
+}
+
+/* 书内搜索面板 */
+/* 书内搜索：位置和别的右轨浮层共用 `.reader-pop`，这里只剩它自己的那点差别。
+   原来是 `top: 3.2rem; right: 1rem`——右上角、还贴着窗口边而不是正文栏 */
+.find-panel {
+  max-height: min(60vh, 30rem);
+}
+.find-hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.82rem;
+  color: var(--fg);
+}
+.find-hit:hover {
+  background: var(--bg);
+}
+.reader-text h2 {
+  font-size: 1.15em;
+  text-indent: 0;
+  margin: 0 0 1.2em;
+  text-align: center;
+}
+
+/*
+ * 底部状态条。**条本身通栏，但里面的东西收到正文栏那么宽。**
+ *
+ * 原来是 `padding: .4rem .9rem`——于是「第 N / M 章」贴在窗口最左、
+ * 「上一页 / 下一页」和百分比贴在最右，而正文栏在 1600 下只占中间 1113px：
+ * **翻页按钮离你正在读的那一栏几百像素**。和两条工具轨那次是同一个毛病
+ * （用户的原话：「应该在阅读主界面而不是全界面」）。
+ *
+ * 条的背景和那条分隔线仍然通栏——它是状态条，截断反而像块浮起来的板子。
+ * ⚠️ 用 `--read-col`（像素）不能用 `--read-width`（em）：后者在这个元素上
+ * 会按它自己的字号解析，算出个不相干的数。
+ */
+.reader-foot {
+  border-top: 1px solid var(--line);
+  padding: 0.4rem max(0.9rem, calc(50% - var(--read-col, 1113px) / 2));
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+/* 旧的那条 `input[type=range] { accent-color }` 删了：`accent-color` 只能染
+   浏览器默认的滑块，轨道仍是系统灰。上面 `.foot-range` 是整条自己画的 */
+
+
+/* 底部的翻页控件（只在左右翻页模式下出现）。
+   放底部而不是顶部工具栏：翻页是读的时候一直在用的高频动作，
+   手停在下面比每次抬到顶上顺手 */
+.pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+.pager-n {
+  min-width: 3.2rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums; /* 页码跳动时宽度不抖 */
+}
+
+
+/* 跟读高亮：正在朗读的那一段。
+   用 accent 兑出来的低透明底色，**十张纸色下都成立**——写死一个浅黄
+   在夜间纸和厚墨上会变成一条亮条。正文颜色一个字不动，只垫底色：
+   改字色会和划线（<mark>）打架，而划线是用户自己标的，优先级更高。 */
+.reader-text p.speaking {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 4px;
+}
+
+/*
+ * 弹窗底部的动作行——**粘住，别让人为了找「保存」滚半屏**。
+ *
+ * 量出来的：「编辑一本书」在 1280×720 下要往下滚 **449px** 才够得到「保存」，
+ * 而书名 / 作者 / 别名 / 分类 / 备注这几个字段**只在点保存时才落库**
+ * （阅读状态、评分、短评是即时生效的，那是另一回事）——不滚就关掉等于白改。
+ * 「设置」同理，要滚 368px 才看得到那个收尾的键（当时叫「完成」，现在叫「关闭」）。
+ *
+ * `audit.mjs` 量的是「弹窗超高且不能滚」，这两个都能滚，所以一路绿灯。
+ * 能滚不等于找得到，这是两条判据。
+ *
+ * `bottom` 取负值抵掉 `.modal` 自己的 padding-bottom，否则粘住之后
+ * 下面会露出一条正文从底下滑过去。
+ */
+.modal-actions {
+  position: sticky;
+  bottom: -1.1rem;
+  margin-top: 0.9rem;
+  padding: 0.6rem 0 1.1rem;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+
+/*
+ * 全库搜索结果那张表：**标签那一列会把作者挤扁。**
+ *
+ * 760×520 下量的：表宽 638，而标签列独占 373（58%），作者只剩 71px——
+ * 「某位名字也很长的作者」十个字塞不下，折成两行，最后一行只剩一个字
+ * （走查那条「最后一行只剩一个字」抓到的就是它）。
+ *
+ * 作者是**认书**用的（这个库里同名不同作者是常事），标签只是「为什么匹配上」，
+ * 挤掉作者去铺标签是反的。所以给标签列一个上限，让作者先够用；
+ * 作者再加 `text-wrap: balance`，真折两行也是匀开的，不会留一个孤字。
+ * 同「正文净化」窄屏收掉正则列那条：**挤的时候先保住判断要用的那一栏。**
+ */
+.search-meta td:nth-child(4) {
+  max-width: 14rem;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * 收成两行，多出来的用省略号。**加在一个普通 `<div>` 上**——
+ * 加在 `<td>` 上时 Chromium 把 `display: -webkit-box` blockify 成 `flow-root`，
+ * clamp 静默失效，那一格变成被硬切（见 `SearchPanel.tsx` 里那段）。
+ */
+.clamp2 {
+  /*
+   * **标签多的书会把一行撑成八行。** 760 下量到 21 个标签折八行，
+   * 而搜索结果最坏能有一千行（真实库上「的」1022 行），
+   * 行高一旦不齐，扫这份列表就变成了上下找。
+   * 收成两行，全文在 title 里——同 `.book-note` 那条：
+   * 一行装不下的用户数据一律 clamp 两行，别让它顶开版面。
+   */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/*
+ * 每一格都匀开。**先只给作者那一格加了 balance，结果问题挪到了书名上**——
+ * 作者宽了，书名也宽了，于是换成十九个字的长书名折出一个孤字。
+ * 中文在任意两个汉字之间都能断，这张表里没有一格是长篇正文，
+ * 匀开永远比留一个孤字好。
+ */
+.search-meta td {
+  text-wrap: balance;
+}
+
+
+/* 侧栏底部那个「更多 / 收起」：它是个开关，不是一档书架，所以压淡一点 */
+.nav-item.nav-more {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+
+/*
+ * PDF / EPUB 的内置查看器。**外壳和 txt 阅读器共用**（`.reader` / `.reader-rail` /
+ * `.reader-body` / `.reader-foot`），所以纸色、暗色、两条轨贴着正文栏那套定位
+ * 全都直接生效——这儿只补「内容怎么摆」这一件事。
+ */
+.reader-body.viewer-body {
+  display: flex;
+  /*
+   * ⚠️ **`flex-start` 不是 `center`。** 居中交给 `.viewer-stage` 自己的
+   * `margin: 0 auto`——效果一样，但**放大之后不一样**：一个居中的 flex 子元素
+   * 比容器宽时，溢出的左半边会跑到滚动区外面**永远够不着**（这是 flexbox 的
+   * 老坑）。`auto` 外边距在没有富余空间时自己归零，左沿正好贴着容器。
+   */
+  justify-content: flex-start;
+  align-items: flex-start;
+  /* 放大到超过一栏宽时横着也能滚。没溢出时 `auto` 不画滚动条，翻页那两档照旧 */
+  overflow-x: auto;
+}
+/*
+ * **连着往下滚那一档：一叠 canvas。**
+ * 每张纸自己 `margin: 0 auto` 居中；放大到比容器宽时 auto 归零、左沿对齐，
+ * 靠 `.viewer-body` 横向滚过去看右边（同上面那条 flexbox 的坑）。
+ * `max-width: none` 是必须的：`.viewer-page` 那条 `max-width: 100%`
+ * 会把放大后的宽度按回去，缩放当场失效。
+ */
+.viewer-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+}
+.viewer-stack .pdf-page {
+  max-width: none;
+}
+/* PDF 那张画布：按容器宽度铺，投影一层，看起来像一页纸——和 txt 那边
+   「桌上放着一张纸」是同一个模型 */
+.viewer-page {
+  max-width: 100%;
+  background: #fff;
+  box-shadow: 0 2px 14px rgb(0 0 0 / 14%);
+}
+/* pdf.js / epub.js 的落脚点。React 不碰它的孩子，见 FileViewer 里那段注释 */
+.viewer-stage {
+  /*
+   * ⚠️ **和 txt 正文栏一样宽，不是铺满整屏。**
+   *
+   * 用户的原话：「非 txt 的阅读界面最大宽度也应该和 txt 一致的，
+   * 毕竟它们都是同一个组件」。原来这儿是 `width: 100%`——2560 的屏上
+   * 一本 PDF 摊开一米宽，而旁边一本 txt 老老实实按「每行 53 字」收在中间。
+   * 同一个壳、同一条底部状态条，只有书本身两个规矩。
+   *
+   * `--read-col` 就是那一栏的**像素**宽度（`applySettings` 算好的
+   * `每行字数 × 字号`）。用它不用 `--read-width`（em）：后者在这个元素上
+   * 会按它自己的字号解析，算出来是个不相干的数——两条工具轨那儿栽过同一次。
+   */
+  width: 100%;
+  max-width: var(--read-col, 1113px);
+  margin: 0 auto;
+  min-height: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+/* 朗读引擎列表。**一行一个**——原来是一排 chip、点名字就删，
+   而用户的库里有 88 个：铺出来是一整片，既找不着也不敢点。
+   高度封顶 + 自己滚，免得这一节把设置页顶得老长 */
+.tts-list {
+  max-height: 15rem;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: .5rem;
+}
+
+.tts-row {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .25rem .45rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.tts-row:last-child { border-bottom: 0; }
+.tts-row:hover { background: var(--panel); }
+
+/* 名字占满剩下的地方，太长就省略号——引擎名有长到二十几个字的
+   （「AI思必驰中文-秋木 故事」那一族），换行会让每一行高矮不齐 */
+.tts-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .85rem;
+}
+
+/* 手填那张表。围起来是为了让「这几格是一件事」一眼看得出来 */
+.tts-form {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: .6rem;
+  margin-bottom: .6rem;
+}
+
+/* 浮层里的分组标题。**十来行控件平铺下来分不出主次**——
+   朗读那层：声音是一件事（换完要试听），节奏是另一件，定时是第三件；
+   设置那层：纸是一件事，字是一件，怎么读是一件。
+   ⚠️ 原来叫 `.tts-group`，而设置面板也要用它——**一个 class 两个名字必然分叉**，
+   所以改成中性的名字，两处都用这一个。 */
+.panel-group {
+  margin: .45rem 0 .3rem;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: .5rem;
+}
+.panel-group:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
+
+/* 定时那一排快捷键。**一下点中最常用的那档**——躺着按的时候，
+   展开一个下拉再挑一项是三步 */
+.tts-timer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+}
+
+.tts-timer button {
+  padding: .18rem .5rem;
+  font-size: .78rem;
+  line-height: 1.5;
+}
+
+/* 选中的那一档要看得出来，不然按完不知道按没按上 */
+.tts-timer button[aria-current='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/*
+ * 排版那几项：**两列**。
+ *
+ * 它们原来是六行「标签 值 [−][＋]」，一行一个、长得一模一样——
+ * 六行里只有「字号」和「行距」是天天动的，「顶部留白」大概一辈子调一次，
+ * 而版面上它们完全等重。两列排下来高度砍掉一半，节奏也断开了
+ * （同一行的两项是一对：字号↔行距、缩进↔段距）。
+ *
+ * 「每行」不进这个网格：它后面挂着一句「约 1484px」，是唯一双高的一项，
+ * 塞进格子会把那一整行撑高。它自己占满一行，反而读得出「这一项不一样」。
+ */
+.step-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .15rem .5rem;
+}
+.step-grid > .row { min-width: 0; }
+/* 两列之后每格只有约 130px，加减键要收紧一点才放得下标签 */
+.step-grid button { padding: .12em .4em; }
+
+
+/*
+ * 调色那三个色块：**色块底下写名字**。
+ * 原来只有 `title`，要挨个悬停才知道哪个是纸哪个是字——而这三样改错一个，
+ * 整页正文当场看不清（黑底黑字那种）。
+ */
+.swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .12rem;
+}
+.swatch input[type="color"] { width: 2.1rem; height: 1.3rem; padding: 0; }
+.swatch span { font-size: .68rem; line-height: 1; }
+
+/*
+ * 朗读面板顶上那个**播放器**。
+ *
+ * 它取代的是一个「开始/停止」双态大按钮——那个按钮之外，念起来之后
+ * 界面上再没有第二个可以按的东西，也说不出念到哪儿了。
+ */
+.voice {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+.voice-keys {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+}
+/* 上一段/下一段是图标键，收窄一点，把宽度让给「暂停/继续」 */
+.voice-keys button { padding: .3em .5em; }
+.voice-keys button svg { display: block; }
+.voice-keys .primary { flex: 1; }
+.voice-at {
+  font-size: .72rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  flex: none;
+}
+
+/*
+ * **声线**：这一章是这条线，念过的部分填上，头上一个点。
+ *
+ * 这是这次唯一花掉的那点「胆量」，而它编码的是真事
+ * （`tts.at.from / 整章字数`），不是装饰。颜色只用 `--accent` 和 `--line`——
+ * 这个阅读器有十张纸加夜间，任何写死的颜色都会在某一张上出事。
+ */
+.voice-line {
+  position: relative;
+  height: 3px;
+  /* 两头留出半个点的位置：0% 和 100% 时那个点会有一半探到轨道外面去 */
+  margin: .1rem 4px;
+  border-radius: 2px;
+  /*
+   * ⚠️ **不能用 `--line`。** 那是分隔线的颜色，浅到几乎看不见——
+   * 而这条线在 0% 时**只剩轨道**，看不见就等于这个组件不存在。
+   * 用正文色兑出来的 18%：十张纸加夜间上都成立。
+   */
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
+}
+.voice-line::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--voice, 0%);
+  border-radius: 2px;
+  background: var(--accent);
+}
+/* 头上那个点：**光有一条填充线看不出「正在动」**，一个点能盯得住 */
+.voice-line::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: var(--voice, 0%);
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+/* 正在念的那一句。**一行，截断**——它是提示不是正文，正文在后面那张纸上 */
+.voice-say {
+  display: flex;
+  align-items: baseline;
+  gap: .4rem;
+  min-width: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+/* 正在念的那一句：**一行，截断**——它是提示不是正文，正文在后面那张纸上 */
+.voice-text {
+  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 评价卡片。**它是压在这张纸上的一张便条**——所以那个输入框用的是正文
+ * 那套字体和字号（`--read-font` / `--read-size`），写出来的字和读的字长一个样。
+ * 这是这次唯一一处刻意的字体选择，别处一律界面字体、小号。
+ */
+.review-pop {
+  display: flex;
+  flex-direction: column;
+  gap: .45rem;
+  /* 原来 415px 宽、短评是个 200px 的单行框。一句短评值一个看得全的框 */
+  width: min(26rem, calc(100vw - 8rem));
+}
+.review-head { font-size: .92rem; }
+.review-say {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--read-font, inherit);
+  /* 比正文小一号：它是便条不是正文，但要一眼看出是同一支笔写的 */
+  font-size: max(.9rem, calc(var(--read-size, 1rem) * 0.8));
+  line-height: 1.6;
+}
+.review-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  font-size: 0.75rem;
+}
+/* 那句提示可以被挤没，两个键不能——**它是提示，键是出口** */
+.review-foot .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-foot .row { flex: none; }
+/* 「不用了」是会丢字的那个键，**不能和「记下来」等重** */
+.quiet {
+  background: none;
+  border-color: transparent;
+  color: var(--muted);
+}
+.quiet:hover { border-color: var(--line); color: var(--fg); }
+
+/*
+ * 划线笔记：**贴着那条划线开**，不是钉在正文栏顶端。
+ *
+ * 原来它是 `position: sticky; top: 0` 而且在文档流里——一条写在某一段上的批注
+ * 弹在半屏之外，还会把正文整体往下推：点的是屏幕下方的一处划线，
+ * 正在读的那一段却动了。
+ *
+ * 挂在 `.reader-main` 上（不在 `.reader-body` 里）：翻页模式下 `.reader-body`
+ * 带着 `clip-path`，会连着裁掉所有后代。坐标点的时候算一次，正文一滚就收掉。
+ */
+.note-pop {
+  position: absolute;
+  z-index: 7;
+  max-width: min(24rem, 60vw);
+  padding: .5rem .6rem;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+  /* 左边一条竖线，指回它属于的那句话——**它是批注，不是又一个浮层** */
+  border-left: 3px solid var(--accent);
+  /* 纸和卡片的底色几乎一样，不托一下就糊在正文里 */
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+.note-say {
+  margin: 0;
+  font-family: var(--read-font, inherit);
+  font-size: max(.86rem, calc(var(--read-size, 1rem) * 0.76));
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.note-keys {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .4rem;
+}
+
+
+/*
+ * 分类弹窗。**左边问什么，右边圈到了谁。**
+ *
+ * 原来这儿只有五行「标签 + 控件」，底下一句「圈中 12 本」——而 12 本对不对，
+ * 光看数字永远不知道：圈错 12 本和圈对 12 本长得一模一样。
+ * 而分类的全部价值就在「这条规则捞上来的是不是我想的那一堆」。
+ */
+.cat-modal { max-width: 46rem; }
+
+.cat-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 15rem);
+  gap: .9rem;
+  /* **右栏撑满左栏的高度**，不是顶在上面。`start` 的时候右边是个矮盒子、
+     底下空一大片，读起来像个浮在角上的提示，而不是这个弹窗的另一半 */
+  align-items: stretch;
+}
+/* 窄屏叠成一列。**阈值和这个应用其它地方那条一致**（两条工具轨也在这儿改横排） */
+@media (max-width: 900px) {
+  .cat-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.cat-rule {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  min-width: 0;
+}
+
+/*
+ * 一行条件：**标签在上、控件在下**，不是左右对开。
+ *
+ * 左右对开时右边那一栏是定宽 14rem，而标签芯片有二十几个——它们在一个
+ * 14rem 的格子里裹成一团，而左边的「标签」两个字旁边空着一大片。
+ * 竖着排，芯片能用满整行。
+ */
+.cond {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  min-width: 0;
+}
+.cond-label {
+  font-size: .82rem;
+  color: var(--muted);
+  display: flex;
+  align-items: baseline;
+  gap: .4rem;
+}
+/* 「选几个＝任意一种」这类说明跟在标题后面：**它解释的是这一行的语义**，
+   而标签的「同时带」和格式的「任意一种」正好相反，不说清就会用错 */
+.cond-hint { font-size: .72rem; opacity: .8; }
+.cond-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+  /* 标签多的库这一组会很长，封顶再滚——同 `.rate-pop` 那条 */
+  max-height: 7.5rem;
+  overflow-y: auto;
+}
+.cond > input,
+.cond > select { width: 100%; }
+
+/*
+ * 右边这一栏。**这是这次重做的全部理由**：把一个数换成一群书。
+ */
+.cat-hit {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: .6rem .7rem;
+  /*
+   * ⚠️ **不铺底色。** 原来这儿是 `color-mix(--accent 5%, transparent)` —— 一层几乎看不见的
+   * 强调色水印，纯装饰。走查当场报「对比度 1.02」：`color-mix` 出来的是**带 alpha 的颜色**，
+   * 而取色器只读前三个通道，它看到的是**纯强调色**。
+   *
+   * 就算那是误读，这层水印也本来就不该有——这一栏靠边框和位置已经分得清了，
+   * 而它换来的是一条永远红的走查。Chanel 那条：出门前摘掉一件。
+   */
+  min-width: 0;
+  /* 撑满之后里面自己分层：标题固定，名单占剩下的高度并且可以滚 */
+  display: flex;
+  flex-direction: column;
+  min-height: 8rem;
+}
+.cat-hit-head {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: .4rem;
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.cat-hit-say { margin: .2rem 0 0; font-size: .78rem; line-height: 1.5; flex: none; }
+.cat-hit-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  /* 名单占满剩下的高度、自己滚——**多列几本比留一片空白有用** */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.cat-hit-list li { min-width: 0; }
+/* 书名一行、截断——这是**认出是哪本书**用的，不是读的 */
+.cat-hit-title {
+  display: block;
+  font-size: .85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-hit-by {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .72rem;
+  color: var(--muted);
+}
+/* 格式角标：**这一栏本来就是为了「按格式筛」加的**，看得见格式才验得出规则对不对 */
+.cat-hit-ext {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 .25em;
+  font-size: .65rem;
+  letter-spacing: .02em;
+}
+
+/*
+ * 纸色那一排色块。**一张纸是什么样，名字说不清**——
+ * 「羊皮纸」「护眼」「legado 淡青」这些词只有见过的人才知道指哪个颜色，
+ * 而下拉收起来的时候一格颜色都不显示。
+ */
+.paper-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+.paper-dot {
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border-radius: 50%;
+  /*
+   * ⚠️ **边框用当前界面的 `--muted`，不是这张纸自己的 `--line`。**
+   *
+   * 原来是把每张纸的 `line` 直接当边框（`ReadSettings.tsx` 里内联给的）。
+   * 深色那几张没问题，**浅色纸就整颗消失**：一张浅色纸的 `line` 压在同样浅的
+   * 面板上——当场量的对比度 **1.27:1**（日间）/ 1.39（书斋-白天）/ 1.48（羊皮纸），
+   * 而 WCAG 1.4.11 对「非文字的界面元素边界」要求 **3:1**。
+   * 屏幕上看到的就是：十颗里有六颗只剩一圈若有若无的痕。
+   *
+   * `audit.mjs` 抓不到这一类——它量的是**文字**对比度，边框不在它眼里。
+   * 换成 `--muted`（它是文字色，对面板天生 ≥4.5:1）之后量到 5.9:1。
+   * 纸自己的颜色照旧由 `background` 显示，边框只负责「这里有一颗」。
+   */
+  border: 1px solid var(--muted);
+  font-size: .85rem;
+  line-height: 1;
+  /* 对勾画在纸自己的字色上——**深色纸上是浅勾，浅色纸上是深勾**，
+     不用为夜间那几张另写一条 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.paper-dot[aria-pressed="true"] {
+  /* 选中的那一颗围一圈强调色，而**不是**换底色——底色是这张纸本身，换掉就看不见了 */
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.paper-dot:hover { box-shadow: 0 0 0 2px var(--line); }
+.paper-dot[aria-pressed="true"]:hover { box-shadow: 0 0 0 2px var(--accent); }
+
+/*
+ * 字体那一排。**每个芯片用它自己的字渲染**——下拉的 `<option>` 上写 `fontFamily`
+ * 收不到效果，于是十二个字体名长得一模一样，只能选一个、关掉、看一眼、再回来换。
+ */
+.font-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+  /*
+   * ⚠️ **这里原来封顶再滚（`max-height: 5.5rem; overflow-y: auto`），已经去掉。**
+   *
+   * 当时的理由是「整个浮层加上色块那两排之后已经 748px 高（视口 900），
+   * 再往上涨就要挤到屏幕外面去」——**那个前提今天不成立了**：
+   * `.reader-panel` 自己已经限高并且 `overflow-y: auto`，实测 1280×720 下
+   * 内容 754 / 可视 575、**顶出屏幕 0 像素**。它涨它的，面板自己会滚。
+   *
+   * 而封顶的代价是实打实的：面板在滚、这一格也在滚，**两条竖滚动条相距 30px**，
+   * 滚轮停在哪儿滚的就是哪个，找字体时反复踩。同一个轴上套两层滚动是硬伤，
+   * 而横滚套在竖滚里（书架那条标签条）不冲突——差别在轴，不在「能不能滚」。
+   */
+}
+/* 芯片默认字号偏小，而这一排的**全部意义**就是看清那个字长什么样 */
+.font-chip { font-size: 0.85rem; }
+
+/*
+ * ⚠️ **阅读器里的选中芯片要再淡一档。**
+ *
+ * `shell.css` 那条已经调过一次参：「14% 时 accent 文字压在自己的淡底上只有 4.45，
+ * 差 0.05 过不了 AA。12% = 4.58」。**但那是在应用的 `--panel` 上量的**——
+ * 阅读器里 `--panel` 被映射成了**纸色**，同样 12% 走查当场量到 **4.48**，
+ * 又是差那么一点点。
+ *
+ * 这条不是给字体那一排单开的：**以后阅读器里再放任何 `.chip` 都会撞上同一件事**，
+ * 所以收在 `.reader` 这一层，不写成 `.font-chip` 的特例。
+ */
+.reader .chip[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--panel));
+}
+
+
+/* 划线那四个色块。**四个圆点前面要有个动词**（「划线」），
+   光四个点看不出点下去会发生什么——判据和 txt 阅读器那张卡一样 */
+/*
+ * ⚠️ **边框走 `--muted`，不是 `--line`。**
+ *
+ * 这是个**控件**，而且它的「状态」就是那团颜色本身（这条划线是什么用途）——
+ * WCAG 1.4.11 要求图形元件对背景有 3:1。而四种划线色是**衬在文字底下**的淡色：
+ * 最亮的黄 `#dcb428` 压在面板 `#faf7f0` 上只有 **1.87:1**，
+ * 原来那圈 `--line`（`#ded6c7`）更只有 **1.23:1**——填充和边界**两个都够不到**，
+ * 于是这个按钮在浅色主题下几乎是「一团看不清的东西」。
+ * `--muted`（`#6f6659`）对面板 4.46:1，一圈 1px 就够把控件的边界立起来，
+ * 而里面那团颜色照旧是它自己（颜色本身不承担「看不看得清」，`aria-label` 里写着名字）。
+ */
+.hl-dot {
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+}
+.hl-dot:hover { box-shadow: 0 0 0 2px var(--accent); }
+
+/*
+ * ── PDF 的文字层 ──────────────────────────────────────
+ *
+ * `.pdf-page` 是「画布 + 文字层」的壳；下面那一整块 `.textLayer`
+ * **是从 `node_modules/pdfjs-dist/web/pdf_viewer.css` 原样搬过来的**，
+ * 一个字没改。
+ *
+ * ⚠️ **为什么不 `import` 那个文件**：它 6300 多行，装的是 pdf.js 整个查看器
+ * （工具条、侧栏、注释编辑器……）的样式，而我们只用文字层这一块。
+ * 整份拖进渲染包既胖又会和本应用的样式打架。
+ *
+ * ⚠️ **搬过来就有「跟不跟得上上游」的问题**。判据是：这块 CSS 和
+ * `TextLayer` 那个类是配套的，pdf.js 升级时**两个一起升**——
+ * 升级后如果 PDF 上选不中字或者字挤成一坨，先回来重搬这一块。
+ * 那套选择器写死了 `textLayer` 这个类名，所以 `造页()` 里也必须用这个名字。
+ *
+ * 字号靠 `--total-scale-factor`，`铺字()` 里按当前 viewport 的 scale 设在壳上。
+ */
+.pdf-page {
+  position: relative;
+  margin: 0 auto;
+  /* 画布铺满壳，尺寸由壳的 width / aspect-ratio 说了算 */
+  & > .viewer-page { display: block; width: 100%; height: 100%; }
+}
+
+.textLayer{
+  color-scheme:only light;
+
+  position:absolute;
+  text-align:initial;
+  inset:0;
+  overflow:clip;
+  opacity:1;
+  line-height:1;
+  letter-spacing:normal;
+  word-spacing:normal;
+  -webkit-text-size-adjust:none;
+     -moz-text-size-adjust:none;
+          text-size-adjust:none;
+  forced-color-adjust:none;
+  transform-origin:0 0;
+  caret-color:CanvasText;
+  z-index:0;
+
+  &.highlighting{
+    touch-action:none;
+  }
+
+  :is(span, br){
+    color:transparent;
+    position:absolute;
+    white-space:pre;
+    cursor:text;
+    transform-origin:0% 0%;
+    -webkit-user-select:text;
+       -moz-user-select:text;
+            user-select:text;
+  }
+  --min-font-size:1;
+  --text-scale-factor:calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv:calc(1 / var(--min-font-size));
+
+  > :not(.markedContent),
+  .markedContent span:not(.markedContent){
+    z-index:1;
+
+    --font-height:0;
+    font-size:calc(var(--text-scale-factor) * var(--font-height));
+
+    --scale-x:1;
+    --rotate:0deg;
+    transform:rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  }
+
+  .markedContent{
+    display:contents;
+  }
+
+  span[role="img"]{
+    -webkit-user-select:none;
+       -moz-user-select:none;
+            user-select:none;
+    cursor:default;
+  }
+
+  .highlight{
+    --highlight-bg-color:rgb(180 0 170 / 0.25);
+    --highlight-selected-bg-color:rgb(0 100 0 / 0.25);
+    --highlight-backdrop-filter:none;
+    --highlight-selected-backdrop-filter:none;
+
+    @media screen and (forced-colors: active){
+      --highlight-bg-color:transparent;
+      --highlight-selected-bg-color:transparent;
+      --highlight-backdrop-filter:var(--hcm-highlight-filter);
+      --highlight-selected-backdrop-filter:var(
+        --hcm-highlight-selected-filter
+      );
+    }
+
+    margin:-1px;
+    padding:1px;
+    background-color:var(--highlight-bg-color);
+    backdrop-filter:var(--highlight-backdrop-filter);
+    border-radius:4px;
+
+    &.appended{
+      position:initial;
+    }
+
+    &.begin{
+      border-radius:4px 0 0 4px;
+    }
+
+    &.end{
+      border-radius:0 4px 4px 0;
+    }
+
+    &.middle{
+      border-radius:0;
+    }
+
+    &.selected{
+      background-color:var(--highlight-selected-bg-color);
+      backdrop-filter:var(--highlight-selected-backdrop-filter);
+      scroll-margin-top:50px;
+    }
+  }
+
+  ::-moz-selection{
+    background:rgba(0 0 255 / 0.25);
+    background:color-mix(in srgb, AccentColor, transparent 50%);
+    color:transparent;
+  }
+
+  ::selection{
+    background:rgba(0 0 255 / 0.25);
+    background:color-mix(in srgb, AccentColor, transparent 50%);
+    color:transparent;
+  }
+
+  &.selectionRendering{
+    ::-moz-selection{
+      background:transparent;
+      color:transparent;
+    }
+    ::selection{
+      background:transparent;
+      color:transparent;
+    }
+  }
+  br::-moz-selection{
+    background:transparent;
+  }
+  br::selection{
+    background:transparent;
+  }
+
+  .endOfContent{
+    display:block;
+    position:absolute;
+    inset:100% 0 0;
+    z-index:0;
+    cursor:default;
+    -webkit-user-select:none;
+       -moz-user-select:none;
+            user-select:none;
+  }
+
+  &.selecting .endOfContent{
+    top:0;
+  }
+}
+
+/*
+ * PDF 的**矩形摘录**（扫描页 / 插图上框的那一块）。
+ *
+ * 位置、尺寸、颜色都由 `highlight-view.ts` 的 `画矩形` 写成行内样式
+ * （它们每一块都不一样，写不进 CSS）。这里只管两件共同的事：
+ * **点得到**（点它开笔记卡）和**鼠标看得出来能点**。
+ */
+.hl-rect {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/*
+ * 框选模式开着的时候，**文字层让路**。
+ *
+ * 在页上拖一下本来就是「选字」，两件事抢同一个手势：
+ * 不关的话一边拖出框、一边选中一堆字，两张卡一起弹。
+ */
+.viewer-stage.框选中 .textLayer { pointer-events: none; user-select: none; }
+.viewer-stage.框选中 .pdf-page { cursor: crosshair; }

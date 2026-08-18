@@ -1,0 +1,85 @@
+# 打包配置（spec §12）。
+#
+# **没有原生模块**（用的是 Node 自带的 node:sqlite），所以不需要 asarUnpack，
+# 也不需要 electron-rebuild —— spec §12 原本写的那两步已经不适用了。
+#
+# 主进程是 `.ts` 直接跑的，靠 Node 24 的原生类型剥离。打包后仍然如此，
+# 所以 `files` 必须把 `src/main`、`src/core`、`src/server` 一起装进去，
+# 而不是只装一个编译产物。
+
+appId: top.newzone.shuzhai
+productName: 书斋
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+# 只装真正跑得到的东西。渲染进程已经被 Vite 打包进 dist/，
+# 它的源码和 react 都不必进包
+files:
+  - dist/**
+  - src/main/**
+  - src/core/**
+  - src/server/**
+  - package.json
+  - '!**/*.test.ts'
+  - '!**/*.map'
+
+# 随应用发布的正文字体（HarmonyOS Sans SC Regular，8.3 MB）。
+#
+# **放 extraResources 不放 files**：`files` 里的东西会进 asar，而字体要给
+# 渲染进程的 `@font-face` 用 `file://` 直接加载——asar 里的路径不是真实文件路径。
+# 放 resources/fonts 下，主进程用 `process.resourcesPath` 拼给它。
+#
+# 只带 Regular 一个字重。六个字重全带是 50 MB，而正文只用得到一个；
+# 标题的粗体交给浏览器合成，长文里看不出来。
+#
+# 许可：华为的协议**逐字授权**「使用、复制、合并、嵌入、捆绑、重新分发」未修改副本，
+# 只禁止单独分发或售卖字体本身。LICENSE.txt 跟着一起发，那是协议要求的。
+extraResources:
+  - from: build/fonts
+    to: fonts
+    filter: ['**/*']
+
+# opencc-js 是主进程运行时要用的（繁简转换），必须带上；
+# react / react-dom 已经被 Vite 编进 dist/，不用带
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  # ⚠️ **用 `${name}`（package.json 的 `name`，恒是 ASCII 无空格），不是 `${productName}`。**
+  #
+  # `productName` 是「书斋」，出来的文件就叫 `书斋-1.0.0-x64.exe`——本地看着没问题，
+  # 可它一进 GitHub Release 的下载地址就变成 `%E4%B9%A6%E6%96%8B-1.0.0-x64.exe`，
+  # 而首屏那个「⬇ 下载」正是整份 README 最该点得下去的一个链接。
+  #
+  # 同系列的 `027-repo-radar` 已经踩过这条，它的配置里写着同一句话。
+  # **这里改的只是文件名**，别处的「书斋」一个都没动。
+  # ⚠️ 但**别把它们都算在 `productName` 头上**（这行原来就是这么写的，是假的）：
+  # 窗口标题是 `main.ts` 里的字面量、侧栏是 `App.tsx` 里的字面量、`<title>` 同理——
+  # `grep -rn 'productName\|app.getName' src/` 一条都搜不到。真正读 `productName` 的
+  # 只有安装器显示名和 `shortcutName`；安装目录更是**早就叫 `shuzhai`** 了
+  #（app-builder-lib 拿 `/^[-_+0-9a-zA-Z .]+$/` 卡目录名，「书斋」过不了，回落到 name）。
+  # 而 `package.json` 的 `name` 碰都不能碰——它决定 `%APPDATA%\shuzhai`，
+  # 动它等于把用户的书库换到一个空目录。改名要改哪几处，见 AGENTS.md 开头那节。
+  artifactName: ${name}-${version}-${arch}.${ext}
+
+nsis:
+  # 安装器加 `-setup`，和免安装的 zip 一眼分得开（同 027）
+  artifactName: ${name}-${version}-${arch}-setup.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 书斋
+
+# 复用 npm 装 electron 时已经下好的那份运行时，
+# 不让 electron-builder 再从 GitHub 下一遍（这台机器上 GitHub releases 不可达，
+# 而且同一个版本下两份纯属浪费）
+electronDist: node_modules/electron/dist

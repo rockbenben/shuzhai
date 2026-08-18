@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>书斋 · 小尺寸体检</title>
+<style>
+/* 把生成好的 PNG 按真实像素摆出来，右边再放大 6 倍看清楚它到底糊成什么样。
+   `image-rendering: pixelated` 是关键——插值放大会把糊的地方抹平，
+   看着比实际好，那就白验了 */
+@font-face { font-family:'H'; src:url('../fonts/HarmonyOS Sans SC.ttf') format('truetype'); }
+body {
+  margin: 0; width: 900px; padding: 34px 40px;
+  background: #ebe5d8; font-family: 'H', sans-serif; color: #262626;
+}
+h2 { font-size: 17px; font-weight: 400; margin: 0 0 6px; }
+.note { font-size: 13px; color: #5f5a52; margin: 0 0 18px; }
+.row { display: flex; align-items: flex-end; gap: 26px; margin-bottom: 26px; }
+.cell { text-align: center; }
+.cell img { display: block; image-rendering: pixelated; }
+.cap { font-size: 11px; color: #5f5a52; margin-top: 6px; }
+.big { padding-left: 20px; border-left: 1px solid #d3cfc6; }
+.dark { background: #1b1b1b; padding: 10px; border-radius: 6px; }
+</style>
+</head>
+<body>
+  <h2>大图（书 + 朱签 + 四针眼）</h2>
+  <p class="note">任务栏、关于框、安装包里用这一版</p>
+  <div class="row">
+    <div class="cell"><img src="master-1024.png" width="48" height="48"><div class="cap">48</div></div>
+    <div class="cell"><img src="master-1024.png" width="32" height="32"><div class="cap">32</div></div>
+    <div class="cell"><img src="master-1024.png" width="16" height="16"><div class="cap">16</div></div>
+    <div class="cell big"><img src="master-1024.png" width="96" height="96"><div class="cap">16 放大 6×</div></div>
+  </div>
+
+  <h2>小图（去掉订线与书口、纯色）</h2>
+  <p class="note">.ico 里的 16 / 32 用这一版——不是把大图缩小，是换一张更简单的画</p>
+  <div class="row">
+    <div class="cell"><img src="master-small.png" width="48" height="48"><div class="cap">48</div></div>
+    <div class="cell"><img src="master-small.png" width="32" height="32"><div class="cap">32</div></div>
+    <div class="cell"><img src="master-small.png" width="16" height="16"><div class="cap">16</div></div>
+    <div class="cell big"><img src="master-small.png" width="96" height="96"><div class="cap">16 放大 6×</div></div>
+    <div class="cell dark"><img src="master-small.png" width="32" height="32"><div class="cap" style="color:#b0aca4">32 · 深色底</div></div>
+  </div>
+</body>
+</html>
