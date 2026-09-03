@@ -733,11 +733,20 @@ node scripts/ui-check/notes.mjs      # 端到端：做笔记那条线（划线�
 
 **两条，都不是「功能」**：
 
-1. **两个 workflow 都从来没有真的跑过。** `.github/workflows/` 下现在有两个：
+1. **`release.yml` 还没有真的跑过。** `.github/workflows/` 下有两个：
    `ci.yml`（push 到 main / PR 时跑四道闸门）和 `release.yml`（打 `v*` 的 tag 时打包、
-   给产物签一份来源证明、传成**草稿** release）。仓库还没有远程，所以两个都是零次运行——
-   **一个从没跑过的 workflow 不算数**，同「一条永远绿的断言等于没有断言」。
-   第一次 push 之后那次红是预期内的，照日志改就行。
+   给产物签一份来源证明、传成**草稿** release）。
+
+   ✅ **`ci.yml` 已经跑过了，而且第一次就抓到两条**——都是本地一万次也跑不出来的：
+   一条断言只在「机器时区不是 UTC」时才成立（runner 是 UTC），
+   以及 `fs.watch` 在 8.3 短名路径上让 libuv **原地 abort**、把整个测试文件打死。
+   两条都修了，经过写在 `docs/lessons.md`。「一个从没跑过的 workflow 不算数」这句
+   当场兑现了一次。
+
+   ⚠️ **`release.yml` 仍是零次运行**，而且它跑的是 `ci.yml` 完全不碰的那一半
+   （下 Electron 运行时、electron-builder、签来源证明、传资产）。
+   **打第一个 tag 之前先 `workflow_dispatch` 手跑一遍**——那条路验的就是构建这一半，
+   没有 tag 时上传步骤自己跳过，不会误发。
 
    `release.yml` 留了两道口子专门对付「第一次」：**`workflow_dispatch` 能不打 tag
    手跑一遍**（验的是构建那一半，没有 tag 时上传步骤自己跳过，不会误发），

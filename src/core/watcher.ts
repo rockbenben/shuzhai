@@ -9,7 +9,7 @@
 //   2. **目录文件数很大时事件会很密**，所以这个功能默认关闭，且防抖是全局的
 //      （不是每文件一个定时器），再密的事件也只触发一次扫描。
 
-import { watch, type FSWatcher } from 'node:fs';
+import { realpathSync, watch, type FSWatcher } from 'node:fs';
 
 /** spec §1.2 定的防抖时长 */
 export const DEBOUNCE_MS = 5000;
@@ -40,7 +40,24 @@ export class LibraryWatcher {
 
   watchRoot(path: string): void {
     try {
-      const w = watch(path, { recursive: true }, (_event, filename) => {
+      /*
+       * ⚠️ **先解成真实长路径再监听，否则 Windows 上会把整个进程打死。**
+       *
+       * libuv 的 `fs-event.c` 收到事件后拿 `_wcsnicmp` 比对「报上来的文件名」和
+       * 「当初监听的目录」，对不上就 **abort**：
+       *   Assertion failed: !_wcsnicmp(filename, dir, dirlen), file src\win\fs-event.c, line 72
+       * 而 8.3 短名路径（`C:\Users\RUNNER~1\…`）正好对不上——系统报上来的是长名。
+       *
+       * **这不是异常，是原地 abort**：下面那个 `try` 和 `w.on('error')` 一个都拦不住，
+       * 应用连一句错都来不及说就没了。第一次真跑 CI 时它把整个测试文件打死，
+       * 后面十条根本没跑（CI 数出 831，本机 841——那十条的差额就是这么来的）。
+       *
+       * 用户从目录对话框选出来的路径一般是长名，但 junction、映射盘、手敲的短名
+       * 都可能不是。代价是一次 `realpathSync`，换掉一个**静默的进程死亡**。
+       * 路径不在了它会抛，正好落到下面那个 catch 里，和原来的行为一样。
+       */
+      const 真路径 = realpathSync.native(path);
+      const w = watch(真路径, { recursive: true }, (_event, filename) => {
         if (!filename) return;
         const name = String(filename).toLowerCase();
         if (!this.#exts.some((e) => name.endsWith(e))) return;

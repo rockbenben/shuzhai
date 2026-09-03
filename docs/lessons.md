@@ -13928,3 +13928,67 @@ SyntaxError: Unexpected identifier 'renderer'
 **落在同一匹赭石上**，右边成了棕—红—棕一片糊。颜色不能挑（挑了就违反
 「这几本书在应用里就是这个色」那条），**但书可以挑**——把最后一本换成《孤舟》
 （蟹壳青）就分开了，而它仍然是真的。
+
+## 第一次真跑 CI 就抓到两条，而且都是「本机永远绿」的那一类
+
+仓库公开、第一次 push，`ci.yml` 当场红在 `npm test`。AGENTS.md 里那句
+「一个从没跑过的 workflow 不算数」兑现了——**两条都是本地一万次也跑不出来的**。
+
+### ① 一条只在「机器时区不是 UTC」时才成立的断言
+
+```
+✖ 库里的时间是 UTC，不能按本地时区解析
+  AssertionError: Expected "actual" to be strictly unequal to: 1786886498000
+  actual: 1786886498000   expected: 1786886498000
+```
+
+那条测试写的是：
+
+```js
+assert.equal(sqlTime('2026-08-16 13:21:38'), Date.UTC(2026, 7, 16, 13, 21, 38));
+assert.notEqual(sqlTime('2026-08-16 13:21:38'), new Date('2026-08-16 13:21:38').getTime());
+```
+
+第二句的用意是「证明 naive 的本地解析是错的」。**而在 UTC 机器上，那两者本来就相等**——
+GitHub 的 runner 正是 UTC。开发机在东八区，所以它一直绿着。
+
+**更要紧的是反过来那一半**：在 UTC 机器上，把 `sqlTime` 改成 `new Date(s).getTime()`，
+**第一句也照样过**。也就是说这条测试在 CI 上不但会红，它还**什么都测不到**——
+两种毛病同时存在，一个吵，一个哑。
+
+修法不是给它加 `if` 跳过（那就成了「在 CI 上恒真的断言」，等于没有），
+而是**自己钉死一个非 UTC 的时区**：Node 支持运行时改 `process.env.TZ`（当场验过），
+测试里设成 `Asia/Shanghai`，`finally` 里还原（⚠️ `= undefined` 会写进去字符串
+`"undefined"`，得 `delete`）。这样它在**任何机器上**都成立。
+
+复现和验收都有了：`TZ=UTC npm test` 当场复现；破坏实验（把 `sqlTime` 写成 naive）
+在 `TZ=UTC` 下也红了——这正是它原来做不到的。
+
+**判据：一条断言如果依赖「机器碰巧怎么设的」，它在别的机器上要么假红要么假绿。
+测时间就自己指定时区，别吃环境的。**
+
+### ② libuv 在 Windows 上原地 abort，`try/catch` 和 `on('error')` 一个都拦不住
+
+```
+Assertion failed: !_wcsnicmp(filename, dir, dirlen), file src\win\fs-event.c, line 72
+✖ src\core\m4.test.ts (3044ms)
+```
+
+`fs.watch({recursive:true})` 在 Windows 上，libuv 收到事件后要拿 `_wcsnicmp` 比对
+「报上来的文件名」和「当初监听的那个目录」，对不上就 **abort**。
+而 **8.3 短名路径**（runner 的临时目录是 `C:\Users\RUNNER~1\…`）正好对不上——
+系统报上来的是长名。
+
+三件事值得记住：
+
+1. **这不是异常，是进程原地死。** `watchRoot` 外面那个 `try` 和 `w.on('error')`
+   看着把失败都兜住了，**一个都拦不住它**。看代码会以为这里已经很稳。
+2. **它把整个测试文件打死了**，后面十条根本没跑——CI 报 `tests 831`，本机是 841。
+   **那个差额是唯一的线索**，而 `--log-failed` 只给一句 `'test failed'`，
+   得去翻全量日志才看得见那行 libuv 的断言。
+3. 修在 `watcher.ts` 而不是测试里：`realpathSync.native(path)` 先解成长名再监听。
+   用户从目录对话框选的路径一般是长名，但 junction、映射盘、手敲的短名都可能不是，
+   而代价只是一次 `realpathSync`——换掉的是一个**没有任何日志的应用猝死**。
+
+**判据：Windows 上要交给系统 API 的路径，先 `realpathSync.native`。**
+短名/长名这种差别在本机几乎撞不到，而它的失败方式是最难查的那种。

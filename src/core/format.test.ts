@@ -29,11 +29,27 @@ test('库里的时间是 UTC，不能按本地时区解析', () => {
   // 这一条是整个文件里最要紧的：`datetime('now')` 存 UTC，而
   // `new Date('2026-08-16 13:21:38')` 在东八区会当成本地时间，差 8 小时——
   // 刚读完的书显示「8小时前」，看起来完全正常
-  assert.equal(sqlTime('2026-08-16 13:21:38'), Date.UTC(2026, 7, 16, 13, 21, 38));
-  assert.notEqual(sqlTime('2026-08-16 13:21:38'), new Date('2026-08-16 13:21:38').getTime());
-  assert.equal(sqlTime('2020-01-01'), Date.UTC(2020, 0, 1));
-  assert.equal(sqlTime(null), null);
-  assert.equal(sqlTime('不是时间'), null);
+  //
+  // ⚠️ **这条测试必须自己指定时区，不能吃机器的。**
+  // 判据是「正确实现和 naive 实现算出来不一样」，而**在 UTC 机器上这两者本来就一样**——
+  // 那里 `sqlTime(…) === Date.UTC(…)` 照样过，把 `sqlTime` 改成 `new Date(s).getTime()`
+  // 也照样过，这条测试等于没有。开发机在东八区所以一直是绿的，
+  // 第一次真跑 CI（runner 是 UTC）当场红：`actual` 和 `expected` 都是 1786886498000。
+  // Node 支持运行时改 `process.env.TZ`（当场验过），所以钉死一个非 UTC 的时区，
+  // 让这条判据在**任何机器上**都成立。复现：`TZ=UTC npm test`。
+  const 原时区 = process.env.TZ;
+  process.env.TZ = 'Asia/Shanghai';
+  try {
+    assert.equal(sqlTime('2026-08-16 13:21:38'), Date.UTC(2026, 7, 16, 13, 21, 38));
+    assert.notEqual(sqlTime('2026-08-16 13:21:38'), new Date('2026-08-16 13:21:38').getTime());
+    assert.equal(sqlTime('2020-01-01'), Date.UTC(2020, 0, 1));
+    assert.equal(sqlTime(null), null);
+    assert.equal(sqlTime('不是时间'), null);
+  } finally {
+    // ⚠️ `= undefined` 会写进去一个字符串 "undefined"，得 delete
+    if (原时区 === undefined) delete process.env.TZ;
+    else process.env.TZ = 原时区;
+  }
 });
 
 test('字数：万以上进位，没有就是空串', () => {
