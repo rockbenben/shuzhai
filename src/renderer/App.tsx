@@ -2114,6 +2114,8 @@ export function App() {
                 连载中: b.serial_status === 'ongoing',
                 太监: b.serial_status === 'abandoned',
               };
+              // 角标是**竖着叠一列**的，封面要让开的是顶上那几行——传个数，不是布尔
+              const 角标数 = Object.values(角标).filter(Boolean).length;
               return (
               /*
                * `data-book-id` 是给走查用的：书库里**同名的书是常态**
@@ -2167,7 +2169,7 @@ export function App() {
                     aria-label={`打开《${b.title}》${b.author ? `，${b.author}` : ''}`}
                     onClick={(e) => { e.stopPropagation(); open(b); }}
                   >
-                    <Cover bookId={b.id} title={b.title} hasCover={!!b.has_cover} />
+                    <Cover bookId={b.id} title={b.title} hasCover={!!b.has_cover} cornerBadge={角标数} />
                   </button>
                   {/* 角标排成一列。原来每个各自绝对定位、叠在同一个点，
                       靠「条件互斥」碰巧没撞上——加一个格式角标就撞了 */}

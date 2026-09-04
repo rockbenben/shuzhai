@@ -1,13 +1,23 @@
 import { useEffect, useState } from 'react';
 import { rpc } from './rpc.ts';
 // 哪匹书衣、题签多大字——判据连同它们的算式都在那儿，那边测得到（`cover-art.test.ts`）
-import { 书衣色, 题签字号 } from './cover-art.ts';
+import { 书衣色, 字号, 封面文字 } from './cover-art.ts';
 
 interface Props {
   bookId: number;
   title: string;
   /** 封面换过之后加一，用来强制重取 */
   version?: number;
+  /**
+   * 右上角挂了几个角标（PDF / ✎N / 读完 / 连载中…）。
+   *
+   * ⚠️ **这个参数一度被删掉过，又加了回来，理由变了。** 删的时候书名是左上角
+   * 一条 36% 宽的窄签，和角标结构上撞不上；而那 36% 是**为 1.8% 的卡片把 98.2%
+   * 的书名压小了**（当场数的：8288 本里 8139 本一个角标都没有）。
+   * 现在书名居中、用整张封面，所以得知道那个角落有没有东西——
+   * 角标是从上往下叠的一列，让的是**顶边**，不是宽度。
+   */
+  cornerBadge?: number;
   /** 不传就铺满容器，按 1:1.4 的书封比例撑高——封面墙里用这个 */
   width?: number;
   /**
@@ -29,7 +39,7 @@ interface Props {
  * ——同封面墙「读完的书不印两次时间」那条。而书名留着是有判据的：
  * 没有真封面的书，**书名是唯一能认出它的东西**（`audit.mjs` 那条判据的原话）。
  */
-export function Cover({ bookId, title, version = 0, width, hasCover }: Props) {
+export function Cover({ bookId, title, version = 0, width, hasCover, cornerBadge = 0 }: Props) {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -68,9 +78,17 @@ export function Cover({ bookId, title, version = 0, width, hasCover }: Props) {
    * **不挂 `title` 属性**：书名就写在封面正下方，重复一遍没有新信息，
    * 而且会盖住外层 `.book-art` 那个真正有用的 title（短评）。
    */
+  // 有角标就把书名的顶边让到那一列底下。角标是往下叠的，所以让的是高不是宽
+  const 顶 = cornerBadge > 0 ? 4 + cornerBadge * 12 : 8;
   return (
     <div className="cover-ph" style={{ ...box, background: 书衣色(title) }}>
-      <span style={{ fontSize: `${题签字号([...title].length)}cqw` }}>{title}</span>
+      <div className="cover-title" style={{ top: `${顶}%` }}>
+        {/* 超长书名在这儿就截掉（`封面文字`），不留给 CSS 去裁——
+            多列竖排溢出是**块方向**的，裁掉的是最左边那一整列，看不出是被裁的 */}
+        <span style={{ fontSize: `${字号([...title].length, cornerBadge)}cqw` }}>
+          {封面文字(title, cornerBadge)}
+        </span>
+      </div>
     </div>
   );
 }
