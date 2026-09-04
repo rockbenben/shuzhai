@@ -1,7 +1,7 @@
 {
   "_name": "这个字段就是数据目录名（%APPDATA%\\shuzhai）。改它必须同时写一条迁移（src/main/migrate-userdata.ts，由 main.ts 在 openDb 之前调），否则应用会在空目录里重新开张——阅读进度和书签重扫恢复不了。别再搬第三次，理由见 AGENTS.md 开头",
   "name": "shuzhai",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "engines": {
