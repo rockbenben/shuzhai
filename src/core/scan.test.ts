@@ -139,9 +139,58 @@ test('内容追更后重新解析，进度按标题落回同一章', async () =>
   assert.equal(r.updated, 1);
   assert.equal((db.prepare('select chapter_count c from book_file').get() as { c: number }).c, 4);
 
+  assert.ok(r.grew.some((g) => g.title.includes('连载中') && g.to > g.from), '章数变多要上报 grew');
+
   const state = db.prepare('select * from reading_state where book_id = ?').get(bookId) as Record<string, unknown>;
   assert.equal(state.chapter_idx, 2, '原来读的「第二章 承」现在排第 2（0 基），序号已经错位');
   assert.equal(state.char_offset, 42);
+});
+
+test('已读完的书追更出新章 → 退回在读、读完时间清掉、进度按新章数重算', async () => {
+  // 「读完」指的是旧快照：章数变多是内容层面的新事实，不退回就是
+  // 「已读完 + 网上有更新」一直矛盾着（真实库里撞到过 3 本）
+  const path = join(root.path, '读完了又追更.txt');
+  writeBook(path, ['第一章 起', '第二章 承']);
+  await scanRoot(db, root);
+  const bookId = books()[0].id;
+  db.prepare(
+    "update reading_state set status='finished', finished_at='2026-01-01 00:00:00', percent=100, chapter_idx=1, char_offset=99 where book_id=?",
+  ).run(bookId);
+
+  // 追更：尾部追加两章（旧章节标题原样保留）
+  writeBook(path, ['第一章 起', '第二章 承', '第三章 转', '第四章 合']);
+  utimesSync(path, new Date(), new Date(Date.now() + 10_000));
+  const r = await scanRoot(db, root);
+  assert.equal(r.updated, 1);
+
+  const state = db.prepare('select * from reading_state where book_id = ?').get(bookId) as Record<string, unknown>;
+  assert.equal(state.status, 'reading', '有没读过的新章节，「已读完」不再成立');
+  assert.equal(state.finished_at, null, '读完时间一起清掉，不然又是派生字段脱节');
+  assert.equal(state.chapter_idx, 1, '进度按标题落回「第二章 承」');
+  assert.equal(Math.round(state.percent as number), 50, '2/4 章 = 50%');
+  assert.equal(state.reread_count, 0, '这是纠正不是重读，重读计数不许涨');
+});
+
+test('已读完但章数没变（同章数重解析）→ 读完的状态一个字都不碰', async () => {
+  // 对照组：章数没变就不是「有新章节」——「读完后回头翻几章」那条
+  // （finished 的 100% 不碰）在重新解析这条路上也得成立
+  const path = join(root.path, '读完了没追更.txt');
+  writeBook(path, ['第一章 起', '第二章 承']);
+  await scanRoot(db, root);
+  const bookId = books()[0].id;
+  db.prepare(
+    "update reading_state set status='finished', finished_at='2026-01-01 00:00:00', percent=100, chapter_idx=0, char_offset=12 where book_id=?",
+  ).run(bookId);
+
+  // 内容变了（正文加长）但章数还是 2
+  writeBook(path, ['第一章 起', '第二章 承'], 400);
+  utimesSync(path, new Date(), new Date(Date.now() + 10_000));
+  await scanRoot(db, root);
+
+  const state = db.prepare('select * from reading_state where book_id = ?').get(bookId) as Record<string, unknown>;
+  assert.equal(state.status, 'finished');
+  assert.equal(state.finished_at, '2026-01-01 00:00:00');
+  assert.equal(state.percent, 100, 'finished 的 100% 不碰');
 });
 
 test('没读过的书重新解析后仍然停在第 0 章，不许被「前言」顺带挪走', async () => {
@@ -189,14 +238,18 @@ test('章节数变了，percent 要跟着重算，不能留下「第 3 章 / 100
   assert.equal(state.percent, 20, '(chapter_idx + 1) / 10');
 });
 
-test('已读完的 100% 是用户按的，重新解析不许把它算下去', async () => {
+test('已读完的书重新解析出更多章 → 退回在读，percent 跟着算下去', async () => {
+  // 旧行为是「finished 的 100% 重新解析也不碰」，防的是「读完后回头翻几章」。
+  // 但章数变多意味着有没读过的新章，那个「读完」指的是旧快照——
+  // 不退就是「已读完 + 进度 20%」的矛盾记录。章数没变的对照组见
+  // 「已读完但章数没变（同章数重解析）」那条。
   const path = join(root.path, '读完了.txt');
   writeBook(path, ['第一章 起', '第二章 承']);
   await scanRoot(db, root);
 
   const bookId = books()[0].id;
   db.prepare(
-    "update reading_state set status = 'finished', chapter_idx = 1, percent = 100 where book_id = ?",
+    "update reading_state set status = 'finished', finished_at='2026-01-01 00:00:00', chapter_idx = 1, percent = 100 where book_id = ?",
   ).run(bookId);
 
   writeBook(path, Array.from({ length: 10 }, (_, i) => `第${i + 1}章 第${i + 1}节`));
@@ -204,7 +257,9 @@ test('已读完的 100% 是用户按的，重新解析不许把它算下去', as
   await scanRoot(db, root);
 
   const state = db.prepare('select * from reading_state where book_id = ?').get(bookId) as Record<string, unknown>;
-  assert.equal(state.percent, 100);
+  assert.equal(state.status, 'reading', '多出 8 章没读过，已读完不再成立');
+  assert.equal(state.finished_at, null);
+  assert.equal(state.percent, 20, '2/10 章 = 20%——不跟着算就是「已读完 + 进度 20%」');
 });
 
 test('文件消失只标 missing，不删记录', async () => {
@@ -771,6 +826,7 @@ test('每个字段都要参与合并——加了字段忘了合并这里就红',
     otherExts: { doc: 9 },
     failures: [{ path: 'a.txt', error: '坏了' }],
     progressGuessed: [{ title: '某书', from: 10, to: 3 }],
+    grew: [{ title: '连载中', from: 10, to: 60 }],
   };
   const 空 = (v: unknown): boolean =>
     v === 0 || (Array.isArray(v) && v.length === 0)
@@ -793,6 +849,7 @@ test('每个字段都要参与合并——加了字段忘了合并这里就红',
   assert.equal(总.otherExts.doc, 18);
   assert.equal(总.failures.length, 2);
   assert.equal(总.progressGuessed.length, 2);
+  assert.equal(总.grew.length, 2);
 });
 
 test('不收的格式要按扩展名报出来，不是静默丢掉', async () => {

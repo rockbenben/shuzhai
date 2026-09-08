@@ -77,8 +77,9 @@
   --line: #302c27;
   --panel: #211e1a;
   --accent: #c2a06a;
-  /* **白字压在它上面**（.book-badge.warn）。第一版用 #d4756a 好看，
-     但白字对比只有 3.2:1，低于 AA——夜间的「文件缺失」角标读不清 */
+  /* **白字压在它上面**（`button.danger` 那个红底白字）。第一版用 #d4756a 好看，
+     但白字对比只有 3.2:1，低于 AA——夜间的危险按钮读不清。
+     （状态标记不在这儿：`.book-mark.danger/.warn` 是有色字、走 `--danger-ink`。） */
   --danger: #b0402f;
   /*
    * 印泥往亮里提一档。**提的不是白字那一头**（日间那个值白字已经 6.6:1），
@@ -667,6 +668,25 @@ tbody tr:hover {
 button.toc-more:hover {
   background: var(--bg);
   color: var(--fg);
+}
+
+/* 「文件在外部被更新过」提示条里的那个动作键 */
+.refresh-act {
+  margin-left: 0.4em;
+  padding: 0.1em 0.7em;
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.refresh-act:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.refresh-act:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* 浮层之后一行放得下整个标题了（原来 17rem 的侧栏要截断）。

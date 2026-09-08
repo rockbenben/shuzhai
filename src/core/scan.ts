@@ -159,12 +159,30 @@ export interface ScanReport {
    * 只记这一档：按标题、按序号那两种是**同一本书里挪了个位置**，不用惊动人。
    */
   progressGuessed: Array<{ title: string; from: number; to: number }>;
+  /**
+   * **追更覆盖写入后章节变多的那些书**：`《书名》多了 50 章`。
+   * 只在新旧章数都有数、且 to > from 时记——换版本导致章数变少的不记
+   * （那一档归 progressGuessed 交代）。
+   */
+  grew: Array<{ title: string; from: number; to: number }>;
+}
+
+/**
+ * `book.refreshFile`（追更后单本重读）的返回类型。
+ * `checkOnly` 只探变化：`to` 为 null；真刷新才带刷新后的章数。
+ */
+export interface RefreshFileResult {
+  changed: boolean;
+  /** 刷新前的章数；这本书从没解析过时是 null */
+  from: number | null;
+  /** 刷新后的章数；checkOnly / 没变化时是 null */
+  to: number | null;
 }
 
 export function emptyReport(): ScanReport {
   return {
     added: 0, updated: 0, moved: 0, missing: 0, failed: 0, unchanged: 0,
-    skipped: {}, otherExts: {}, failures: [], progressGuessed: [],
+    skipped: {}, otherExts: {}, failures: [], progressGuessed: [], grew: [],
   };
 }
 
@@ -197,6 +215,7 @@ export function mergeReport(总: ScanReport, 一份: ScanReport): void {
   }
   总.failures.push(...一份.failures);
   总.progressGuessed.push(...一份.progressGuessed);
+  总.grew.push(...一份.grew);
 }
 
 /**
@@ -289,6 +308,7 @@ interface FileRow {
   size: number;
   mtime: number;
   content_hash: string | null;
+  chapter_count: number;
   /** 什么时候解析过。**null 表示从来没有**——那条记录不能走「没变就跳过」那一档 */
   parsed_at: string | null;
 }
@@ -426,17 +446,31 @@ export async function parseAndStore(
       });
       // percent 是从「第几章 / 共几章」派生的。重新解析会把章节数整个换掉
       // （实测有从 4 章变 1034 章的），不跟着重算就会留下「读到第 3 章、进度 100%」
-      // 这种自相矛盾的记录。`finished` 的 100% 是用户按的，不碰。
+      // 这种自相矛盾的记录。
       const pct =
-        state.status === 'finished'
-          ? null
-          : chapters.length > 0
-            ? Math.min(100, ((r.chapterIdx + 1) * 100) / chapters.length)
-            : 0;
+        chapters.length > 0
+          ? Math.min(100, ((r.chapterIdx + 1) * 100) / chapters.length)
+          : 0;
+      /*
+       * **章数变多、而这本书已经标了读完——退回在读。**
+       *
+       * 那个「读完」指的是旧快照：追更追加了新章节是内容层面的新事实，
+       * 有没读过的新章节。不看连载状态——已完结书出修订版加番外同样成立，
+       * 读完新版再标一次读完只需一下点击；不退的代价是「已读完 + 网上有更新」
+       * 一直矛盾着（真实库里撞到过 3 本）。这不是「重读」，所以 reread_count
+       * 不碰。
+       *
+       * ⚠️ **只在章数变多时退。**「读完后回头翻几章查点东西」章数没变——
+       * 那条由 percent 的 case 兜着（finished 的 100% 不碰）。
+       */
+      const demote = state.status === 'finished' && old.length > 0 && chapters.length > old.length;
       db.prepare(
         `update reading_state set chapter_idx = ?, char_offset = ?,
-                percent = coalesce(?, percent) where book_id = ?`,
-      ).run(r.chapterIdx, r.charOffset, pct, bookId);
+                percent = case when status = 'finished' and ? = 0 then percent else ? end,
+                status = case when ? = 1 then 'reading' else status end,
+                finished_at = case when ? = 1 then null else finished_at end
+          where book_id = ?`,
+      ).run(r.chapterIdx, r.charOffset, demote ? 1 : 0, pct, demote ? 1 : 0, demote ? 1 : 0, bookId);
       // **估出来的要报上去。** `restoreProgress` 早就算了 `accurate`，
       // 而这里原来把它连同 `by` 一起扔了——见 `ScanReport.progressGuessed`
       if (!r.accurate) guessed = { from: state.chapterIdx ?? 0, to: r.chapterIdx };
@@ -566,10 +600,14 @@ export async function scanRoot(
                     parse_error = null, failed_at = null,
                     parsed_at = datetime('now') where id = ?`,
           ).run(st.size, mtime, hash, r.encoding, r.words, r.chapters, byPath.id);
+          const t = db.prepare('select b.title from book b join book_file f on f.book_id = b.id where f.id = ?')
+            .get(byPath.id) as { title: string } | undefined;
           if (r.progressGuessed) {
-            const t = db.prepare('select b.title from book b join book_file f on f.book_id = b.id where f.id = ?')
-              .get(byPath.id) as { title: string } | undefined;
             report.progressGuessed.push({ title: t?.title ?? path, ...r.progressGuessed });
+          }
+          // 追更多出来的章节数——旧章数重新解析前就在手里（byPath.chapter_count）
+          if (typeof byPath.chapter_count === 'number' && typeof r.chapters === 'number' && r.chapters > byPath.chapter_count) {
+            report.grew.push({ title: t?.title ?? path, from: byPath.chapter_count, to: r.chapters });
           }
           report.updated++;
         }

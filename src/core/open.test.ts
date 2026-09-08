@@ -71,8 +71,10 @@ test('其余只编目的格式仍然交给系统程序', () => {
 test('打不开的时候，那句话要说清下一步做什么', () => {
   const 没了 = planOpen(书({ file_status: 'missing' }));
   assert.equal(没了.kind, 'error');
+  // 文件还在→扫描认回来；自己删了→「批量清理失效文件」。
+  // ⚠️ 别退回指「整理数据库」：自己删的唯一一份它清不掉，那是条死路。
   assert.match(没了.kind === 'error' ? 没了.message : '', /扫描/);
-  assert.match(没了.kind === 'error' ? 没了.message : '', /整理数据库/);
+  assert.match(没了.kind === 'error' ? 没了.message : '', /清理失效文件/);
 
   const 没章节 = planOpen(书({ chapter_count: 0 }));
   assert.equal(没章节.kind, 'error');

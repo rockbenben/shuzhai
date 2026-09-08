@@ -17,6 +17,9 @@ import type { FontFile } from './Settings.tsx';
 import { rpc } from './rpc.ts';
 // 从 core 引：渲染进程原来抄了一份，而且已经掉了 `bookId` 那个字段
 import type { ChapterText } from '../core/reader.ts';
+// 刷新接口的返回形状只有一份（scan.ts），探测和真刷新两个调用点共用——
+// 各写一份内联类型会被 dup-decls 当撞名抓
+import type { RefreshFileResult } from '../core/scan.ts';
 import {
   applySettings, applyFontFaces, loadSettings, saveSettings, loadKeys, actionFor, keyLabel,
   type ReadSettings, type Action, 滚动方式 } from './settings.ts';
@@ -42,6 +45,12 @@ interface Props {
   startOffset?: number;
   /** 从「全库笔记」点一条：打开那本书、落到那一处。不给的话那一档是只读的 */
   onOpenBook?: (bookId: number, at?: number) => void;
+  /** 就地盖一层「编辑书信息」弹窗改这本书的资料——**不退出阅读**。阅读位置是
+      边读边存的（翻章/滚动都写库），关了弹窗还在这本书的原处。 */
+  onEdit?: () => void;
+  /** App 层弹窗（编辑 / 在线地址 / 改名…）压在阅读器上时为 true：键盘全让给弹窗，
+      别在背后翻页或退出（Esc 关弹窗由 App 那条 window 监听管） */
+  modalOpen?: boolean;
   onExit: () => void;
 }
 
@@ -100,7 +109,7 @@ function BodyImage({ src }: { src: string }) {
   );
 }
 
-export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, onExit }: Props) {
+export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, onEdit, modalOpen = false, onExit }: Props) {
   /** 每种颜色代表什么，用户自己定。见 `highlight-view.ts` 的 `use色名` */
   const 色名 = use色名();
   /** 「试着重新对上」跑着没有 / 跑完说了什么。**结果要照实说三个数**，见那个按钮 */
@@ -331,6 +340,15 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
   const [notice, setNotice] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * **追更覆盖写**：文件在外部被换过、库里还是旧章节时，章顶挂一条
+   * 「刷新读取」。打开书时只做一次 `stat` 比对（`checkOnly`，不读正文）；
+   * 真刷新走左轨的「刷新」或这条上的按钮。
+   */
+  const [待刷新, set待刷新] = useState(false);
+  const [刷新中, set刷新中] = useState(false);
+  const [刷新消息, set刷新消息] = useState<string | null>(null);
+
   useEffect(() => {
     applySettings(settings);
     saveSettings(settings);
@@ -349,6 +367,17 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
 
   useEffect(() => {
     rpc<TocEntry[]>('book.chapters', { bookId }).then(setToc).catch((e: Error) => setError(e.message));
+  }, [bookId]);
+
+  // 打开书时 stat 一下：文件比库里新（追更覆盖写）就挂刷新条。
+  // 失败静默——PDF/EPUB 或文件没了都不该影响读书。
+  useEffect(() => {
+    let alive = true;
+    set待刷新(false);
+    void rpc<RefreshFileResult>('book.refreshFile', { bookId, checkOnly: true })
+      .then((r) => { if (alive) set待刷新(r.changed); })
+      .catch(() => {});
+    return () => { alive = false; };
   }, [bookId]);
 
   useEffect(() => {
@@ -752,11 +781,55 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     [chapter, chapters, scrollToChapter],
   );
 
+  /**
+   * 重新从磁盘读这本书（追更覆盖写之后）。后端和扫描走同一份 `parseAndStore`：
+   * 重切章、按标题恢复进度、已读完遇新章自动退回在读。
+   *
+   * 刷新前停在旧最后一章 → 直接跳到**第一个新章**（旧章数就是它的序号）；
+   * 否则原地重读当前章。已铺的章文是按旧偏移读的，全部作废——
+   * 取章那条 effect 见 chapters 里没有目标章会自己去取。
+   * ⚠️ 不能用 `go()` 跳：它的越界判断拿的是**旧的** `chapter.total`，
+   * 第一个新章正好被判成「不存在」而直接 return。
+   */
+  const 刷新 = useCallback(async () => {
+    set刷新中(true);
+    set刷新消息(null);
+    try {
+      const r = await rpc<RefreshFileResult>('book.refreshFile', { bookId });
+      if (!r.changed) {
+        set刷新消息('文件没有变化');
+      } else {
+        set待刷新(false);
+        setToc(await rpc<TocEntry[]>('book.chapters', { bookId }));
+        const cur = idxRef.current;
+        // 旧章数 = 第一个新章的序号；停在旧最后一章（或更后）才跳
+        const newCount = r.from !== null && r.to !== null && r.to > r.from ? r.to - r.from : 0;
+        const target = newCount > 0 && cur >= r.from! - 1 ? r.from! : cur;
+        setChapters([]);
+        setMarks({});
+        setIdx(target);
+        set刷新消息(newCount > 0 ? `已刷新：多了 ${newCount} 章` : '已刷新');
+      }
+    } catch (e) {
+      set刷新消息((e as Error).message);
+    } finally {
+      set刷新中(false);
+      window.setTimeout(() => set刷新消息(null), 5000);
+    }
+  }, [bookId, setToc]);
+
   // 快捷键（spec §6，绑定可自定义）。输入框里打字时不拦截，
   // 否则在目录搜索框里按空格会触发自动滚动
   useEffect(() => {
     const keys = loadKeys();
     const onKey = (e: KeyboardEvent) => {
+      /*
+       * **App 层弹窗（编辑/在线地址/改名…）压在上面时，键盘一个键都不接。**
+       * 不然按 Esc 会一边关弹窗、一边把阅读器退掉（这条监听和 App 那条都收到
+       * Esc），按方向键/空格会在弹窗背后翻页、自动滚。Esc 关弹窗交给 App 那条
+       * window 监听；这条 effect 没有依赖数组、每次渲染重挂，闭包里的 modalOpen 是新的。
+       */
+      if (modalOpen) return;
       const t = e.target as HTMLElement;
       /*
        * **Esc 关掉最上面那一层浮层；一层都没有的时候才是「退出阅读器」。**
@@ -1518,6 +1591,14 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           >
             {ICO.down}<span>底部</span>
           </button>
+          {/* 追更覆盖写：重新从磁盘读这本书。打开时 stat 发现文件变过会挂提示条 */}
+          <button
+            onClick={() => void 刷新()}
+            disabled={刷新中}
+            title="重新从磁盘读取（文件被追更/替换过时用）"
+          >
+            {ICO.refresh}<span>{刷新中 ? '刷新中' : '刷新'}</span>
+          </button>
         </nav>
 
         {/* 右轨：读的时候会临时用一下的几样。**每格都写名字**，和左轨同一套——
@@ -1587,6 +1668,14 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           {/* 一键白天/夜间。**和查看器共用一份**（`ReaderChrome.tsx`）——
               两边原来逐字节相同地各写一份，而各自的 `isNight` 都在手写 id 的拼法 */}
           <NightToggle theme={settings.theme} setTheme={(v) => set('theme', v)} />
+          {/* 编辑书信息＝**低频**（一本书改不了一两次资料），原来摆在左轨第二格、
+              紧跟「书架」，太靠前。挪到右轨**最后**：右轨是「读的时候临时用一下」
+              那一档，这一档里它最不常用。点它是就地盖一层编辑弹窗、**不退出阅读**。 */}
+          {onEdit && (
+            <button onClick={onEdit} title="改书名、作者、封面、简介这些（不离开阅读）">
+              {ICO.info}<span>编辑</span>
+            </button>
+          )}
         </div>
 
         {ttsOpen && (
@@ -1813,6 +1902,15 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
               而人读完最后一句话时往往还想再看一眼 */}
           {error && <p className="danger" style={{ textAlign: 'center' }}>读取失败：{error}</p>}
           {notice && <p className="danger" style={{ textAlign: 'center' }}>{notice}</p>}
+          {待刷新 && (
+            <p className="muted" style={{ textAlign: 'center' }}>
+              文件在外部被更新过（追更/替换）。
+              <button className="refresh-act" onClick={() => void 刷新()} disabled={刷新中}>
+                {刷新中 ? '刷新中…' : '刷新读取'}
+              </button>
+            </p>
+          )}
+          {刷新消息 && <p className="muted" style={{ textAlign: 'center' }}>{刷新消息}</p>}
           {!chapter && !error && <p className="muted" style={{ textAlign: 'center' }}>正在读取…</p>}
           {/* 一章一张纸。「按章」和「左右翻」永远只有一张，DOM 和以前一样；
               「无限下滑」滚到底就在后面再接一张 */}

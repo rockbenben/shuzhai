@@ -41,8 +41,10 @@ export function openHint(e: NodeJS.ErrnoException): string {
     case 'ENOENT':
       // **和卡片角标同一个说法**（`labels.ts` 的 FILE_STATUS：「文件不见了」）——
       // 用户先在书架上看到那个角标，再点进来看到这句，两句得是一回事
+      // ⚠️ 真没了别再指「整理数据库」——自己删的唯一一份它清不掉（那只认「内容还在别处」的
+      // 残留），指过去是死路。能清的是侧栏「需要处理」那档的「批量清理失效文件」。
       return '这本书的文件不见了（被删了，或者移到别处了）。'
-        + '扫描一次书库能把移过位置的认回来；真没了的，用「设置 → 书库 → 整理数据库」清掉记录。';
+        + '扫描一次书库能把移过位置的认回来；真删了的，去侧栏「需要处理」那档点「批量清理失效文件」清掉记录。';
     case 'EACCES':
     case 'EPERM':
       return '没有权限读这个文件。它可能在一个受保护的文件夹里，或者被安全软件锁着。';
@@ -246,6 +248,7 @@ export function chapterBody(ch: { text: string; title: string | null }): string 
  * 光看 `chapterIdx === total - 1` 是不够的：从目录直接跳到最后一章看一眼，
  * 那本书就被判成读完了。而 `finished` 一旦标上，书从「在读」里消失，
  * 用户下次找不到它，还以为丢了。
+ * 另一道闸在下面：**连载中的书翻到底也不标**，那个「底」只是手头快照的底。
  */
 export function saveProgress(
   db: DatabaseSync,
@@ -257,7 +260,19 @@ export function saveProgress(
   const total = chapterCount(db, bookId);
 
   const percent = total === 0 ? 0 : Math.min(100, ((chapterIdx + 1) / total) * 100);
-  const finished = atEnd && total > 0 && chapterIdx >= total - 1;
+  /*
+   * **连载中的书翻到底不标读完。** 翻到的只是手头这份快照的底——
+   * 「读到最新章」不是「读完」：标成 finished 它就从「在读」溜进「已读完」，
+   * 追更一来就成了矛盾状态（「网上有更新」角标和「已读完」抽屉同时挂着，
+   * 真实库里撞到 3 本这样的）。unknown / 已完结 / 太监照旧自动标——
+   * 太监的书到底就是全本，完结的书到底更是。
+   */
+  const serial = (
+    db.prepare('select serial_status as s from book where id = ?').get(bookId) as
+      | { s: string | null }
+      | undefined
+  )?.s;
+  const finished = atEnd && total > 0 && chapterIdx >= total - 1 && serial !== 'ongoing';
 
   /*
    * **已经标了「读完」的书，进度条不许再被写回去。**
@@ -311,7 +326,7 @@ export function saveProgress(
  * 会让卡片显示「读到 12/0」、百分比还除零。
  *
  * 代价是这张表**完全不知道它被打开过**，而书架上好几样东西都从这张表取数：
- * 卡片那行「读到第几章 · 多久前」、默认排序的「读过的排最前」（`last_read_at desc`）、
+ * 卡片那行「读到第几章 · 多久前」、默认排序里的最后阅读时间（`ORDER.time` 取它和入库时间较新的）、
  * 侧栏「在读」那一档、`reading.last` / `recent`。于是
  * **一本你昨天读了一百页的 PDF，在书架上和一本从没打开过的书一模一样。**
  *

@@ -96,6 +96,12 @@ interface Props {
   startAt?: number;
   /** 从「全库笔记」点一条：打开那本书、落到那一处 */
   onOpenBook?: (bookId: number, at?: number) => void;
+  /** 就地盖一层「编辑书信息」弹窗改资料——**不退出查看**。读到第几页存在
+      app_setting 的 viewer.<bookId>，关了弹窗还在那一页。 */
+  onEdit?: () => void;
+  /** App 层弹窗（编辑 / 在线地址 / 改名…）压在查看器上时为 true：键盘全让给弹窗，
+      别在背后翻页或退出（Esc 关弹窗由 App 那条 window 监听管） */
+  modalOpen?: boolean;
   onExit: () => void;
 }
 
@@ -143,7 +149,7 @@ function 找滚的(stage: HTMLElement | null): HTMLElement | null {
   return 爹;
 }
 
-export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBook, onExit }: Props) {
+export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBook, onEdit, modalOpen = false, onExit }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -2153,6 +2159,10 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
   const 键表 = useRef(loadKeys());
   const 按键 = useRef<(e: KeyboardEvent) => void>(() => {});
   按键.current = (e) => {
+    // App 层弹窗（编辑/在线地址/改名…）压在上面时键盘一个键都不接——判据抄
+    // `Reader.tsx`：不然 Esc 一边关弹窗一边退出查看，方向键/空格在背后翻页。
+    // 这个 ref 每次渲染重赋，闭包里的 modalOpen 是新的；Esc 关弹窗归 App 那条监听。
+    if (modalOpen) return;
     // Esc 先关最上面那一层。判据抄 `Reader.tsx`：**Esc 是「关掉」不是「不要了」**，
     // 所以走 closeReview（把没存的那句话存了），不是 setReviewing(null)
     if (e.key === 'Escape') {
@@ -2645,6 +2655,14 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
           {/* 一键白天/夜间。**和 txt 阅读器共用同一份**（`ReaderChrome.tsx`）。
               ⚠️ PDF 这一档变的只有壳：那一页是 canvas 上的图，纸色作用不到它。 */}
           <NightToggle theme={settings.theme} setTheme={(v) => set('theme', v)} />
+          {/* 编辑书信息＝低频，原来摆在左轨第二格太靠前，挪到右轨最后（判据同
+              `Reader.tsx`：右轨是「临时用一下」那一档，这一档里它最不常用）。
+              点它就地盖编辑弹窗、**不退出查看**。 */}
+          {onEdit && (
+            <button onClick={onEdit} title="改书名、作者、封面、简介这些（不离开阅读）">
+              {ICO.info}<span>编辑</span>
+            </button>
+          )}
         </div>
 
         {/* 选中一段文字：**贴着它开**，和 txt 阅读器一套（`.note-pop`）。

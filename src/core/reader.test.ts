@@ -137,6 +137,24 @@ test('读到最后一章的最底下 → 自动标已读完', () => {
   assert.equal(Math.round(s.percent), 100);
 });
 
+test('连载中的书翻到底不标读完——「读到最新章」不是「读完」', () => {
+  // 翻到的只是手头快照的底：标成 finished，追更一来就是「已读完 + 网上有更新」
+  // 的矛盾状态（真实库里撞到过 3 本这样的）
+  db.prepare("update book set serial_status = 'ongoing' where id = ?").run(bookId);
+  const r = saveProgress(db, bookId, 2, 0, true);
+  assert.equal(r.finished, false);
+  const s = db
+    .prepare('select status, finished_at from reading_state where book_id = ?')
+    .get(bookId) as { status: string; finished_at: string | null };
+  assert.equal(s.status, 'reading', '留在「在读」，别溜进「已读完」');
+  assert.equal(s.finished_at, null);
+
+  // 已完结 / 未知状态照旧自动标
+  db.prepare("update book set serial_status = 'finished' where id = ?").run(bookId);
+  const r2 = saveProgress(db, bookId, 2, 0, true);
+  assert.equal(r2.finished, true);
+});
+
 test('只是跳到最后一章、没读到底，不算读完', () => {
   // 从目录点最后一章看一眼就被判读完的话，那本书会从「在读」里消失，
   // 用户下次找不到它，还以为丢了
