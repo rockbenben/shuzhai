@@ -7,7 +7,9 @@ import type { DatabaseSync } from 'node:sqlite';
 import { openDb } from './db.ts';
 import {
   nextPending, recordResult, fetchStats, resetMisses, resetFailed, dropResults,
+  resetForInfoBackfill,
 } from './cover-source.ts';
+import { addLink } from './links.ts';
 
 let dir: string;
 let db: DatabaseSync;
@@ -18,6 +20,10 @@ function addBook(title: string, author: string | null, coverPath: string | null 
     db.prepare('insert into book(title, author, cover_path) values(?,?,?)')
       .run(title, author, coverPath).lastInsertRowid,
   );
+}
+
+function setIntro(id: number, intro: string | null): void {
+  db.prepare('update book set intro = ? where id = ?').run(intro, id);
 }
 
 beforeEach(() => {
@@ -117,199 +123,53 @@ test('同一本书重复记结果是覆盖，不是报错', () => {
   assert.equal(fetchStats(db).failed, 0);
 });
 
-// ────────────────────────────────────────────────────────────────────────
-// 候选提取
-
-import {
-  parseQidianCandidates, parseDoubanCandidates, parseShuqiCandidates, probeSaysHealthy, doubanAnswered,
-} from './cover-source.ts';
-
-// 结构照 2026-08-13 实测的真实页面造：data-bid / h3>a 内嵌 cite / p.author>a.name /
-// img 的 src 是占位图、真图在 data-original 且是协议相对地址
-const QIDIAN_FIXTURE = `
-<ul class="all-img-list">
-<li class="res-book-item" data-bid="2494758" data-rid="1">
-  <div class="book-img-box"><a href="//www.qidian.com/book/2494758/">
-    <img class="lazy" src="//qdfepccdn.qidian.com/www.qidian.com/images/common/default_book.png"
-         data-original="//bookcover.yuewen.com/qdbimg/349573/2494758/150" alt="武炼巅峰在线阅读">
-  </a></div>
-  <div class="book-mid-info">
-    <h3 class="book-info-title"><a href="//www.qidian.com/book/2494758/">武炼<cite class="red-kw">巅峰</cite></a></h3>
-    <p class="author"><img src="x.png"><a class="name" href="//my.qidian.com/author/1">莫默</a><em>|</em><a>玄幻</a></p>
-  </div>
-</li>
-<li class="res-book-item" data-bid="1044574502" data-rid="2">
-  <div class="book-img-box"><a href="//www.qidian.com/book/1044574502/">
-    <img class="lazy" src="//qdfepccdn.qidian.com/www.qidian.com/images/common/default_book.png"
-         data-original="//bookcover.yuewen.com/qdbimg/349573/1044574502/150">
-  </a></div>
-  <div class="book-mid-info">
-    <h3 class="book-info-title"><a href="//www.qidian.com/book/1044574502/">年代1982</a></h3>
-    <p class="author"><a class="name">炼心心心</a></p>
-  </div>
-</li>
-</ul>`;
-
-test('起点提取：剥内嵌标签、封面取 data-original 并补协议、书页由 data-bid 拼', () => {
-  const c = parseQidianCandidates(QIDIAN_FIXTURE);
-  assert.equal(c.length, 2);
-  assert.equal(c[0].title, '武炼巅峰', '关键词高亮的 <cite> 必须剥掉');
-  assert.equal(c[0].author, '莫默');
-  assert.equal(c[0].coverUrl, 'https://bookcover.yuewen.com/qdbimg/349573/2494758/150');
-  assert.equal(c[0].url, 'https://www.qidian.com/book/2494758/');
-  assert.equal(c[0].site, 'qidian');
+test('队列：有封面但没简介、且有在线地址的书也出队（读地址补信息）', () => {
+  const a = addBook('甲', '某人', 'C:/covers/a.jpg');
+  addLink(db, a, 'https://www.qidian.com/book/1/');
+  assert.equal(nextPending(db)!.id, a, '有链接没简介 → 该去读详情页');
 });
 
-test('起点提取：绝不把 src 里的懒加载占位图当封面', () => {
-  // src 取到的是 default_book.png——抓下来会是 8000 张一模一样的占位图，
-  // 而且界面上看起来一切正常
-  for (const c of parseQidianCandidates(QIDIAN_FIXTURE)) {
-    assert.ok(!c.coverUrl?.includes('default_book'), `${c.title} 的封面是占位图`);
-  }
+test('队列：有封面没简介但没链接的不出队（搜不到地址就没法补）', () => {
+  addBook('甲', '某人', 'C:/covers/a.jpg');
+  assert.equal(nextPending(db), null);
 });
 
-// 结构照 2026-08-16 实测的真实页面造。两块：matchbook 是精确匹配那一本，
-// searchlist-main 是模糊推荐的相关结果
-const SHUQI_FIXTURE = `
-<div class="matchbook"><div class="view page-width">
-  <a class="cover" href="/book/53258.html"><img src="https://img-tailor.11222.cn/bcv/big/11590353258_sa.jpg"></a>
-  <div class="bookTitle"><a class="bname" href="/book/53258.html">斗破<em>苍穹</em></a></div>
-  <div class="bauthor">作者：天蚕土豆</div>
-</div></div>
-<div class="searchlist-main"><ul><li>
-  <a class="book-cover" href="/book/9163025.html"><img src="https://img-tailor.11222.cn/bcv/big/9163025_sa.jpg"></a>
-  <a class="bname" href="/book/9163025.html">斗破苍穹之无上之境</a>
-  <div class="bauthor">作者：别人</div>
-</li></ul></div>`;
-
-test('书旗提取：书名剥高亮、作者去掉「作者：」、封面和书页都取到', () => {
-  const c = parseShuqiCandidates(SHUQI_FIXTURE);
-  assert.equal(c.length, 1);
-  assert.equal(c[0].title, '斗破苍穹', '关键词高亮的 <em> 必须剥掉');
-  assert.equal(c[0].author, '天蚕土豆');
-  assert.equal(c[0].coverUrl, 'https://img-tailor.11222.cn/bcv/big/11590353258_sa.jpg');
-  assert.equal(c[0].url, 'https://www.shuqi.com/book/53258.html');
-  assert.equal(c[0].site, 'shuqi');
+test('队列：有封面有简介有链接的不出队', () => {
+  const a = addBook('甲', '某人', 'C:/covers/a.jpg');
+  addLink(db, a, 'https://www.qidian.com/book/1/');
+  setIntro(a, '已有简介');
+  assert.equal(nextPending(db), null);
 });
 
-test('书旗提取：只收精确匹配块，下面的相关结果一个都不收', () => {
-  // 相关结果是模糊推荐（搜《人间冰器》给的是《人间有剑》）。收进来最好的情况是
-  // 白跑一遍 isExactMatch，最坏的情况是书名作者恰好都撞上 —— 那就配错封面了
-  const c = parseShuqiCandidates(SHUQI_FIXTURE);
-  assert.ok(!c.some((x) => x.title.includes('无上之境')), '相关结果不能混进来');
+test('队列：信息回填档的书记过 verdict 后不再出队', () => {
+  const a = addBook('甲', '某人', 'C:/covers/a.jpg');
+  addLink(db, a, 'https://www.qidian.com/book/1/');
+  recordResult(db, a, 'ok', 'qidian');
+  assert.equal(nextPending(db), null, '那一页真没简介也只试这一次');
 });
 
-test('书旗提取：没有精确匹配块时返回空，不抛', () => {
-  assert.deepEqual(parseShuqiCandidates('<html><div class="searchlist-main">只有相关结果</div></html>'), []);
-  assert.deepEqual(parseShuqiCandidates(''), []);
+test('统计的 pending 认新条件', () => {
+  const a = addBook('甲', '某人', 'C:/covers/a.jpg');
+  addLink(db, a, 'https://www.qidian.com/book/1/');
+  addBook('乙', '某人', 'C:/covers/b.jpg'); // 有封面没链接
+  assert.equal(fetchStats(db).pending, 1);
 });
 
-test('豆瓣：反爬页和「真的没搜到」必须分得开', () => {
-  // 真的没搜到时页面里照样有 __DATA__，items 是空的
-  assert.equal(doubanAnswered('<script>window.__DATA__ = {"items":[]};</script>'), true);
-  assert.deepEqual(parseDoubanCandidates('<script>window.__DATA__ = {"items":[]};</script>'), []);
-  // 反爬页是 HTTP 200，光看状态码看不出来。当成「没搜到」的话，一整段时间里
-  // 走到豆瓣这步的书全被写成「没匹配上」并持久化——实测那段抽 8 本重试，5 本立刻命中
-  assert.equal(doubanAnswered('<html>请输入验证码</html>'), false);
-  assert.equal(doubanAnswered(''), false);
-});
+test('resetForInfoBackfill：只删「有链接没简介」的 verdict 行', () => {
+  const a = addBook('甲', '某人', 'C:/covers/a.jpg');
+  addLink(db, a, 'https://www.qidian.com/book/1/');
+  recordResult(db, a, 'ok', 'qidian'); // 旧链跑的：有封面没简介
 
-test('探针：搜到那本已知一定在的书才算站点是好的', () => {
-  assert.equal(probeSaysHealthy(QIDIAN_FIXTURE), true, 'fixture 第一条就是《武炼巅峰》');
-  // 限流时返回的正是「有候选但一本都不对」的页面——这种形状「连续 0 候选」
-  // 那条守卫完全看不见，实测一口气写坏了 186 本
-  assert.equal(probeSaysHealthy(QIDIAN_FIXTURE.replaceAll('武炼', '别的书')), false);
-  assert.equal(probeSaysHealthy('<html>空搜索页</html>'), false);
-});
+  const b = addBook('乙', '某人');
+  recordResult(db, b, 'nomatch', 'qidian'); // 没链接，不该动
 
-test('探针：模糊相关不算数，必须精确书名', () => {
-  // 起点搜不到的时候会给一堆「相关作品」。《武炼巅峰之xxx》说明的恰恰是
-  // 那本书没搜着，不能拿它证明站点是好的
-  assert.equal(probeSaysHealthy(QIDIAN_FIXTURE.replace('武炼<cite class="red-kw">巅峰</cite>', '武炼巅峰之无上剑域')), false);
-});
+  const c = addBook('丙', '某人', 'C:/covers/c.jpg');
+  addLink(db, c, 'https://www.qidian.com/book/3/');
+  setIntro(c, '早就有简介');
+  recordResult(db, c, 'ok', 'qidian'); // 有简介，不该动
 
-test('豆瓣提取：从 window.__DATA__ 的 JSON 里取', () => {
-  const html = `<html><script>
-    window.__DATA__ = {"items":[
-      {"title":"从零开始","abstract":"雷云风暴 / 某出版社 / 2010","cover_url":"https://img.douban/x.jpg"},
-      {"title":"[丛书] 从零开始学","abstract":"机械工业出版社","cover_url":""}
-    ]};
-  </script></html>`;
-  const c = parseDoubanCandidates(html);
-  assert.equal(c.length, 2);
-  assert.equal(c[0].title, '从零开始');
-  assert.equal(c[0].author, '雷云风暴', 'abstract 按 / 切的第一段是作者');
-  assert.equal(c[0].site, 'douban');
-});
-
-test('豆瓣提取：页面里没有 __DATA__ 时返回空数组，不抛', () => {
-  assert.deepEqual(parseDoubanCandidates('<html>验证码页面</html>'), []);
-});
-
-test('豆瓣提取：abstract 里含有 }; 字面量时仍能正确提取（不能被截断）', () => {
-  // 这是实测的 bug：懒惰匹配 *? 会在 abstract 里的 }; 处截断，导致整页都空。
-  // 如果某本书的摘要含有字面量 };（比如引用了代码片段或特殊格式），
-  // 正则会在那里停止，整页候选全清零
-  const html = `<html><script>
-    window.__DATA__ = {"items":[
-      {"title":"书A","abstract":"某作者 / 出版社；引用：};","cover_url":"https://x/a.jpg"},
-      {"title":"书B","abstract":"某作者 / 出版社；代码};","cover_url":"https://x/b.jpg"},
-      {"title":"书C","abstract":"某作者 / 出版社；花括},{","cover_url":"https://x/c.jpg"}
-    ]};
-  </script></html>`;
-  const c = parseDoubanCandidates(html);
-  assert.equal(c.length, 3, 'abstract 里有 }; 也要全部提取出来');
-  assert.equal(c[0].title, '书A');
-  assert.equal(c[1].title, '书B');
-  assert.equal(c[2].title, '书C');
-});
-
-test('豆瓣提取：嵌套花括号的处理', () => {
-  const html = `<html><script>
-    window.__DATA__ = {"items":[
-      {"title":"单花括","abstract":"作者 / {单}","cover_url":"https://x/1.jpg"},
-      {"title":"嵌套花括","abstract":"作者 / {套{嵌}}","cover_url":"https://x/2.jpg"}
-    ]};
-  </script></html>`;
-  const c = parseDoubanCandidates(html);
-  assert.equal(c.length, 2, '嵌套花括号不应该截断');
-  assert.equal(c[0].title, '单花括');
-  assert.equal(c[1].title, '嵌套花括');
-});
-
-// ────────────────────────────────────────────────────────────────────────
-// 带别名的严格匹配
-
-import { matchWithAliases } from './cover-source.ts';
-import type { Candidate } from './enrich.ts';
-
-const cand = (title: string, author: string | null): Candidate =>
-  ({ title, author, site: 'qidian' }) as Candidate;
-
-test('别名匹配：《国产英雄(我的邻居是女妖)》括号内外都算数', () => {
-  // 库里 171 本书名带括号别名，跟任何站点都不会整串相等——拆开试
-  const local = { title: '国产英雄(我的邻居是女妖)', author: '某人' };
-  assert.ok(matchWithAliases(local, [cand('国产英雄', '某人')]));
-  assert.ok(matchWithAliases(local, [cand('我的邻居是女妖', '某人')]));
-  assert.equal(matchWithAliases(local, [cand('国产英雄', '别人')]), null, '作者不同必须拒');
-});
-
-test('全角括号也认', () => {
-  const local = { title: '酒神（阴阳冕）', author: '唐家三少' };
-  assert.ok(matchWithAliases(local, [cand('酒神', '唐家三少')]));
-});
-
-test('没作者直接不匹配——只靠书名认太容易张冠李戴', () => {
-  assert.equal(matchWithAliases({ title: '冬与狮', author: null }, [cand('冬与狮', '兰晓龙')]), null);
-});
-
-test('多个候选里挑出精确匹配的那个，不是首条', () => {
-  // 实测：搜「官仙」首条是《重置世界：从女儿被夺舍开始》——首条几乎总是错书
-  const local = { title: '武炼巅峰', author: '莫默' };
-  const hit = matchWithAliases(local, [
-    cand('武炼至尊', '冶山熊'),
-    cand('武炼巅峰', '莫默'),
-    cand('武炼苍天', '犯戒和尚'),
-  ]);
-  assert.equal(hit?.author, '莫默');
+  assert.equal(resetForInfoBackfill(db), 1);
+  const left = db.prepare('select book_id from cover_fetch order by book_id').all().map((r) => ({ ...r }));
+  assert.deepEqual(left, [{ book_id: b }, { book_id: c }]);
+  assert.equal(nextPending(db)!.id, a, '删掉的书被队列捞回来走详情页那条路');
 });

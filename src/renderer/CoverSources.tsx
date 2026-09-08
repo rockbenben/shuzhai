@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { rpc } from './rpc.ts';
-// 从 core 引：这里只用到书名/作者/封面三样，但类型的正本在那边（`enrich.ts`）
+// 从 core 引：这里只用到书名/作者/封面/地址几个字段，但类型的正本在那边（`enrich.ts`）
 import type { Candidate } from '../core/enrich.ts';
 import { blankSource, parseSources, serializeSources, type CustomSource } from '../core/cover-custom.ts';
 
@@ -8,13 +8,14 @@ import { blankSource, parseSources, serializeSources, type CustomSource } from '
 interface TestResult { ok: boolean; found: number; candidates: Candidate[]; error?: string }
 
 /**
- * 自定义封面搜索源。
+ * 自定义书源。
  *
- * **只管封面**——阅读走本地 txt，这里只是「去哪儿找一张图和书名作者」。
+ * 输入书名、输出这本书的主页地址：命中后会再读那个详情页，
+ * 封面、简介、作者、分类一起补。阅读走本地 txt，不受影响。
  * 内置那三个（起点/书旗/豆瓣）仍然是代码：它们各有各的坑（起点要浏览器渲染、
  * 豆瓣藏在 JSON 里、书旗只收精确匹配块），硬塞进同一套正则配置只会做出个残缺的 DSL。
  *
- * **绝不执行配置里的 JS**（和朗读引擎同一条铁律）。只认「搜索地址 + 四条正则」，
+ * **绝不执行配置的 JS**（和朗读引擎同一条铁律）。只认「搜索地址 + 几条正则」，
  * 表达不了的源就别加——多几个源换「跑陌生人的代码」，这笔账怎么算都不划算。
  */
 export function CoverSources() {
@@ -50,12 +51,12 @@ export function CoverSources() {
 
   return (
     <>
-      <h3>自定义封面搜索源</h3>
+      <h3>自定义书源</h3>
       <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 .5rem' }}>
         内置的起点、书旗、豆瓣不在这里——它们各自有专门的解析逻辑。这里加的源
         <strong>排在它们之后</strong>，前面都没找到才会问。
         <br />
-        <strong>只用来找封面</strong>，不影响阅读。规则里
+        搜到书之后会再读它的详情页，<strong>封面、简介、分类一起补</strong>，不影响阅读。规则里
         <strong>不支持 JS</strong>：这些配置常常是从别处拿来的，跑陌生人的代码换几个源不划算。
       </p>
 
@@ -112,7 +113,8 @@ export function CoverSources() {
               {field(s, 'blockRe', '结果块', '每条搜索结果的整块。不圈块的话书名和作者会各找各的，对不上号')}
               {field(s, 'titleRe', '书名', '第 1 个捕获组是书名')}
               {field(s, 'authorRe', '作者', '第 1 个捕获组是作者。没有作者的候选一律不会被采用')}
-              {field(s, 'coverRe', '封面', '第 1 个捕获组是图片地址')}
+              {field(s, 'urlRe', '详情页地址', '第 1 个捕获组是这本书的主页地址，相对路径自动补全；配了它才补得了简介和分类')}
+              {field(s, 'coverRe', '封面（可选）', '第 1 个捕获组是图片地址。详情页没给图时才用它兜底')}
             </div>
           )}
 

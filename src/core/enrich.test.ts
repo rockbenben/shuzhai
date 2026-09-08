@@ -12,6 +12,7 @@ import {
   downloadCover,
   searchSource,
   validateCoverBytes,
+  mergeCandidates,
   type Candidate,
 } from './enrich.ts';
 import { addLink, listLinks } from './links.ts';
@@ -156,6 +157,63 @@ test('不匹配的候选一律拒绝，一个字段都不写', async () => {
   assert.equal(await coverDataUrl(db, bookId), null);
 });
 
+// ── 详情页路径（trustIdentity：身份来自用户亲手粘的链接）──────────────
+
+test('trustIdentity：书名和本地对不上也照补，但绝不改本地书名', async () => {
+  // 文件名没起准、用户贴了正确详情页：对面书名和本地不一样
+  const r = await applyCandidate(
+    db, userData, bookId,
+    { ...good, title: '完全不同的书名', intro: '对面的简介' },
+    { fetchImpl: fakeFetch(routes), trustIdentity: true },
+  );
+  assert.ok(r.applied.includes('简介'));
+  assert.equal(
+    (db.prepare('select title from book where id = ?').get(bookId) as { title: string }).title,
+    '斗破苍穹',
+    '书名以本地为准，候选书名只用于预览警告',
+  );
+});
+
+test('trustIdentity：本地没作者时从对面补上；已有作者绝不覆盖', async () => {
+  // 一本文件名没解析出作者的书（详情页路径最该帮上的情况）
+  const noAuthor = Number(
+    db.prepare("insert into book(title, author) values('某本没作者的书', null)").run().lastInsertRowid,
+  );
+  const r = await applyCandidate(
+    db, userData, noAuthor,
+    { title: '某本没作者的书', author: '补来的作者', site: '示例站' },
+    { trustIdentity: true },
+  );
+  assert.ok(r.applied.includes('作者'));
+  assert.equal(
+    (db.prepare('select author from book where id = ?').get(noAuthor) as { author: string | null }).author,
+    '补来的作者',
+  );
+
+  // 已有作者的书：哪怕对面作者名不一样也只跳过、不覆盖
+  const r2 = await applyCandidate(
+    db, userData, bookId,
+    { ...good, author: '别人' },
+    { fetchImpl: fakeFetch(routes), trustIdentity: true },
+  );
+  assert.ok(r2.skipped.some((s) => s.includes('作者')));
+  assert.equal(
+    (db.prepare('select author from book where id = ?').get(bookId) as { author: string }).author,
+    '天蚕土豆',
+  );
+});
+
+test('不走 trustIdentity 时，书名不一致照旧拒绝（搜索匹配的门没有被拆）', async () => {
+  await assert.rejects(
+    () => applyCandidate(
+      db, userData, bookId,
+      { ...good, title: '完全不同的书名' },
+      { fetchImpl: fakeFetch(routes) },
+    ),
+    /书名不一致/,
+  );
+});
+
 test('本地已有的简介和封面不被覆盖', async () => {
   db.prepare("update book set intro = '我自己写的简介' where id = ?").run(bookId);
   await applyCandidate(db, userData, bookId, good, { fetchImpl: fakeFetch(routes) });
@@ -283,4 +341,54 @@ test('校验：PNG 和 WEBP 也认', () => {
   const webp = new Uint8Array(3000);
   webp.set([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
   assert.equal(validateCoverBytes(webp, 'https://x/c').ok, true);
+});
+
+test('mergeCandidates：详情页字段优先，封面用搜索候选兜底', () => {
+  const detail: Candidate = {
+    title: '斗破苍穹', author: '天蚕土豆', site: 'qidian',
+    intro: '这里是简介', category: '玄幻', tags: ['热血', '升级'],
+    url: 'https://www.qidian.com/book/123/',
+  };
+  const search: Candidate = {
+    title: '斗破苍穹', author: '天蚕土豆', site: 'qidian',
+    coverUrl: 'https://x.com/cover.jpg',
+    url: 'https://www.qidian.com/book/123/',
+  };
+  const m = mergeCandidates(detail, search);
+  assert.equal(m.intro, '这里是简介');
+  assert.equal(m.category, '玄幻');
+  assert.deepEqual(m.tags, ['热血', '升级']);
+  assert.equal(m.coverUrl, 'https://x.com/cover.jpg', '详情页没给图 → 用搜索结果的缩略图');
+  assert.equal(m.url, 'https://www.qidian.com/book/123/');
+});
+
+test('mergeCandidates：详情页自己有封面时不用搜索的', () => {
+  const m = mergeCandidates(
+    { title: '甲', author: null, coverUrl: 'https://a/detail.jpg' },
+    { title: '甲', author: null, coverUrl: 'https://a/thumb.jpg' },
+  );
+  assert.equal(m.coverUrl, 'https://a/detail.jpg');
+});
+
+test('mergeCandidates：tags 两边都有时拼接去重，保详情页顺序', () => {
+  const m = mergeCandidates(
+    { title: '甲', author: null, tags: ['热血', '升级'] },
+    { title: '甲', author: null, tags: ['升级', '爽文'] },
+  );
+  assert.deepEqual(m.tags, ['热血', '升级', '爽文']);
+});
+
+test('mergeCandidates：两边都没 tags 时不产出空数组', () => {
+  const m = mergeCandidates({ title: '甲', author: null }, { title: '甲', author: null });
+  assert.equal(m.tags, undefined);
+  assert.equal(m.intro, undefined);
+});
+
+test('mergeCandidates：详情页没给 tags 时用搜索候选的', () => {
+  const m = mergeCandidates(
+    { title: '甲', author: null, intro: '详情页简介' },
+    { title: '甲', author: null, tags: ['热血', '爽文'] },
+  );
+  assert.deepEqual(m.tags, ['热血', '爽文']);
+  assert.equal(m.intro, '详情页简介');
 });

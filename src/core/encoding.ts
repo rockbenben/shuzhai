@@ -151,3 +151,32 @@ export function decodeAuto(buf: Uint8Array): { text: string; detection: Detectio
   const detection = detectEncoding(buf);
   return { text: decodeText(buf, detection.encoding), detection };
 }
+
+/**
+ * 网页响应字节 → 文本。网页的编码是**声明**的，不像本地 txt 要打分猜：
+ * 先看 HTTP `Content-Type: charset=`（飞卢带），再扫页面开头的 `<meta charset>`
+ * （晋江响应头不带 charset、只在 meta 里写 gb18030，实测），都没有才交给
+ * decodeAuto 探测。标签本身是 ASCII，GBK 字节里用 UTF-8 扫头部也能扫到。
+ * 声明 utf-8 / 没声明且探测为 utf-8 时结果和原来的 res.text() 一致，
+ * 现有 UTF-8 站点（起点/书旗/豆瓣/番茄/纵横）行为不变。
+ */
+export function decodeWebPage(buf: Uint8Array, contentTypeHeader: string | null): string {
+  const head = new TextDecoder('utf-8').decode(buf.subarray(0, 4096));
+  const declared =
+    /charset=([A-Za-z0-9_-]+)/i.exec(contentTypeHeader ?? '')?.[1]
+    ?? /<meta[^>]+charset\s*=\s*["']?([A-Za-z0-9_-]+)/i.exec(head)?.[1];
+  const enc = webCharset(declared);
+  if (enc) return decodeText(buf, enc);
+  return decodeAuto(buf).text;
+}
+
+/** 声明里的编码名 → 应用内编码；认不出返回 null（交给 decodeAuto 探测） */
+function webCharset(name: string | undefined): Encoding | null {
+  if (!name) return null;
+  const n = name.toLowerCase();
+  if (n.includes('gb')) return 'gb18030'; // gb2312 / gbk / gb18030 同一档解，见文件头
+  if (n.includes('big5')) return 'big5';
+  if (n.startsWith('utf-16') || n.startsWith('utf16')) return 'utf-16le';
+  if (n.startsWith('utf-8') || n.startsWith('utf8')) return 'utf-8';
+  return null;
+}

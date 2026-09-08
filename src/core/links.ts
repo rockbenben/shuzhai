@@ -11,6 +11,7 @@
 //      正则那半就够用，而 CSS 选择器要拖一个 DOM 解析器进来
 
 import type { DatabaseSync } from 'node:sqlite';
+import { adapterForUrl, applySerialIfUnknown } from './site-adapters.ts';
 
 /** 同一域名两次请求之间至少隔这么久 */
 export const DOMAIN_GAP_MS = 2000;
@@ -64,6 +65,22 @@ export function extractUrls(text: string): string[] {
   return [...new Set(found.filter(Boolean))];
 }
 
+/**
+ * 归一化 URL 用于去重：去碎片、host 转小写、去尾斜杠。
+ * query 保留（有的站靠它区分页面）。解析不了就退回 trim 后的原文。
+ */
+function normalizeUrl(u: string): string {
+  try {
+    const x = new URL(u.trim());
+    x.hash = '';
+    x.hostname = x.hostname.toLowerCase();
+    const s = x.toString();
+    return s.endsWith('/') ? s.slice(0, -1) : s;
+  } catch {
+    return u.trim();
+  }
+}
+
 export function addLink(
   db: DatabaseSync,
   bookId: number,
@@ -75,6 +92,16 @@ export function addLink(
     new URL(trimmed);
   } catch {
     throw new Error(`不是合法的网址：${trimmed}`);
+  }
+
+  // 同书同归一化 URL → 幂等返回已有行，不插、不动主地址、也不补 note/selector
+  // （悄悄改用户数据比重复一行更糟）
+  const norm = normalizeUrl(trimmed);
+  const existing = db
+    .prepare('select id, url from online_link where book_id = ?')
+    .all(bookId) as Array<{ id: number; url: string }>;
+  for (const row of existing) {
+    if (normalizeUrl(row.url) === norm) return { id: row.id };
   }
 
   const id = Number(
@@ -98,6 +125,23 @@ export function setPrimaryLink(db: DatabaseSync, id: number): void {
   if (!row) throw new Error('没有这条地址');
   db.prepare('update online_link set is_primary = 0 where book_id = ?').run(row.book_id);
   db.prepare('update online_link set is_primary = 1 where id = ?').run(id);
+}
+
+/**
+ * 改一条地址的「最新章提取正则」。
+ * 空串/空白/null → 清除；坏正则当场抛——存的时候不挡，
+ * `extractLatest` 会静默吞掉，用户就永远等不到结果。
+ */
+export function setLinkSelector(db: DatabaseSync, id: number, selector: string | null): void {
+  const s = selector?.trim() || null;
+  if (s) {
+    try {
+      new RegExp(s);
+    } catch {
+      throw new Error('提取正则无效：不是合法的正则表达式');
+    }
+  }
+  db.prepare('update online_link set selector = ? where id = ?').run(s, id);
 }
 
 export function listLinks(db: DatabaseSync, bookId?: number): LinkRow[] {
@@ -266,13 +310,20 @@ export interface UpdateHint {
  *
  * **不比章节号**：网站的章节编号和本地文件的编号经常对不上（有的算楔子，
  * 有的不算），拿数字比会一直报假更新。标题匹配保守但不会骗人。
+ *
+ * 两个前提，缺一个都不判（否则角标假阳性）：
+ *   1. **只对 ongoing 书**——完结/弃坑/未知没有「追更」语义；完结书单本手查
+ *      也可能把对面的推广文案当末章写进来，那一概不亮角标（对话框里仍看得到原文）。
+ *   2. **本地得有章节可比**——PDF/EPUB 在 chapter 表是 0 行、手工书连文件都没有，
+ *      「本地目录里找不到」对它们永远成立，比了也是假的。
  */
 export function updateHints(db: DatabaseSync): UpdateHint[] {
   const links = db
     .prepare(
       `select l.book_id as bookId, b.title, l.latest_chapter_title as remoteLatest
          from online_link l join book b on b.id = l.book_id
-        where l.latest_chapter_title is not null and l.is_primary = 1`,
+        where l.latest_chapter_title is not null and l.is_primary = 1
+          and b.serial_status = 'ongoing'`,
     )
     .all() as unknown as Array<{ bookId: number; title: string; remoteLatest: string }>;
 
@@ -299,7 +350,162 @@ export function updateHints(db: DatabaseSync): UpdateHint[] {
       title: l.title,
       localLast,
       remoteLatest: l.remoteLatest,
-      hasUpdate: !found,
+      // 本地没有章节（PDF/EPUB/手工书）时 localLast 为 null——没法比，不算有更新
+      hasUpdate: localLast !== null && !found,
     };
   });
+}
+
+// ── checkUpdates：连载更新统一检查 ────────────────────────────────────
+//
+// **为什么只查 ongoing**：完结/未知的书没有「追更」需求，批量全查既浪费
+// 站点资源也没意义；单本手动检查（传 bookId）不受这个限制——用户可能
+// 想确认一本「不知道有没有续集」的书。
+//
+// **三档取法**：认得出适配器走 latestRequest/parseLatest（质量最稳），
+// 认不出但有 selector 走正则提取（用户自配），都没有就只探活（至少知道
+// 地址还活着）。
+//
+// **静默失败**：网络错误是常态——反爬、改版、临时抽风都可能。检测更新是
+// 锦上添花，失败一次就打断用户本末倒置，所以 catch 掉、记 suspect 就行。
+
+export interface UpdateDeps {
+  /** 普通 HTTP。status 原样返回（404 才能判 dead）；网络错误抛异常 */
+  fetchText: (url: string) => Promise<{ status: number; text: string }>;
+  /** 隐藏窗口渲染取正文（起点/番茄）；没注入时需要浏览器的链接跳过 */
+  browserText?: (url: string) => Promise<string>;
+  /** 测试里调成 0 */
+  gapMs?: number;
+}
+
+export interface UpdateReport {
+  checked: number;
+  ok: number;
+  dead: number;
+  /** 抓到对面最新章标题的条数 */
+  updated: number;
+  /** 本批书里「远端末章本地目录找不到」的本数 */
+  withUpdates: number;
+}
+
+interface UpdateTask {
+  linkId: number;
+  bookId: number;
+  title: string;
+  author: string | null;
+  url: string;
+  selector: string | null;
+  isPrimary: number;
+}
+
+export async function checkUpdates(
+  db: DatabaseSync,
+  deps: UpdateDeps,
+  opts: { bookId?: number } = {},
+): Promise<UpdateReport> {
+  const gap = deps.gapMs ?? DOMAIN_GAP_MS;
+  const where: string[] = [];
+  const params: Array<string | number> = [];
+  if (opts.bookId === undefined) {
+    // 批量（书架按钮/后台）：只查 ongoing 书的主链接——礼貌，也只有这些有「追更」语义
+    where.push('l.is_primary = 1', "b.serial_status = 'ongoing'");
+  } else {
+    // 单本（对话框「检查」）：这本书的**所有**链接都查——主链接取末章+探活，
+    // 其余链接纯探活。死链探测收编在这里：改造前界面走 link.check 探活所有链接，
+    // 按钮换成 checkUpdates 后非主链接一度没人探（link.check 界面零调用方）
+    where.push('l.book_id = ?');
+    params.push(opts.bookId);
+  }
+  const tasks = db
+    .prepare(
+      `select l.id as linkId, l.book_id as bookId, b.title, b.author, l.url, l.selector,
+              l.is_primary as isPrimary
+         from online_link l join book b on b.id = l.book_id
+        where ${where.join(' and ')}`,
+    )
+    .all(...params) as unknown as UpdateTask[];
+
+  // 同域名串行 + 间隔；不同域名互不等待（同 checkLinks 的结构）
+  const byDomain = new Map<string, UpdateTask[]>();
+  for (const t of tasks) {
+    const key = siteFromUrl(t.url) || 'unknown';
+    const list = byDomain.get(key);
+    if (list) list.push(t);
+    else byDomain.set(key, [t]);
+  }
+
+  const report: UpdateReport = { checked: 0, ok: 0, dead: 0, updated: 0, withUpdates: 0 };
+  const touched = new Set<number>();
+
+  await Promise.all(
+    [...byDomain.values()].map(async (group) => {
+      for (let i = 0; i < group.length; i++) {
+        if (i > 0 && gap > 0) await sleep(gap);
+        const t = group[i];
+
+        let status: number | null = null;
+        let latest: string | null = null;
+        let serial: 'ongoing' | 'finished' | null = null;
+        try {
+          const adapter = adapterForUrl(t.url);
+          // 只有主链接取最新章；非主链接（单本检查时带上的备用地址）只探活
+          const req = t.isPrimary
+            ? adapter?.latestRequest?.({ title: t.title, author: t.author, url: t.url })
+            : null;
+          let body = '';
+          if (req) {
+            if (req.needsBrowser) {
+              // 起点这类站普通 HTTP 拿不到正文；没注入浏览器就跳过——不判 ok/dead、
+              // 不写状态（免得污染 last_status），也不进 touched：本轮没真查它，
+              // 算进 withUpdates 会报出「查了 0 本、N 本有更新」这种自相矛盾的数
+              if (!deps.browserText) continue;
+              body = await deps.browserText(req.url);
+              status = 200;
+            } else {
+              const res = await deps.fetchText(req.url);
+              status = res.status;
+              if (res.status >= 200 && res.status < 300) body = res.text;
+            }
+            if (body) {
+              const r = adapter?.parseLatest?.(body, { title: t.title, author: t.author, url: t.url });
+              if (r) { latest = r.latest; serial = r.serial ?? null; }
+            }
+          } else if (t.selector && t.isPrimary) {
+            const res = await deps.fetchText(t.url);
+            status = res.status;
+            if (res.status >= 200 && res.status < 300) latest = extractLatest(res.text, t.selector);
+          } else {
+            // 只探活：认不出适配器的站，或单本检查时这本书的非主链接
+            const res = await deps.fetchText(t.url);
+            status = res.status;
+          }
+        } catch {
+          status = null; // 静默：后台检测失败不弹窗（spec §4）
+        }
+
+        // 走到这儿才算本轮真正查过（缺工具 continue 的不算）；withUpdates 只数主链接代表的书
+        if (t.isPrimary) touched.add(t.bookId);
+
+        const label = statusLabel(status);
+        report.checked++;
+        if (label === 'ok') report.ok++;
+        else if (label === 'dead') report.dead++;
+
+        db.prepare(
+          "update online_link set last_status = ?, last_checked_at = datetime('now') where id = ?",
+        ).run(label, t.linkId);
+        if (latest) {
+          db.prepare(
+            "update online_link set latest_chapter_title = ?, latest_checked_at = datetime('now') where id = ?",
+          ).run(latest, t.linkId);
+          report.updated++;
+        }
+        // 回填连载状态只认主链接的结果
+        if (serial && t.isPrimary) applySerialIfUnknown(db, t.bookId, serial);
+      }
+    }),
+  );
+
+  report.withUpdates = updateHints(db).filter((h) => touched.has(h.bookId) && h.hasUpdate).length;
+  return report;
 }

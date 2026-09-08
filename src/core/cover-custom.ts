@@ -1,10 +1,11 @@
-// 用户自定义的封面搜索源。
+// 用户自定义的书源：输入书名、输出这本书的主页地址。
 //
-// **只管封面，不碰正文**——阅读走本地 txt，这里只是「去哪儿找一张图和书名作者」。
+// 命中后会再读那个详情页——封面、简介、作者、分类都从详情页出
+// （搜索结果页只有书名作者和一张缩略图）。阅读不受影响，走本地 txt。
 //
 // **绝不执行配置里的 JS**（和 TTS 那条同一个理由，见 AGENTS.md）：
 // legado 的书源规则里能写 `<js>`、`loginCheckJs`，那些文件是从别人那里拿来的。
-// 这里只认「搜索地址模板 + 四条正则」，表达不了的源就别加——
+// 这里只认「搜索地址模板 + 几条正则」，表达不了的源就别加——
 // 多几个源换「跑陌生人的代码」，这笔账怎么算都不划算。
 //
 // 内置那三个（起点/书旗/豆瓣）仍然是代码：它们各有各的坑（起点要浏览器渲染、
@@ -29,7 +30,15 @@ export interface CustomSource {
   blockRe: string;
   titleRe: string;
   authorRe: string;
+  /** 封面图地址。**可选兜底**——配了 urlRe 时简介分类都从详情页出，
+   *  只有详情页没给图才用这里抽到的缩略图 */
   coverRe: string;
+  /**
+   * 详情页地址，第 1 个捕获组。配了它，命中后会再读这个详情页，
+   * 简介/分类/标签只有详情页给得了；相对路径（/book/123）自动补成绝对地址。
+   * 不配就走老路子：只拿搜索结果里的封面/作者。
+   */
+  urlRe?: string;
 }
 
 export interface SourceTest {
@@ -44,6 +53,15 @@ function pick(block: string, pattern: string): string | undefined {
   if (!pattern) return undefined;
   try {
     return new RegExp(pattern).exec(block)?.[1]?.replace(/<[^>]+>/g, '').trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 详情页地址常写成相对路径（/book/123），拿搜索地址的源补全；补不了就当没有 */
+function resolveUrl(href: string, base: string): string | undefined {
+  try {
+    return new URL(href, base).href;
   } catch {
     return undefined;
   }
@@ -67,10 +85,12 @@ export function parseByRules(html: string, src: CustomSource): Candidate[] {
   for (const b of blocks) {
     const title = pick(b, src.titleRe);
     if (!title) continue; // 没书名的块不是结果，是布局
+    const rawUrl = pick(b, src.urlRe ?? '');
     out.push({
       title,
       author: pick(b, src.authorRe) ?? null,
       coverUrl: pick(b, src.coverRe),
+      url: rawUrl ? resolveUrl(rawUrl, src.searchUrl) : undefined,
       site: src.id,
     });
     if (out.length >= 20) break; // 搜索页动辄几十条，取够就停
@@ -108,5 +128,6 @@ export function blankSource(id: string): CustomSource {
     titleRe: 'class="name"[^>]*>([^<]+)<',
     authorRe: 'class="author"[^>]*>([^<]+)<',
     coverRe: '<img[^>]+src="([^"]+)"',
+    urlRe: '<a class="name"[^>]*href="([^"]+)"',
   };
 }

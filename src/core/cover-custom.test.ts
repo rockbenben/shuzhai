@@ -72,3 +72,46 @@ test('新建的源默认不启用', () => {
   // 和导入的清洗规则同一个规矩：没试过的东西不该直接参与真实抓取
   assert.equal(blankSource('x').enabled, false);
 });
+
+test('urlRe：抽到详情页地址，相对路径按搜索地址补全', () => {
+  const html = `
+<ul>
+<li class="book">
+  <a class="name" href="/book/123">斗破<em>苍穹</em></a>
+  <span class="author">天蚕土豆</span>
+</li>
+</ul>`;
+  const src = {
+    ...SRC,
+    searchUrl: 'https://example.com/search?q={q}',
+    urlRe: '<a class="name"[^>]*href="([^"]+)"',
+  };
+  const c = parseByRules(html, src);
+  assert.equal(c[0].url, 'https://example.com/book/123');
+});
+
+test('urlRe：绝对地址原样保留', () => {
+  const html = `
+<li class="book">
+  <a class="name" href="https://other-site.com/b/9">武炼巅峰</a>
+  <span class="author">莫默</span>
+</li>`;
+  const src = { ...SRC, urlRe: '<a class="name"[^>]*href="([^"]+)"' };
+  const c = parseByRules(html, src);
+  assert.equal(c[0].url, 'https://other-site.com/b/9');
+});
+
+test('旧配置没有 urlRe：候选不带 url，其余照常（不破坏老配置）', () => {
+  const c = parseByRules(HTML, SRC);
+  assert.equal(c.length, 2);
+  assert.equal(c[0].url, undefined);
+  assert.equal(c[0].coverUrl, 'https://x.com/a.jpg');
+});
+
+test('urlRe 正则坏了：这一项为空，不抛错、不影响别的字段', () => {
+  const html = `<li class="book"><a class="name" href="/b/1">甲</a></li>`;
+  const c = parseByRules(html, { ...SRC, urlRe: '([' });
+  assert.equal(c.length, 1);
+  assert.equal(c[0].url, undefined);
+  assert.equal(c[0].title, '甲');
+});

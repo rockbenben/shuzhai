@@ -64,7 +64,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [capturing, setCapturing] = useState<Action | null>(null);
   const [repairMsg, setRepairMsg] = useState<string | null>(null);
   /**
-   * 封面抓取的状态。**类型写在这儿而不是从 core 引**：它是主进程
+   * 联网补全的状态。**类型写在这儿而不是从 core 引**：它是主进程
    * `CoverFetcher.status()` 拼出来的（`running` / `pausedReason` / `gapMs`
    * 加上 `fetchStats` 那几个数），core 里没有对应的那个形状。
    */
@@ -79,11 +79,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
   } | null>(null);
   const [coverErr, setCoverErr] = useState<string | null>(null);
   /**
-   * 封面抓取那几个键都是同一套动作：发一条 rpc → 立刻刷一次状态 → **清掉上一次的错话**。
+   * 联网补全那几个键都是同一套动作：发一条 rpc → 立刻刷一次状态 → **清掉上一次的错话**。
    *
-   * 开关和「重试没匹配上的」原来各抄一份一模一样的 `try/catch`。抄本一分叉，
+   * 开关和「重试没找到的」原来各抄一份一模一样的 `try/catch`。抄本一分叉，
    * 漏掉 `setCoverErr(null)` 的那一份会让上一次的错话一直挂在界面上——
-   * 而抓取其实已经好了，用户看到的是一句过期的坏消息。
+   * 而补全其实已经好了，用户看到的是一句过期的坏消息。
    */
   const 封面操作 = (method: string) => void (async () => {
     try {
@@ -632,6 +632,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 .4rem' }}>
               清掉扫描修不好的残留记录（空书、没有主版本、内容还在别处的「文件缺失」、
               移除文件夹后的孤儿）。<strong>只动记录，不碰磁盘文件。</strong>
+              要是文件是你自己在应用外删掉的（不是残留、是真没了），去书架侧栏
+              「需要处理」那档点「批量清理失效文件」——那种记录这儿清不掉。
             </p>
             <div className="row">
               <button
@@ -659,33 +661,34 @@ export function Settings({ onClose }: { onClose: () => void }) {
               {repairMsg && <span style={{ color: 'var(--accent)', fontSize: '.85rem' }}>{repairMsg}</span>}
             </div>
 
-            <h3>封面</h3>
+            <h3>联网补全</h3>
             <label className="row" style={{ gap: '.4rem', fontSize: '.87rem' }}>
               <input
                 type="checkbox"
                 checked={cover?.running ?? false}
                 onChange={(e) => 封面操作(e.target.checked ? 'cover.fetchStart' : 'cover.fetchStop')}
               />
-              <span>批量给整库找封面（可选，默认不开）</span>
+              <span>批量联网找书：在线地址、封面、简介、分类一起补（可选，默认不开）</span>
             </label>
-            {/* 隐私这句必须留全文：抓取会把书名和作者发出去。
-                默认走「点一本抓一本」（书籍编辑器里的「联网找封面」），
+            {/* 隐私这句必须留全文：联网补全会把书名和作者发出去。
+                默认走「点一本补一本」（书籍编辑器里的「联网补全」），
                 这里是给不想一本本点的人准备的批量任务 */}
             <p className="warn-line">
-              平时用<strong>书籍编辑器里的「联网找封面」</strong>，点一本抓一本。
-              这个开关是批量：打开后从头到尾把没封面的书都跑一遍，
+              平时用<strong>书籍编辑器里的「联网补全」</strong>，点一本补一本。
+              这个开关是批量：打开后把没补过的书都跑一遍——已经记下在线地址的
+              直接读那一页，没地址的按书名搜，搜到就读它的详情页，
               会把<strong>书名和作者</strong>发到搜索源去，除此之外不发任何数据。
-              只有书名、作者都精确一致才会用对面的封面——宁可没有，不能配错。
+              搜索来的东西只有书名、作者都精确一致才会用——宁可没有，不能配错。
               <br />
-              {/* 这条不是客套：抓一张要在隐藏窗口里真的渲染一遍对面的页面，
+              {/* 这条不是客套：抓一本要在隐藏窗口里真的渲染一遍对面的页面，
                   实测能让书架从 1.9 秒变成 40 秒。让路是自动的，但得让人知道，
                   否则「开着开关却看到剩余数不动」会被当成坏了 */}
               <strong>你在用应用的时候它会自动停下来让路</strong>，切到别的窗口
-              几秒后接着抓——不这样的话，抓取期间整个界面会明显变慢。
+              几秒后接着跑——不这样的话，补全期间整个界面会明显变慢。
             </p>
             {cover && (
               <p className="muted" style={{ fontSize: '0.82rem', margin: '.2rem 0 .4rem' }}>
-                已抓 {cover.done} · 剩余 {cover.pending} · 没匹配上 {cover.nomatch}
+                已补全 {cover.done} · 剩余 {cover.pending} · 没找到 {cover.nomatch}
                 {cover.failed > 0 && ` · 失败 ${cover.failed}`}
                 {/* 速率是自适应的（撞限流翻倍、顺利跑一段减半）。不显示的话，
                     回填慢到一分钟一本时用户只会觉得「卡住了」，看不出是在自己让路 */}
@@ -699,7 +702,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <button
                 onClick={() => 封面操作('cover.retryMisses')}
               >
-                重试没匹配上的 {cover.nomatch} 本
+                重试没找到的 {cover.nomatch} 本
               </button>
             )}
             {/* 源必然会坏（改版、限流、下架），而坏了在这儿只表现为「命中率悄悄往下掉」。

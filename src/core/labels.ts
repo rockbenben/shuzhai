@@ -70,6 +70,23 @@ export function labelOf(list: ReadonlyArray<{ id: string; name: string }>, id: u
   return hit ? hit.name : String(id);
 }
 
+/**
+ * 内置站点 id → 中文名。**站点适配器的 `label` 和界面上「来自起点」这类提示
+ * 都从这里取**——适配器在 core（渲染进程够不到，它拖 node:sqlite），而界面
+ * 也要显示同一个名字，抄第二份迟早分叉。
+ * 自定义封面源 / 陌生站点的 id 不在表里，用时原样显示（多半是域名，本就可读）。
+ */
+export const SITE_LABELS: Record<string, string> = {
+  qidian: '起点',
+  shuqi: '书旗',
+  zongheng: '纵横',
+  fanqie: '番茄',
+  douban: '豆瓣',
+  duyuedu: '独阅读',
+  jjwxc: '晋江',
+  faloo: '飞卢',
+};
+
 /** CSV 表头。**顺序由 export.ts 的 META_COLUMNS 决定**，这里只管怎么叫 */
 export const META_LABELS: Record<string, string> = {
   id: '编号',
@@ -81,6 +98,7 @@ export const META_LABELS: Record<string, string> = {
   tags: '标签',
   word_count: '字数',
   chapter_count: '章数',
+  chapter_count_override: '手填章数',
   encoding: '编码',
   path: '文件路径',
   file_status: '文件状态',

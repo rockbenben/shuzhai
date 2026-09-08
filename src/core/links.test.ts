@@ -10,13 +10,16 @@ import {
   listLinks,
   removeLink,
   setPrimaryLink,
+  setLinkSelector,
   siteFromUrl,
   extractUrls,
   extractLatest,
   statusLabel,
   checkLinks,
   updateHints,
+  checkUpdates,
   type ProbeFetch,
+  type UpdateDeps,
 } from './links.ts';
 
 let dir: string;
@@ -195,6 +198,8 @@ test('用正则从页面提取最新章节', () => {
 });
 
 test('远端最新章在本地找不到，才算有更新', () => {
+  // 角标只对 ongoing 书亮
+  db.prepare("update book set serial_status = 'ongoing' where id = ?").run(bookId);
   const fileId = Number(
     db
       .prepare(
@@ -221,8 +226,260 @@ test('远端最新章在本地找不到，才算有更新', () => {
   assert.equal(hint.remoteLatest, '第三章 转');
 });
 
+test('updateHints：本地没有章节的书（PDF/EPUB、手工书）不判有更新', () => {
+  // 有文件但 0 章——PDF/EPUB 在 chapter 表就是 0 行
+  const pdf = 种书(db, { title: 'pdf书', serial: 'ongoing' });
+  const l1 = addLink(db, pdf, 'https://a.com/pdf');
+  db.prepare("update online_link set latest_chapter_title = '第999章' where id = ?").run(l1.id);
+  // 连文件都没有——手工书（beforeEach 的默认书）
+  db.prepare("update book set serial_status = 'ongoing' where id = ?").run(bookId);
+  const l2 = addLink(db, bookId, 'https://a.com/manual');
+  db.prepare("update online_link set latest_chapter_title = '第999章' where id = ?").run(l2.id);
+
+  const hints = updateHints(db);
+  assert.equal(hints.length, 2, 'ongoing + 有末章记录，条目在');
+  for (const h of hints) {
+    assert.equal(h.hasUpdate, false, '本地没有章节可比，「找不到」是必然，不许报更新');
+    assert.equal(h.localLast, null);
+  }
+});
+
+test('updateHints：只认连载中——完结/弃坑的书末章不亮角标', () => {
+  // 完结书单本手查可能把推广文案当末章写进来，但角标不该亮
+  const done = 种书(db, { title: '完本', serial: 'finished', chapters: ['第一章'] });
+  const ld = addLink(db, done, 'https://a.com/done');
+  db.prepare("update online_link set latest_chapter_title = '第三章 转' where id = ?").run(ld.id);
+  const drop = 种书(db, { title: '弃坑', serial: 'abandoned', chapters: ['第一章'] });
+  const la = addLink(db, drop, 'https://a.com/drop');
+  db.prepare("update online_link set latest_chapter_title = '第三章 转' where id = ?").run(la.id);
+  // 对照：ongoing 的同一条末章要亮
+  const on = 种书(db, { title: '连载', serial: 'ongoing', chapters: ['第一章'] });
+  const lo = addLink(db, on, 'https://a.com/on');
+  db.prepare("update online_link set latest_chapter_title = '第三章 转' where id = ?").run(lo.id);
+
+  const hints = updateHints(db);
+  assert.equal(hints.length, 1);
+  assert.equal(hints[0].bookId, on);
+  assert.equal(hints[0].hasUpdate, true);
+});
+
 test('删掉地址后就不再检测它', () => {
   const { id } = addLink(db, bookId, 'https://a.com/1');
   removeLink(db, id);
   assert.equal(listLinks(db, bookId).length, 0);
+});
+
+test('addLink 去重：同书同归一化 URL 不插第二行', () => {
+  const a = addLink(db, bookId, 'https://www.shuqi.com/book/53258.html');
+  const b = addLink(db, bookId, 'https://www.shuqi.com/book/53258.html/'); // 尾斜杠
+  const c = addLink(db, bookId, 'https://www.shuqi.com/book/53258.html#frag'); // 碎片
+  const d = addLink(db, bookId, 'HTTPS://WWW.SHUQI.COM/book/53258.html'); // host 大写
+  assert.equal(a.id, b.id, '尾斜杠应视为同一地址');
+  assert.equal(a.id, c.id, 'hash 碎片应视为同一地址');
+  assert.equal(a.id, d.id, 'host 大小写应视为同一地址');
+  assert.equal(listLinks(db, bookId).length, 1);
+  // 第一行仍是主地址
+  assert.equal(listLinks(db, bookId)[0].is_primary, 1);
+
+  // 不同书、相同 URL 正常插
+  const otherId = Number(db.prepare("insert into book(title) values('另一本书')").run().lastInsertRowid);
+  db.prepare("insert into reading_state(book_id, status) values(?, 'want')").run(otherId);
+  const e = addLink(db, otherId, 'https://www.shuqi.com/book/53258.html');
+  assert.notEqual(e.id, a.id, '不同书的同 URL 应该是两行');
+  assert.equal(listLinks(db, bookId).length + listLinks(db, otherId).length, 2);
+
+  // 不同 URL 正常插
+  const f = addLink(db, bookId, 'https://www.shuqi.com/book/99999.html');
+  assert.notEqual(f.id, a.id);
+  assert.equal(listLinks(db, bookId).length, 2);
+});
+
+test('setLinkSelector：空串清除，坏正则报错', () => {
+  const { id } = addLink(db, bookId, 'https://example.com/x');
+  setLinkSelector(db, id, '最新章节[^<]*<[^>]*>([^<]+)');
+  assert.equal(listLinks(db, bookId)[0].selector, '最新章节[^<]*<[^>]*>([^<]+)');
+  // 空串/空白＝清除
+  setLinkSelector(db, id, '   ');
+  assert.equal(listLinks(db, bookId)[0].selector, null);
+  // 坏正则当场抛，消息以「提取正则无效」开头
+  assert.throws(() => setLinkSelector(db, id, '('), /提取正则无效/);
+  // 抛错后原值不变（仍是 null）
+  assert.equal(listLinks(db, bookId)[0].selector, null);
+});
+
+// ── checkUpdates ────────────────────────────────────────────────
+
+// 造一本书：book（给定 serial_status）+ book_file（is_primary=1）+ chapter 行
+function 种书(
+  db: DatabaseSync,
+  opts: { title: string; author?: string; serial?: string; chapters?: string[] },
+): number {
+  const bookId = Number(
+    db
+      .prepare('insert into book(title, author, serial_status) values(?, ?, ?)')
+      .run(opts.title, opts.author ?? null, opts.serial ?? 'unknown')
+      .lastInsertRowid,
+  );
+  db.prepare("insert into reading_state(book_id, status) values(?, 'want')").run(bookId);
+  const fileId = Number(
+    db
+      .prepare(
+        "insert into book_file(book_id, path, size, mtime, is_primary) values(?, ?, 1, 1, 1)",
+      )
+      .run(bookId, `C:\\fake\\${bookId}.txt`)
+      .lastInsertRowid,
+  );
+  for (const [i, t] of (opts.chapters ?? []).entries()) {
+    db.prepare('insert into chapter(file_id, idx, title, offset, length) values(?,?,?,0,1)').run(
+      fileId,
+      i,
+      t,
+    );
+  }
+  return bookId;
+}
+
+function mkDeps(
+  pages: Record<string, { status?: number; text?: string }>,
+  browser: Record<string, string> = {},
+): UpdateDeps {
+  return {
+    gapMs: 0,
+    fetchText: async (url) => {
+      const p = pages[url];
+      if (!p) throw new Error('没配这个 URL：' + url);
+      return { status: p.status ?? 200, text: p.text ?? '' };
+    },
+    browserText: async (url) => {
+      const t = browser[url];
+      if (t === undefined) throw new Error('浏览器没配这个 URL：' + url);
+      return t;
+    },
+  };
+}
+
+test('checkUpdates：书旗适配器取最新章并落库', async () => {
+  const bid = 种书(db, {
+    title: '斗破苍穹', author: '天蚕土豆', serial: 'ongoing',
+    chapters: ['第一章 陨落的天才', '第二章 斗气大陆'],
+  });
+  addLink(db, bid, 'https://www.shuqi.com/book/53258.html', { isPrimary: true });
+  const deps = mkDeps({
+    'https://www.shuqi.com/chapter?bid=53258': {
+      text: '<a href="/reader?bid=53258&cid=1">第一章 陨落的天才</a><a href="/reader?bid=53258&cid=99">第九十九章 新章</a>',
+    },
+  });
+  const r = await checkUpdates(db, deps);
+  assert.equal(r.checked, 1);
+  assert.equal(r.updated, 1);
+  assert.equal(r.withUpdates, 1);
+  const link = listLinks(db, bid)[0];
+  assert.equal(link.latest_chapter_title, '第九十九章 新章');
+  assert.equal(link.last_status, 'ok');
+});
+
+test('checkUpdates：未知站走 selector；都没有只探活；失败静默', async () => {
+  const b1 = 种书(db, { title: '甲', author: '作者甲', serial: 'ongoing', chapters: ['第一章'] });
+  addLink(db, b1, 'https://example.com/book/1', { isPrimary: true, selector: '最新：([^<]+)' });
+  const b2 = 种书(db, { title: '乙', author: '作者乙', serial: 'ongoing', chapters: ['第一章'] });
+  addLink(db, b2, 'https://example.org/plain', { isPrimary: true });
+  const b3 = 种书(db, { title: '丙', author: '作者丙', serial: 'ongoing', chapters: ['第一章'] });
+  addLink(db, b3, 'https://dead.example.net/x', { isPrimary: true });
+
+  const r = await checkUpdates(db, mkDeps({
+    'https://example.com/book/1': { text: '<div>最新：第十二章 新的</div>' },
+    'https://example.org/plain': { text: '<html>活着</html>' },
+    // dead.example.net 不在 pages 里 → fetchText 抛错
+  }));
+  assert.equal(r.checked, 3);
+  assert.equal(listLinks(db, b1)[0].latest_chapter_title, '第十二章 新的');
+  assert.equal(listLinks(db, b2)[0].latest_chapter_title, null);
+  assert.equal(listLinks(db, b2)[0].last_status, 'ok');
+  assert.equal(listLinks(db, b3)[0].last_status, 'suspect');
+});
+
+test('checkUpdates：完结/未知的书不查（除非点名 bookId）', async () => {
+  const done = 种书(db, { title: '完本', author: 'x', serial: 'finished', chapters: ['第一章'] });
+  addLink(db, done, 'https://www.shuqi.com/book/1.html', { isPrimary: true });
+  const r1 = await checkUpdates(db, mkDeps({}));
+  assert.equal(r1.checked, 0);
+  // 点名就查
+  const r2 = await checkUpdates(db, mkDeps({
+    'https://www.shuqi.com/chapter?bid=1': { text: '<a href="/reader?bid=1&cid=2">第二章</a>' },
+  }), { bookId: done });
+  assert.equal(r2.checked, 1);
+});
+
+test('checkUpdates：needsBrowser 但没注入浏览器时跳过，不写状态、不计 checked', async () => {
+  // 起点必须浏览器渲染；没注入 browserText 就应该静默跳过，
+  // 不抛错、不写 last_status（免得污染）、不计入 checked 计数
+  const bid = 种书(db, {
+    title: '武炼巅峰', author: '莫默', serial: 'ongoing',
+    chapters: ['第一章'],
+  });
+  const { id } = addLink(db, bid, 'https://www.qidian.com/book/1234/', { isPrimary: true });
+  // 上一轮检查留下的末章记录：本地只有「第一章」，这本该 hint hasUpdate=true——
+  // 但本轮跳过了没查，withUpdates 不能把它算进去（「查了 0 本、1 本有更新」自相矛盾）
+  db.prepare("update online_link set latest_chapter_title = '第三章 转' where id = ?").run(id);
+  // 故意不传 browserText（deps 里只有 fetchText）
+  const deps: UpdateDeps = {
+    gapMs: 0,
+    fetchText: async () => ({ status: 200, text: '' }),
+  };
+  const r = await checkUpdates(db, deps);
+  assert.equal(r.checked, 0, '没浏览器就跳过，不该计入 checked');
+  assert.equal(r.withUpdates, 0, '跳过的书不算「本轮查到有更新」');
+  const link = listLinks(db, bid)[0];
+  assert.equal(link.last_status, null, '跳过的不该写 last_status，免得污染');
+  assert.equal(link.last_checked_at, null, '跳过的不该写 last_checked_at');
+});
+
+test('checkUpdates：单本检查时非主链接也探活；批量时非主链接不查', async () => {
+  const bid = 种书(db, { title: '某书', author: '某作者', serial: 'ongoing', chapters: ['第一章'] });
+  addLink(db, bid, 'https://www.qidian.com/book/1234/'); // 第一条＝主链接，要浏览器
+  addLink(db, bid, 'https://example.com/backup');         // 非主链接，普通站
+  // 不提供 browserText：主链接会跳过；非主链接只探活、只许请求它自己
+  const deps: UpdateDeps = {
+    gapMs: 0,
+    fetchText: async (url) => {
+      if (url === 'https://example.com/backup') return { status: 200, text: '' };
+      throw new Error('不该请求这个 URL：' + url);
+    },
+  };
+
+  const r = await checkUpdates(db, deps, { bookId: bid });
+  const links = listLinks(db, bid);
+  const primary = links.find((l) => l.is_primary === 1)!;
+  const backup = links.find((l) => l.is_primary === 0)!;
+  assert.equal(primary.last_status, null, '主链接缺浏览器跳过，不写状态');
+  assert.equal(backup.last_status, 'ok', '非主链接单本检查时要探活');
+  assert.equal(backup.latest_chapter_title, null, '非主链接不取最新章');
+  assert.equal(r.checked, 1);
+  assert.equal(r.withUpdates, 0);
+
+  // 批量模式：非主链接不在范围内（只查 ongoing 书的主链接；主链接缺浏览器照样跳过）
+  const r2 = await checkUpdates(db, deps);
+  assert.equal(r2.checked, 0);
+  assert.equal(
+    listLinks(db, bid).find((l) => l.is_primary === 0)!.last_status,
+    'ok',
+    '批量不该动非主链接的状态',
+  );
+});
+
+test('checkUpdates：parseLatest 带 serial 时只补 unknown', async () => {
+  const b = 种书(db, { title: '武炼巅峰', author: '莫默', serial: 'unknown', chapters: ['第一章'] });
+  addLink(db, b, 'https://www.zongheng.com/book/2.html', { isPrimary: true });
+  const body = JSON.stringify({ data: { datas: { list: [
+    { name: '武炼巅峰', authorName: '莫默', serialStatus: 1, chapterName: '终章' },
+  ] } } });
+  const url = 'https://search.zongheng.com/search/book?keyword=' + encodeURIComponent('武炼巅峰');
+  const pages: Record<string, { text: string }> = {};
+  pages[url] = { text: body };
+  await checkUpdates(db, mkDeps(pages), { bookId: b });
+  assert.equal(
+    (db.prepare('select serial_status from book where id=?').get(b) as { serial_status: string })
+      .serial_status,
+    'finished',
+  );
 });

@@ -75,6 +75,27 @@ export function isExactMatch(
 }
 
 /**
+ * 合并详情页候选和搜索候选：**详情页字段优先**，详情页没给的用搜索候选兜底
+ * （典型是封面——搜索结果页有缩略图，详情页的 og:image 偶尔缺或是占位图）。
+ * url 用详情页自己的地址，没有才退回搜索候选的。tags 拼接去重、保详情页顺序。
+ */
+export function mergeCandidates(detail: Candidate, search: Candidate): Candidate {
+  const tags = [...(detail.tags ?? []), ...(search.tags ?? [])].filter(
+    (t, i, arr) => arr.indexOf(t) === i,
+  );
+  return {
+    title: detail.title || search.title,
+    author: detail.author ?? search.author,
+    intro: detail.intro ?? search.intro,
+    category: detail.category ?? search.category,
+    tags: tags.length ? tags : undefined,
+    site: detail.site ?? search.site,
+    coverUrl: detail.coverUrl ?? search.coverUrl,
+    url: detail.url ?? search.url,
+  };
+}
+
+/**
  * 就是全局 `fetch` 本身，起个名字方便在参数上写。
  *
  * **`webdav.ts` 原来也导出了一个一模一样的 `FetchLike`**——同一个内置类型的两个别名，
@@ -158,24 +179,42 @@ export interface EnrichResult {
  *
  * **只补空缺，不覆盖用户填过的东西**：书名、作者、简介如果本地已经有内容，
  * 就不动它——用户手工改过的元数据比抓来的可信。分类和标签是追加。
+ *
+ * 默认走**搜索匹配**：候选是「按书名搜出来的」，所以书名+作者都得精确一致
+ * （isExactMatch）才肯落库，宁可漏也不能张冠李戴。
+ *
+ * `trustIdentity` 走**用户亲手粘的详情页**：身份由那个链接负责（本地可能连作者
+ * 都没有，精确匹配那道门会把最需要它的情况挡在外面），所以跳过 isExactMatch。
+ * 「只补空缺」照样兜着——对面书名和本地对不上也只是在预览里给个警告，不拦。
  */
 export async function applyCandidate(
   db: DatabaseSync,
   userDataDir: string,
   bookId: number,
   candidate: Candidate,
-  opts: { fetchImpl?: FetchLike; overwriteCover?: boolean } = {},
+  opts: { fetchImpl?: FetchLike; overwriteCover?: boolean; trustIdentity?: boolean } = {},
 ): Promise<EnrichResult> {
   const local = db.prepare('select id, title, author, intro, cover_path, category_id from book where id = ?').get(bookId) as
     | { id: number; title: string; author: string | null; intro: string | null; cover_path: string | null; category_id: number | null }
     | undefined;
   if (!local) throw new Error(`没有这本书：${bookId}`);
 
-  const m = isExactMatch(local, candidate);
-  if (!m.matched) throw new Error(m.reason ?? '不匹配');
+  // 详情页路径身份由用户粘的链接负责，跳过书名+作者精确匹配；搜索路径仍必须过这道门
+  if (!opts.trustIdentity) {
+    const m = isExactMatch(local, candidate);
+    if (!m.matched) throw new Error(m.reason ?? '不匹配');
+  }
 
   const applied: string[] = [];
   const skipped: string[] = [];
+
+  if (candidate.author) {
+    if (local.author) skipped.push('作者（本地已有，不覆盖）');
+    else {
+      db.prepare('update book set author = ? where id = ?').run(candidate.author.trim().slice(0, 100), bookId);
+      applied.push('作者');
+    }
+  }
 
   if (candidate.intro) {
     if (local.intro) skipped.push('简介（本地已有，不覆盖）');

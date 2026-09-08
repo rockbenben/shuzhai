@@ -14,6 +14,11 @@ import { whenAgo } from '../core/format.ts';
  * 两个检查各看见半个问题，凑不到一起。
  */
 import type { LinkRow } from '../core/links.ts';
+// 只引类型：enrich 运行时会拖上 node:sqlite，渲染包不能碰；`import type` 编译期就擦掉
+import type { Candidate } from '../core/enrich.ts';
+import { SITE_LABELS } from '../core/labels.ts';
+// 只引类型：cover-source 运行时带着 node:sqlite，渲染包不能碰
+import type { FetchOneResult } from '../core/cover-source.ts';
 
 const STATUS_TEXT: Record<string, { text: string; color?: string }> = {
   ok: { text: '正常', color: 'var(--accent)' },
@@ -24,18 +29,30 @@ const STATUS_TEXT: Record<string, { text: string; color?: string }> = {
 interface Props {
   bookId: number;
   bookTitle: string;
-  onClose: () => void;
+  /** changed=true：这次补过封面/作者/简介，关弹窗后书架要刷新 */
+  onClose: (changed?: boolean) => void;
+}
+
+/** 取回来的详情页候选 + 书名对不对得上（对不上只警告，不拦） */
+interface Detail {
+  candidate: Candidate;
+  titleMismatch: boolean;
 }
 
 /**
  * 在线地址管理（spec §4）。**只管地址，不抓正文，不做在线阅读**——
- * 所以这个界面上没有「读」，只有「这个地址还活着吗」和「对面更新到哪了」。
+ * 所以这个界面上没有「读」，只有「这个地址还活着吗」「对面更新到哪了」，
+ * 以及「这一页上这本书的封面/简介/作者，补进来」。
  */
 export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
   const [links, setLinks] = useState<LinkRow[]>([]);
   const [paste, setPaste] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [coverBroken, setCoverBroken] = useState(false);
+  const [result, setResult] = useState<{ applied: string[]; skipped: string[] } | null>(null);
+  const [changed, setChanged] = useState(false);
 
   const reload = useCallback(async () => {
     setLinks(await rpc<LinkRow[]>('link.list', { bookId }));
@@ -57,17 +74,26 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
     }
   };
 
+  // 取详情页用哪个地址：粘贴框里有就用它（一次粘一大段也能抽出第一条），
+  // 否则用主地址（没有主地址就第一条）。
+  const primary = links.find((l) => l.is_primary === 1) ?? links[0];
+  const detailRef = paste.trim() || primary?.url || '';
+
+  const c = detail?.candidate;
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={() => onClose(changed)}>
       <div className="modal" style={{ width: 'min(50rem, 100%)' }} onClick={(e) => e.stopPropagation()}>
         <h2>在线地址 · {bookTitle}</h2>
         <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
-          这里只记地址、查死链、看对面更新到第几章，<strong>不抓正文也不在这里读</strong>。
+          粘一个这本书的网址，可以<strong>一键把封面、简介、作者补进来</strong>；
+          地址也会记下，用来查死链、看对面更新到第几章。<strong>不抓正文也不在这里读</strong>。
         </p>
 
         {links.length === 0 ? (
           <p className="muted">还没有地址。把网址粘到下面的框里，会自动挑出来。</p>
         ) : (
+          <>
           <table>
             <thead>
               <tr>
@@ -75,6 +101,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
                 <th>站点 / 地址</th>
                 <th style={{ width: '6rem' }}>状态</th>
                 <th>对面最新章</th>
+                <th style={{ width: '9rem' }}>最新章正则</th>
                 <th style={{ width: '5rem' }} />
               </tr>
             </thead>
@@ -129,22 +156,24 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
                       )}
                     </td>
                     <td style={{ fontSize: '.82rem' }}>
-                      {/*
-                        * ⚠️ **不写「未配置」。**
-                        *
-                        * 「未配置」是在说「你还没设，去设一下」——**而应用里根本没有设它的地方**：
-                        * `selector` 只有 `link.add` 收，没有改它的 rpc，这个弹窗也只调 `link.addBatch`。
-                        * 于是那句话把人支去找一个不存在的按钮。（`dead-fields.mjs` 一直报
-                        * `LinkRow.selector` 没人读，正是这件事的另一半。）
-                        *
-                        * 改成陈述事实 + 说清后果：没有规则，所以这一格没有内容。
-                        * 真要让人配得了，得先加一条「改提取规则」的 rpc——那是加功能，不是改文案。
-                        */}
                       {l.latest_chapter_title ?? (
-                        <span className="muted" title="这条地址没有提取规则，所以查不到对面更新到第几章">
-                          没有提取规则
-                        </span>
+                        <span className="muted">还没检查过</span>
                       )}
+                    </td>
+                    <td>
+                      <input
+                        defaultValue={l.selector ?? ''}
+                        placeholder="留空自动识别"
+                        style={{ width: '100%', font: 'inherit', fontSize: '.75rem' }}
+                        onBlur={(e) => {
+                          const v = e.target.value;
+                          if ((l.selector ?? '') === (v.trim() ? v : '')) return;
+                          void run('', async () => {
+                            await rpc('link.setSelector', { id: l.id, selector: v });
+                            await reload();
+                          });
+                        }}
+                      />
                     </td>
                     <td>
                       <button
@@ -162,6 +191,86 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
               })}
             </tbody>
           </table>
+          <p className="muted" style={{ fontSize: '.75rem', marginTop: '.3rem' }}>
+            内置站点（起点、书旗、纵横、番茄、豆瓣）留空就自动识别最新章；其他网站可以填一个正则，第一个捕获组＝最新章标题。要浏览器渲染才出内容的陌生站正则也取不到，只能探活。
+          </p>
+          </>
+        )}
+
+        {/* 详情页预览：取回来、还没落库。确认才写，写也只补空缺 */}
+        {c && (
+          <div
+            style={{
+              border: '1px solid var(--line)', borderRadius: 6, padding: '.7rem',
+              margin: '.7rem 0', background: 'var(--bg)',
+            }}
+          >
+            <div className="row" style={{ gap: '.7rem', alignItems: 'flex-start' }}>
+              {c.coverUrl && !coverBroken && (
+                <img
+                  src={c.coverUrl}
+                  alt="对面的封面"
+                  onError={() => setCoverBroken(true)}
+                  style={{
+                    width: '4.6rem', height: '6.4rem', objectFit: 'cover',
+                    borderRadius: 4, border: '1px solid var(--line)', flex: 'none',
+                  }}
+                />
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600 }}>{c.title || '（没认出书名）'}</div>
+                {c.author && <div className="muted" style={{ fontSize: '.82rem' }}>作者：{c.author}</div>}
+                {c.category && <div className="muted" style={{ fontSize: '.82rem' }}>分类：{c.category}</div>}
+                {c.tags && c.tags.length > 0 && (
+                  <div className="muted" style={{ fontSize: '.82rem' }}>标签：{c.tags.join('、')}</div>
+                )}
+                {c.intro && (
+                  <p style={{ fontSize: '.8rem', margin: '.4rem 0 0', maxHeight: '7.5em', overflow: 'auto' }}>
+                    {c.intro}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {detail!.titleMismatch && (
+              <p className="danger" style={{ fontSize: '.8rem', margin: '.5rem 0 0' }}>
+                对面书名「{c.title}」和本地「{bookTitle}」对不上——只会补本地还空着的字段
+                （封面、简介、作者），<strong>不会改你的书名</strong>。确认这是同一本书再应用。
+              </p>
+            )}
+
+            <div className="row" style={{ marginTop: '.6rem' }}>
+              <button
+                disabled={busy !== null}
+                onClick={() => void run('正在补全…（封面要下载，稍等）', async () => {
+                  const r = await rpc<{ applied: string[]; skipped: string[] }>('enrich.apply', {
+                    bookId, candidate: c, trustIdentity: true,
+                  });
+                  setDetail(null);
+                  setCoverBroken(false);
+                  setResult(r);
+                  if (r.applied.length) setChanged(true);
+                  await reload();
+                })}
+              >
+                应用到这本书（只补空缺）
+              </button>
+              <button disabled={busy !== null} onClick={() => { setDetail(null); setCoverBroken(false); }}>
+                取消
+              </button>
+            </div>
+          </div>
+        )}
+
+        {result && (
+          <p style={{ fontSize: '.85rem', margin: '.5rem 0', color: result.applied.length ? 'var(--accent)' : undefined }}>
+            {result.applied.length
+              ? `已补全：${result.applied.join('、')}`
+              : '本地这些字段都已经有了，没有要补的。'}
+            {result.skipped.length > 0 && (
+              <span className="muted" title={result.skipped.join('\n')}>（{result.skipped.length} 项跳过）</span>
+            )}
+          </p>
         )}
 
         <textarea
@@ -180,27 +289,87 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
           <button
             disabled={!paste.trim() || busy !== null}
             onClick={() => void run('正在导入…', async () => {
-              const r = await rpc<{ added: number }>('link.addBatch', { bookId, text: paste });
+              const r = await rpc<{ added: number; urls: string[]; skipped: number }>('link.addBatch', { bookId, text: paste });
               setPaste('');
               await reload();
-              if (r.added === 0) setError('这段文字里没找到网址');
+              if (r.urls.length === 0) {
+                setError('这段文字里没找到网址');
+              } else if (r.added === 0 && r.skipped > 0) {
+                setError(`${r.skipped} 条都已在列表里`);
+              } else if (r.skipped > 0) {
+                setError(`加了 ${r.added} 条，${r.skipped} 条已存在，跳过`);
+              }
             })}
           >
             从粘贴内容导入
           </button>
+          {/*
+            * **和编辑器里「联网补全」是同一条链**（enrichBook）：地址就是这本书的
+            * 网上身份——粘进来先落库（① 身份先记下，addLink 幂等，应用时不会存两行），
+            * 再读那个详情页出预览（② trustIdentity，只补空缺，对不上只警告）；
+            * 这一页读不出书目信息（不是详情页/改版/反爬/超时）就和 enrichBook 一样
+            * 安静回落到按书名搜源（③ 搜索路径有书名+作者精确匹配兜底，不用预览）。
+            * 原来这三件事是「导入 → 取信息 → 应用」三个互不相干的手势，而且②失败
+            * 就是一句死话，③那条链在这个弹窗里根本够不到。
+            */}
+          <button
+            disabled={!detailRef || busy !== null || detail !== null}
+            title={paste.trim()
+              ? '先记下粘的地址，再读那一页补封面/信息；读不出来就按书名搜源'
+              : '读主地址那一页补封面/信息（起点要开后台窗口，稍慢）；读不出来就按书名搜源'}
+            onClick={() => void run('正在读取这个页面…（起点要开后台窗口，稍慢）', async () => {
+              setResult(null);
+              setCoverBroken(false);
+              if (paste.trim()) {
+                const imp = await rpc<{ added: number; urls: string[]; skipped: number }>(
+                  'link.addBatch', { bookId, text: paste },
+                );
+                if (imp.urls.length > 0) {
+                  setPaste('');
+                  await reload();
+                }
+              }
+              try {
+                const d = await rpc<Detail>('link.fetchDetail', { bookId, ref: detailRef });
+                setDetail(d);
+              } catch (e) {
+                const why = (e as Error).message;
+                const r = await rpc<FetchOneResult>('cover.fetchOne', { bookId });
+                await reload();
+                if (r.status === 'ok') {
+                  setChanged(true);
+                  setResult({
+                    applied: [
+                      `这页没认出信息，按书名在${r.source ? (SITE_LABELS[r.source] ?? r.source) : '搜索源'}找到`,
+                      ...(r.applied ?? []),
+                    ],
+                    skipped: [],
+                  });
+                } else {
+                  setError(
+                    r.note
+                      ? `这个页面读不出书目信息（${why}）；${r.note}`
+                      : `这个页面读不出书目信息（${why}）；按书名搜了几个源也没对上`,
+                  );
+                }
+              }
+            })}
+          >
+            从链接补全封面/信息
+          </button>
           <button
             disabled={links.length === 0 || busy !== null}
             onClick={() => void run('正在检查…（同域名间隔 2 秒，慢是故意的）', async () => {
-              await rpc('link.check', { bookId });
+              await rpc('link.checkUpdates', { bookId });
               await reload();
             })}
-            title="逐个访问看还活不活着。同域名串行且间隔 2 秒，避免打扰对方站点"
+            title="逐个访问看还活不活着；内置站点（起点/书旗/纵横/番茄）顺带取回对面最新章。同域名串行间隔 2 秒"
           >
-            检查死链
+            检查
           </button>
           {busy && <span className="muted" style={{ fontSize: '.85rem' }}>{busy}</span>}
           <span style={{ flex: 1 }} />
-          <button onClick={onClose}>关闭</button>
+          <button onClick={() => onClose(changed)}>关闭</button>
         </div>
 
         {error && <p className="danger" style={{ marginBottom: 0 }}>{error}</p>}
