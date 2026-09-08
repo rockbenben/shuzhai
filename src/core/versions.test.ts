@@ -387,16 +387,38 @@ test('留下的那本缺的字段从别人那儿补，自己有的不动', () =>
   addFile(gone, join(dir, 'dp-b.txt'), { primary: true });
   db.prepare('update reading_state set chapter_idx = 30 where book_id = ?').run(keep);
   db.prepare("update book set note = '我自己的备注' where id = ?").run(keep);
-  db.prepare("update book set cover_path = 'covers/abc.jpg', intro = '三十年河东', note = '别人的备注' where id = ?").run(gone);
+  db.prepare(
+    "update book set cover_path = 'covers/abc.jpg', intro = '三十年河东', note = '别人的备注', chapter_count_override = 512 where id = ?",
+  ).run(gone);
 
   mergeBooks(db, [keep, gone]);
 
-  const b = db.prepare('select cover_path as coverPath, intro, note from book where id = ?').get(keep) as unknown as {
-    coverPath: string | null; intro: string | null; note: string | null;
+  const b = db.prepare(
+    'select cover_path as coverPath, intro, note, chapter_count_override as over from book where id = ?',
+  ).get(keep) as unknown as {
+    coverPath: string | null; intro: string | null; note: string | null; over: number | null;
   };
   assert.equal(b.coverPath, 'covers/abc.jpg', '封面没补过来');
   assert.equal(b.intro, '三十年河东', '简介没补过来');
   assert.equal(b.note, '我自己的备注', 'keeper 自己写的备注被覆盖了');
+  assert.equal(b.over, 512, '手填章数没补过来——它和备注同属 FOLD_COLS，一样是用户打的字');
+});
+
+test('合并：keeper 自己有手填章数时，别被败方盖掉', () => {
+  const keep = addBook('赘婿', '愤怒的香蕉');
+  const gone = addBook('赘婿', '愤怒的香蕉');
+  addFile(keep, join(dir, 'zx-a.txt'), { primary: true });
+  addFile(gone, join(dir, 'zx-b.txt'), { primary: true });
+  db.prepare('update reading_state set chapter_idx = 90 where book_id = ?').run(keep);
+  db.prepare('update book set chapter_count_override = 300 where id = ?').run(keep);
+  db.prepare('update book set chapter_count_override = 400 where id = ?').run(gone);
+
+  mergeBooks(db, [keep, gone]);
+
+  const over = (db.prepare('select chapter_count_override as over from book where id = ?').get(keep) as {
+    over: number | null;
+  }).over;
+  assert.equal(over, 300, 'keeper 自己填的章数被败方盖掉了——判据是「自己有的不动」');
 });
 
 /*

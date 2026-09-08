@@ -207,7 +207,12 @@ const MOVED_TABLES = ['bookmark', 'highlight', 'reading_session'] as const;
  * keeper 是按**阅读进度**挑的，跟「哪本填过这些」没关系，同 `review` 那段的理由。
  * 表名列进 SQL 是安全的：这张表是模块内的字面量，不接受调用方传进来的东西。
  */
-const FOLD_COLS = ['cover_path', 'intro', 'aliases', 'source_site', 'note'] as const;
+// `chapter_count_override` 是数字不是文本：它只可能是正整数或 NULL，
+// 所以底下那个 `String(x[col] ?? '').trim()` 空判照样成立（NULL→'' 算空，
+// 正数→'123' 算有值），绑定参数数字也直接进得去。
+const FOLD_COLS = [
+  'cover_path', 'intro', 'aliases', 'source_site', 'note', 'chapter_count_override',
+] as const;
 
 export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: number } {
   if (bookIds.length < 2) throw new Error('至少要两本才谈得上合并');

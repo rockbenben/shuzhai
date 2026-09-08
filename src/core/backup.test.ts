@@ -99,6 +99,27 @@ test('评价时间也要备份，否则「我的书评」的顺序恢复不回�
 });
 
 /*
+ * **手填本地章数也是用户打进去的字**（迁移 25 的 `book.chapter_count_override`）。
+ * 铁律 3：重扫恢复不了，备份得带、恢复得写。旧备份里没这个字段时落 null（用自动）。
+ */
+test('手填章数备份带得出、恢复写得回', async () => {
+  const id = await seed();
+  db.prepare('update book set chapter_count_override = ? where id = ?').run(777, id);
+
+  const bk = exportBackup(db);
+  const b = bk.books.find((x) => x.title === '雪中悍刀行')!;
+  assert.equal(b.chapterCountOverride, 777, '导出要带手填章数');
+
+  // 抹掉再恢复：值要原样写回，不是停在 null
+  db.prepare('update book set chapter_count_override = null').run();
+  await importBackup(db, bk);
+  const row = db
+    .prepare('select chapter_count_override as over from book where id = ?')
+    .get(id) as { over: number | null };
+  assert.equal(row.over, 777, '恢复后手填章数没写回来');
+});
+
+/*
  * **划线和笔记也是不可再生的。**
  *
  * 这个模块顶上自己写着「阅读进度、书签、评分短评、弃坑原因、重命名日志——

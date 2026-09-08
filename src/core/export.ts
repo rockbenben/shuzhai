@@ -198,7 +198,7 @@ function csvCell(v: unknown): string {
 
 const META_COLUMNS = [
   'id', 'title', 'author', 'aliases', 'serial_status', 'category', 'tags',
-  'word_count', 'chapter_count', 'encoding', 'path', 'file_status',
+  'word_count', 'chapter_count', 'chapter_count_override', 'encoding', 'path', 'file_status',
   // `rated_at` 跟着 rating / comment 一起走：拿出去分析「我 2025 年读了什么、
   // 给什么打了高分」要的就是这个日期，而它重扫恢复不了，只在这里和备份里有出口
   'reading_status', 'percent', 'rating', 'comment', 'rated_at', 'drop_reason', 'reread_count',
@@ -217,7 +217,8 @@ function metaRows(db: DatabaseSync): Array<Record<string, unknown>> {
               -- Excel 和任何 CSV 解析器都认得。同本文件「同一件事只能有一个说法」。
               (select group_concat(t.name, ',') from book_tag bt join tag t on t.id = bt.tag_id
                 where bt.book_id = b.id) as tags,
-              f.word_count, f.chapter_count, f.encoding, f.path, f.status as file_status,
+              f.word_count, f.chapter_count, b.chapter_count_override,
+              f.encoding, f.path, f.status as file_status,
               r.status as reading_status, r.percent, r.rating, r.comment, r.rated_at,
               r.drop_reason, r.reread_count, r.last_read_at,
               b.source_site, b.note

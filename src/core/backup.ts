@@ -89,6 +89,11 @@ export interface BackupBook {
   serialStatus: string;
   sourceSite: string | null;
   note: string | null;
+  /**
+   * 手填本地章数（迁移 25 的 `book.chapter_count_override`）。用户打进去的修正，
+   * 重扫恢复不了，铁律 3——备份得带、恢复得写。NULL/缺省 = 用自动识别。
+   */
+  chapterCountOverride?: number | null;
   categoryName: string | null;
   tags: string[];
   /** 认回本地文件靠这两样：hash 优先，路径次之 */
@@ -253,6 +258,7 @@ export function exportBackup(db: DatabaseSync): BackupFile {
       serialStatus: (b.serial_status as string) ?? 'unknown',
       sourceSite: (b.source_site as string | null) ?? null,
       note: (b.note as string | null) ?? null,
+      chapterCountOverride: (b.chapter_count_override as number | null) ?? null,
       categoryName: (b.categoryName as string | null) ?? null,
       tags: (
         db
@@ -764,8 +770,13 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
 
       db.prepare(
         `update book set title = ?, author = ?, aliases = ?, intro = ?, serial_status = ?,
-                source_site = ?, note = ?, updated_at = datetime('now') where id = ?`,
-      ).run(bb.title, bb.author, bb.aliases, bb.intro, bb.serialStatus, bb.sourceSite, bb.note, bookId);
+                source_site = ?, note = ?, chapter_count_override = ?,
+                updated_at = datetime('now') where id = ?`,
+        // 旧备份里没有这个字段（迁移 25 才加）：缺省落 null = 用自动识别，别写坏
+      ).run(
+        bb.title, bb.author, bb.aliases, bb.intro, bb.serialStatus,
+        bb.sourceSite, bb.note, bb.chapterCountOverride ?? null, bookId,
+      );
 
       if (bb.categoryName) {
         db.prepare('insert or ignore into category(name) values(?)').run(bb.categoryName);

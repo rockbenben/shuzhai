@@ -580,6 +580,28 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
       delete from app_setting where key = 'outline.' || old.id;
     end;
   `),
+
+  /*
+   * 25：**本地章数手填修正**（`book.chapter_count_override`）。
+   *
+   * 「连载中 · 到N章」的 N 是解析出来的 `book_file.chapter_count`——切章切错
+   * （漏切/整章未识别）N 就是错的，用户改不了。这列让用户手填一个数盖过自动值，
+   * **只用于显示**：卡片角标/悬停/卡底三处用 `override ?? 自动值`。
+   * 体检角标、更新判断（按章名匹配不比数字）、扫描 grew 报告仍用真实
+   * chapter_count——手填修正的是「给人看的数」，不是假装解析对了。
+   *
+   * NULL = 用自动值。重扫/重新解析不碰这列（独立列，天然活下来）。
+   * 放 book 表而非 book_file：手工书（没文件）也能填，换主文件不丢。
+   *
+   * ⚠️ **铁律 3**：新列是用户不可再生输入——备份恢复列清单、`versions.ts`
+   * FOLD_COLS 合并搬运当场跟上（导出走 `b.*` 自动带上）。
+   */
+  (db) => {
+    const cols = db.prepare('pragma table_info(book)').all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === 'chapter_count_override')) {
+      db.exec('alter table book add column chapter_count_override integer');
+    }
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

@@ -43,6 +43,23 @@ export const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, 
 export const wan = (n: number | null | undefined): string =>
   !n ? '' : n >= 10000 ? `${(n / 10000).toFixed(0)} 万字` : `${n} 字`;
 
+/**
+ * 卡片/表格上给人看的本地章数：**手填值盖过自动识别**。
+ *
+ * `override` 是用户在书籍编辑里手填的修正（`book.chapter_count_override`，
+ * NULL = 没填）；`real` 是解析出来的 `book_file.chapter_count`。
+ *
+ * ⚠️ **这只用于「给人看」的显示**（连载中角标、悬停「本地到第N章」、
+ * 卡底/表格的「N 章」）。体检角标（未解析）、扫描 grew 报告、更新判断
+ * 一律用**真实** chapter_count——手填修的是显示数，不是假装解析对了；
+ * 在 SQL 里 coalesce 会让手填值把真的解析失败盖掉。
+ * 放这份零依赖文件里，是因为 App 和 ReviewTable 两处都要引同一份判据。
+ */
+export const displayChapters = (
+  override: number | null | undefined,
+  real: number | null | undefined,
+): number | null => override ?? real ?? null;
+
 const RTF = new Intl.RelativeTimeFormat('zh-CN', { numeric: 'auto' });
 
 /**
