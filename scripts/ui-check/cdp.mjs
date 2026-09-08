@@ -98,6 +98,19 @@ export async function seedReviewData() {
     await rpc('tts.addEngine', { name: '走查用的假引擎', url: 'https://example.invalid/say?t={text}' });
   }
 
+  /*
+   * 「待更新」档要有书才量得到——secondary 档计数 0 时侧栏整个隐藏，
+   * 那一屏（角标「连载中 · 到N章」、检查按钮）就永远是盲区。
+   * 幂等：已经有 ongoing 的书就不动。
+   */
+  const ongoing = ((await rpc('book.list', { filter: { serialStatus: ['ongoing'] }, limit: 1 })).result ?? []);
+  if (!ongoing.length) {
+    const some = ((await rpc('book.list', { limit: 2 })).result ?? []);
+    for (const b of some) {
+      await rpc('book.update', { bookId: b.id, fields: { serial_status: 'ongoing' } });
+    }
+  }
+
   const tags = (await rpc('tag.list')).result ?? [];
   if (tags.length >= 20) return { seeded: false, tags: tags.length };
 

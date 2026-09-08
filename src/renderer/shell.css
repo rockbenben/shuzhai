@@ -46,10 +46,40 @@
 
 
 .nav-brand {
-  padding: 1rem 1rem 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 0.6rem 0.7rem 1rem;
   font-size: 1.02rem;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+/* 品牌行右上角的 GitHub 入口：平时安静（muted），悬停才亮，不抢书架的注意力 */
+.nav-github {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0; /* 按钮默认 1px 6px 内边距会和固定宽度抢内容盒 */
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.nav-github:hover {
+  background: var(--bg);
+  color: var(--fg);
+}
+/* ⚠️ svg 是 flex 子项，光给 width/height（属性或 CSS）都会被主轴收缩挤成 ~2px 宽、
+   高度却留着，整个 GitHub 标压成一条竖丝。`flex:none`（不许缩）+ 写死尺寸才站得住。 */
+.nav-github svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 .nav-group {
@@ -255,10 +285,9 @@
  * 不是书名——那一条在这里不适用。）
  *
  * ⚠️ **书名居中、用整张封面**，算式在 `cover-art.ts` 的 `字号` 上。
- * 有角标时靠把顶边让下去避开（角标是从上往下叠的一列），所以 `Cover.tsx` 要知道
- * 有几个——这就是 `cornerBadge` 那个参数删掉之后又加回来的原因，理由变了：
- * 当场数过用户的真实库，**8288 本里 8139 本一个角标都没有**，
- * 为那 1.8% 把所有封面都压窄是笔坏账。守卫留着：`audit.mjs`「封面上的字被角标压住」。
+ * 封面上**不挂任何状态标记**——连载 / 读完 / 格式 / 笔记那些一度是右上角一列角标，
+ * 标记一多就压住书名、把长书名挤小；现在全部并到了封面下方的信息行（`.book-sub`），
+ * 题签始终独占整张封面。
  */
 .cover-ph {
   /* 题签的字号写成 cqw，量的是这张封面自己的宽度——封面墙的格子是
@@ -278,15 +307,15 @@
  * ——那 36% 是为 1.8% 的卡片把 98.2% 的书名压小了。
  *
  * 现在字直接印在书衣上（毛边纸色的墨），没有那张纸。六匹布上白字的对比度都在
- * 5.9–9:1，AA 有富余。角标真的存在时，`Cover.tsx` 会把 `top` 让下去——
- * 角标是从上往下叠的一列，让的是**高**不是宽。
+ * 5.9–9:1，AA 有富余。题签始终占整张封面——状态标记都在封面下方那行信息里。
  *
  * ⚠️ 两层是必要的：外层是**横排**的 flex（`align-items` 才是垂直居中），
  * 内层那个 span 才竖排。合成一层的话居中方向会跟着 writing-mode 转过去。
  */
 .cover-title {
   position: absolute;
-  /* top 由 Cover.tsx 按角标数给 */
+  /* 封面不再挂状态角标，题签始终用整张封面，顶边固定 8%（和左右、底一致） */
+  top: 8%;
   left: 8%;
   right: 8%;
   bottom: 8%;
@@ -299,6 +328,15 @@
 .cover-title > span {
   max-height: 100%;
   writing-mode: vertical-rl;
+  /*
+   * ⚠️ **任意两字之间都允许断行**。`cover-art.ts` 的字号算式假设一列正好排
+   * `floor(高/字号)` 个字——连续汉字本来就字字可断，和模型一致；但**带空格 /
+   * 拉丁词**的书名，浏览器只在词间断行，一个词放不下整列就提前换列，于是凭空
+   * 多出一列、在块方向（横向）被 `overflow:hidden` 裁掉半个字（实测「我在美国
+   * 开监狱 作者：…」整列被切）。`break-all` 让拉丁词也字字可断，实际折列和
+   * 模型对齐，就只会少用列、不会多溢。
+   */
+  word-break: break-all;
   /* ⚠️ **钉死宋体，别把思源宋体排到前面。** 竖排下一个汉字占多长是**按脸算的**：
      当场量到宋体和系统 serif 都是 1em，而思源宋体是 **1.44em**（vhea 带着行间距）。
      `cover-art.ts` 的 `字号` 那个式子按 1em 解的，换张脸它就整个作废 */
@@ -308,10 +346,12 @@
   color: #efe7d2;
 }
 
-/* 书名和那行元信息都夹到两行。`.wall` 的行高是隐式的——
-   一张卡因为书名或作者名长而变高，**整排卡片跟着变高**。
-   四条声明是一个不可拆的组合，所以合成一条规则，别抄第二份 */
-.book-title,
+/* 作者行和短评夹到两行。`.wall` 的行高是隐式的——
+   一张卡因为这两行变长，**整排卡片跟着变高**。
+   四条声明是一个不可拆的组合，所以合成一条规则，别抄第二份。
+   ⚠️ **书名不在这条里**：书名是没有真封面时唯一能认出书的东西，长书名要
+   完整折行显示（用户明确要「别截掉」），代价是有长书名的那几排卡片变高、
+   参差——这个取舍拍过板。书名见下面 `.book-title`，让它自然换行、不夹行。 */
 .book-sub,
 .book-note {
   display: -webkit-box;
@@ -324,6 +364,9 @@
   font-size: 0.85rem;
   line-height: 1.35;
   margin-top: 0.45rem;
+  /* **不夹行，长书名完整折行**（不再 line-clamp:2）。中文任意两字之间都能断，
+     所以直接换行；overflow-wrap 只兜一长串没断点的拉丁字母，免得横着溢出卡片。 */
+  overflow-wrap: break-word;
 }
 .book-sub {
   font-size: 0.75rem;
@@ -366,9 +409,10 @@
    * （同标签行那条）。超过两行仍然收成省略号，全文在悬停的 title 里。
    */
   /*
-   * **两行由上面 `.book-title, .book-sub, .book-note` 那条统一给**，
+   * **两行由上面 `.book-sub, .book-note` 那条统一给**，
    * 这里不再抄一份（那条规则自己就写着「四条声明是一个不可拆的组合，
-   * 别抄第二份」——我抄了一次，删掉了）。
+   * 别抄第二份」——我抄了一次，删掉了）。书名 `.book-title` 不夹行，
+   * 不在这条里（它要完整显示长书名）。
    *
    * 为什么必须两行：实测 21 个字的书评排一行只印得下 11-13 个字，
    * 用户看到的是「前面三卷神作，后面像换」——**而结论（「烂尾，别看」）
@@ -424,46 +468,69 @@
 }
 
 /*
- * 角标**排成一列，不是各自绝对定位**。
+ * 状态标记——**并在封面下方的信息行（`.book-sub`）里，不再浮在封面上**。
  *
- * 原来每个角标自己 `absolute; top:.35rem; right:.35rem`——它们本来就叠在同一个点，
- * 只是当时那几个条件互斥（「未解析」要求 `file_status === 'ok'`），碰巧没撞上。
- * 加了格式角标之后就撞了：一本标了「读完」的 PDF，两个角标画在同一个坐标上。
- * 靠「条件互斥」维持的布局，加一个条件就塌——改成容器排布，加多少个都不会叠。
+ * 原来它们是绝对定位、竖排在右上角的一列角标，标记一多就压住竖排书名、把长书名
+ * 挤小（实测「一本PDF电子书」被 PDF 角标盖掉两个字）。现在封面只留装帧，状态全部
+ * 落到书名下那一行，和作者、章数、字数排在一起。
+ *
+ * 分两种，都做成**原子内联**（inline-block、nowrap），随信息行一起折行、不被拆碎：
+ * - `.book-mark`：一枚「色点 + 字」的**状态**（网上有更新 / 太监 / 弃坑 / 连载中 /
+ *   已读完 / 文件出问题）。点进书之前最该知道的事，用颜色说话。
+ * - `.book-tag`：一枚中性灰底小签（PDF / ✎N / 只有记录），说「这是什么」，不抢颜色。
  */
-.book-badges {
-  position: absolute;
-  top: 0.35rem;
-  right: 0.35rem;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.2rem;
-  /* 角标是标记不是控件，别挡住点封面 */
-  pointer-events: none;
-}
-
-/* 绝大多数书一个角标都没有（txt、正常、没读过）。React 把 false 渲染成空，
-   `:empty` 命中它——布局阶段直接不建这个绝对定位的 flex 盒 */
-.book-badges:empty {
-  display: none;
-}
-
-.book-badge {
+.book-mark,
+.book-tag {
+  display: inline-block;
   font-size: 0.68rem;
-  padding: 0.1em 0.4em;
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
+  line-height: 1.5;
+  white-space: nowrap;
+  margin-right: 0.4em;
+  vertical-align: baseline;
 }
-.book-badge.warn {
-  background: var(--danger);
+.book-mark {
+  font-weight: 600;
+}
+/* 色点用 currentColor：字色一点，点跟着变色，一支颜色管两处 */
+.book-mark::before {
+  content: '';
+  display: inline-block;
+  width: 0.42em;
+  height: 0.42em;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 0.3em;
+  vertical-align: 0.06em;
+}
+/* 红：要去处理 / 会踩坑的（有更新可收、文件坏了、没解析、太监烂尾） */
+.book-mark.danger,
+.book-mark.warn {
+  color: var(--danger-ink);
+}
+.book-mark.accent {
+  color: var(--accent);
+}
+.book-mark.muted {
+  color: var(--muted);
+}
+
+/* 事实小签：中性灰底，白天黑夜都不晃眼。
+   ⚠️ 字色不能直接用 --muted：灰底把底色压暗了一档，0.68rem 的小字实测
+   对比度 4.08 < 4.5（audit.mjs 当场量到 EPUB/PDF 两条）。往 --fg 掺三成
+   抬过 AA，仍比作者那行略深、配灰底读成「标签」而不是正文（白天≈5.0、夜里≈5.5）。 */
+.book-tag {
+  padding: 0.05em 0.4em;
+  border-radius: 3px;
+  background: rgba(127, 127, 127, 0.16);
+  color: color-mix(in srgb, var(--fg) 30%, var(--muted));
+  font-weight: 400;
 }
 
 /*
  * 封面下沿的两层：评分在上、悬停才出现的工具条在下。
  *
- * 和上面 `.book-badges` 同一个道理，只是这回撞上了：评分自己 `bottom: 4px`、
+ * 和封面上原来那列绝对定位的状态角标同一个道理（它们现在并进了 `.book-sub`，
+ * 见上面 `.book-mark` 那段），只是这回撞上了：评分自己 `bottom: 4px`、
  * 工具条自己 `bottom: 3px` 通栏——**一悬停，工具条整条盖住评分**，
  * 而短评就藏在评分的 title 里，正是「点进去之前要看到」的那句话。
  * 堆在一个容器里，工具条一出现评分自动往上让，不用谁记着谁多高。

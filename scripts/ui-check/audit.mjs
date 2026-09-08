@@ -144,6 +144,17 @@ const SURFACES = [
   { name: '书架·表格', wait: 2500, expect: '.booktable tbody tr',
     open: "(() => { const b=[...document.querySelectorAll('.viewpick .chip')].find(x=>x.textContent.trim()==='表格'); if(!b) return 0; b.click(); return 1; })()",
     close: "(() => { const b=[...document.querySelectorAll('.viewpick .chip')].find(x=>x.textContent.trim()==='封面墙'); if(b) b.click(); return 1; })()" },
+  /*
+   * **「待更新」档**：连载中的书 + 新角标（「连载中 · 到N章」「网上有更新」）。
+   * 角标多了一枚，封面题签避让那条（「封面上的字被角标压住」）在这屏同样适用。
+   * ⚠️ 收尾必须切回「全部」——secondary 档不会被关遮罩收掉，留在这档的话
+   * 后面每一屏都在一个没有 `.book` 卡片的页面上量（同「我的书评」那条教训）。
+   */
+  { name: '待更新', wait: 2000, expect: '.book',
+    open: "(() => { const 找=()=>[...document.querySelectorAll('.nav-item')].find(x=>x.textContent.startsWith('待更新'));"
+      + " if(!找()) { const m=[...document.querySelectorAll('.nav-item')].find(x=>x.textContent.startsWith('更多')); if(m) m.click(); }"
+      + " let n=0; const t=setInterval(()=>{ const b=找(); if(b){clearInterval(t); b.click();} if(++n>20) clearInterval(t); },150); return 1; })()",
+    close: "(() => { const b=[...document.querySelectorAll('.nav-item')].find(x=>x.textContent.startsWith('全部')); if(b) b.click(); return 1; })()" },
   /* 「筛选」开的是分类那个编辑器（多一条「就这么筛」的出路）。
      条件组比原来多了两组（读完年份 / 连载状态），高度值得单量一屏 */
   { name: '筛选', wait: 1500, expect: '.cat-modal .cond-chips',

@@ -36,18 +36,16 @@ export function 书衣色(title: string): string {
 /**
  * 书名在封面上占多大的地方，单位 `cqw`（封面自己宽度的百分之一；封面高 140cqw）。
  *
- * ⚠️ **别再把它挤到左边那条窄签里。** 前一版是「左上角一张题签」，为了躲开右上角
- * 那列角标，宽度被钉死在 36%——而当场数过用户的真实库：**8288 本里 8139 本
- * 一个角标都没有（98.2%）**，1.8% 有一个，全库只有一本有两个。
- * 也就是说那 36% 是为 1.8% 的卡片，把 98.2% 的书名压小了。
- * 现在字**居中、自适应**，宽度放到 84%；角标真的存在时才把顶边让下去
- * （让的是高度，不是宽度——角标是从上往下叠的一列）。
+ * **封面是一件纯粹的装帧，上面不挂任何状态。** 连载 / 读完 / 弃坑 / 格式 / 笔记
+ * 那些标记一度是浮在右上角的一列角标，书名要靠把顶边让下去才不被压住——
+ * 而标记一多，长书名就被挤小、还会被压掉半个字。现在它们全部挪到封面下方的
+ * 信息行里（见 `App.tsx` 的 `.book-sub`），题签**始终用整张封面**，
+ * 居中、自适应，宽度放到 84%。
  */
 const 左右留白 = 8;          // 单边，% of 宽
-const 底留白 = 8;            // % of 高
-const 顶留白 = 8;            // % of 高，没角标时
-const 一个角标 = 12;         // % of 高。角标行高 21px / 封面高 183px ≈ 11.5，留一点富余
+const 上下留白 = 8;          // 顶/底，% of 高
 const 可用宽 = 100 - 左右留白 * 2;
+const 可用长 = (100 - 上下留白 * 2) * 1.4; // 竖排能用的高度（cqw）：封面高 140cqw
 const 行距 = 1.22;           // 竖排里 line-height 决定的是**列宽**
 
 /**
@@ -59,12 +57,6 @@ const 行距 = 1.22;           // 竖排里 line-height 决定的是**列宽**
  */
 export const 字号上限 = 26;
 export const 字号下限 = 9;
-
-/** 有 b 个角标时，竖排能用的长度（cqw）。角标是往下叠的，所以吃的是**高**不是宽 */
-function 可用长(角标数: number): number {
-  const 顶 = 角标数 > 0 ? 4 + 角标数 * 一个角标 : 顶留白;
-  return Math.max(一个角标, (100 - 顶 - 底留白) * 1.4);
-}
 
 /**
  * 书名用多大的字，单位 **`cqw`**。
@@ -81,11 +73,10 @@ function 可用长(角标数: number): number {
  * 这套数下 4 字 34px、10 字 29px、20 字 22px、29 字 18px（都按 131px 的最小卡片算）
  * ——上一版同样的位置是 21 / 17 / 13 / 12px。
  */
-export function 字号(字数: number, 角标数 = 0): number {
-  const 长 = 可用长(角标数);
-  const n = Math.min(最多字数(角标数), Math.max(1, 字数));
+export function 字号(字数: number): number {
+  const n = Math.min(最多字数(), Math.max(1, 字数));
   for (let s = 字号上限; s >= 字号下限; s -= 0.5) {
-    const 每列 = Math.floor(长 / s);
+    const 每列 = Math.floor(可用长 / s);
     if (每列 < 1) continue;
     if (行距 * Math.ceil(n / 每列) * s <= 可用宽) return s;
   }
@@ -93,9 +84,9 @@ export function 字号(字数: number, 角标数 = 0): number {
 }
 
 /** 那个字号下排成几列——测试要用，界面上是浏览器自己折的 */
-export function 列数(字数: number, 角标数 = 0): number {
-  const s = 字号(字数, 角标数);
-  const 每列 = Math.max(1, Math.floor(可用长(角标数) / s));
+export function 列数(字数: number): number {
+  const s = 字号(字数);
+  const 每列 = Math.max(1, Math.floor(可用长 / s));
   return Math.ceil(Math.max(1, 字数) / 每列);
 }
 
@@ -107,16 +98,16 @@ export function 列数(字数: number, 角标数 = 0): number {
  * `audit.mjs` 的「文字被硬切」会报，而屏幕上就是最左边那列凭空少半截。
  * 所以宁可自己截、明写一个省略号。
  */
-export function 最多字数(角标数 = 0): number {
+export function 最多字数(): number {
   const s = 字号下限;
-  const 每列 = Math.floor(可用长(角标数) / s);
+  const 每列 = Math.floor(可用长 / s);
   const 最多列 = Math.floor(可用宽 / (行距 * s));
   return Math.max(1, 每列 * 最多列);
 }
 
 /** 封面上真正印出去的那串字：超过装得下的，截掉并补一个省略号 */
-export function 封面文字(title: string, 角标数 = 0): string {
+export function 封面文字(title: string): string {
   const 字 = [...title];
-  const 上限 = 最多字数(角标数);
+  const 上限 = 最多字数();
   return 字.length <= 上限 ? title : 字.slice(0, 上限 - 1).join('') + '…';
 }

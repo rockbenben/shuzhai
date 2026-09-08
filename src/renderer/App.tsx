@@ -35,10 +35,11 @@ import { UNREVIEWED } from '../core/library.ts';
 import type { DirNode } from '../core/library.ts';
 import type { SplitIssue as BadSplit } from '../core/health.ts';
 import { formatOf, extOf, BOOK_EXT, TEXT_EXT } from '../core/book-format.ts';
-import { wan, relTime, sqlTime, whenAgo, activeFilterWords } from '../core/format.ts';
+import { wan, relTime, sqlTime, whenAgo, activeFilterWords, displayChapters } from '../core/format.ts';
 // 类型是 import type，会被完全擦除——不会像值导入那样把扫描器拖进渲染包。
 // 手抄一份 interface 的代价是加一个字段要改三处，而漏抄不报错
 import type { ScanReport } from '../core/scan.ts';
+import type { UpdateHint } from '../core/links.ts';
 import {
   loadSort, saveSort, loadView, saveView, type ViewKind,
   hydrateUserThemes, applySettings, loadSettings,
@@ -57,6 +58,12 @@ export interface Book {
   title: string;
   author: string | null;
   chapter_count: number | null;
+  /**
+   * 手填本地章数（`book.chapter_count_override`）。NULL = 用自动识别的
+   * `chapter_count`；非 NULL 时**只盖过显示**（角标/悬停/卡底三处），
+   * 体检角标和更新判断仍用真实 chapter_count。
+   */
+  chapter_count_override: number | null;
   word_count: number | null;
   file_status: string | null;
   reading_status: string | null;
@@ -91,6 +98,8 @@ export interface Book {
   drop_reason: string | null;
   /** 书自己的连载状态。卡片上只给「连载中」和「太监」加角标，理由见渲染那一段 */
   serial_status: string | null;
+  /** 主文件的 mtime（毫秒 epoch）。没有文件的手工书是 null */
+  mtime?: number | null;
   has_cover?: number;
 }
 
@@ -143,11 +152,12 @@ function 排序默认(shelfId: string): SortBy {
   return (loadSort(shelfId) ?? SHELVES.find((s) => s.id === shelfId)?.sort ?? 'time') as SortBy;
 }
 
+
 /**
  * `sort` 是**这一档天然该按什么排**，切过去时自动应用。
  *
  * 起因：`ORDER.rated` 的注释上写着「「我的书评」这一档默认按它」——
- * 而 App 从来没这么做过，点开那一档拿到的仍然是「最新的在前」（文件时间）。
+ * 而 App 从来没这么做过，点开那一档拿到的仍然是「最新的在前」。
  * 于是这一档存在的理由（「我最近评过什么」）默认答不上来，
  * 得用户自己发现下拉框里那个「最近评价的在前」。
  * 上一轮刚给 `rated_at` 补了备份和导出，而它在界面上默认根本没被用到。
@@ -238,6 +248,13 @@ const SHELVES: Array<{
    * 判据走 `hasNotesSql`（有划线**或**有书签），和卡片上那个数是同一份。
    */
   { id: 'noted', name: '记过笔记', filter: { hasNotes: true }, secondary: true },
+  /*
+   * **「待更新」**：连载中的书，按「本地副本到手最久」排（`stale`）——
+   * 最该去看有没有新章的排第一。档内按钮「检查网上更新」逐本问主链接
+   * （rpc `link.checkUpdates`，同域名间隔 2 秒、起点要开隐藏窗口，慢是有意的礼貌）。
+   * 计数 0 时侧栏自动隐藏（secondary 档的现有行为）。
+   */
+  { id: 'updates', name: '待更新', filter: { serialStatus: ['ongoing'] }, sort: 'stale', secondary: true },
   /*
    * **「读过没评价」是这个应用唯一的待办清单。**
    *
@@ -368,6 +385,18 @@ export function App() {
   const [splitMsg, setSplitMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // 连载更新提示：hints / updateIds 本任务先建好，Task 13 角标直接消费
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  // 「需要处理」档里批量清理失效文件的两段式确认（同改名超 50 个那一下，不走原生 confirm）
+  const [cleanupArmed, setCleanupArmed] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [hints, setHints] = useState<UpdateHint[]>([]);
+  const loadHints = useCallback(async () => {
+    try { setHints(await rpc<UpdateHint[]>('link.updates')); } catch { /* 角标是锦上添花，失败静默 */ }
+  }, []);
+  useEffect(() => { void loadHints(); }, [loadHints]);
+  const updateIds = useMemo(() => new Set(hints.filter((h) => h.hasUpdate).map((h) => h.bookId)), [hints]);
+
   const [reading, setReading] = useState<{ id: number; title: string; at: number; off?: number } | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [ruleFor, setRuleFor] = useState<{ id: number; title: string } | null>(null);
@@ -382,15 +411,23 @@ export function App() {
   /** 正在导出哪一本。不传就是导全库元数据 */
   const [exporting, setExporting] = useState<{ id: number; title: string } | null>(null);
   /**
-   * 标签筛选。**做成一排开关，不是下拉框**——和目录开关同一个形态，
-   * 理由也一样：这是「我现在想看哪一类」，横排一眼看全、能多选，
-   * 比点开点回去的下拉框顺手。多选是**交集**（「玄幻 + 已完结」问的是同时满足）。
+   * 标签筛选。**单选、默认收起**（`tagBarOpen`）：标签有几十个，摊开比分类还长，
+   * 不按标签浏览时一枚入口 chip 都嫌占地方——所以入口收进分类那一排
+   * （「标签 ▾」），展开后标签接在同一排后面横滚，不另起一行。
+   * 点标签是**换选**（和分类一个手势：点亮着的取消、点没亮的只看它一个）。
+   * ⚠️ **有标签生效时强制摊开、也收不起**——界面必须显示正在生效的筛选，
+   * 收起只允许发生在没有生效标签的时候。
    *
    * 补这个是因为：整套标签功能做完了，却没有按标签浏览的入口——
    * 归完类找不到，等于白归。
+   *
+   * 状态仍是 id 数组：后端筛选和「存成分类」都收 tagIds（规则里照样可以有
+   * 多个标签取交集），单选只是书架这排开关的手势。
    */
   const [allTags, setAllTags] = useState<Array<{ id: number; name: string; count: number }>>([]);
   const [pickedTags, setPickedTags] = useState<number[]>([]);
+  /** 标签那排摊开没有。默认收起；有生效标签时无视它强制摊开 */
+  const [tagBarOpen, setTagBarOpen] = useState(false);
   /**
    * 「几星以上」。null = 不限。
    *
@@ -521,8 +558,8 @@ export function App() {
     }
 
     if (keyword) return <>没有书名、作者或别名里带「{keyword}」的书。</>;
-    if (pickedTags.length > 1) return <>这几个标签没有共同的书——多选是「同时满足」，不是「任意一个」。</>;
-    // 只选了一个标签时讲「交集」是胡话——没有交集可言
+    // 书架这排标签开关是单选（pickedTags 至多一个）；多个标签取交集只可能来自
+    // 分类/临时筛选规则，那几条在上面 conds 里已经按名字列出来了
     if (pickedTags.length === 1) return <>这一档里没有带这个标签的书。</>;
     /*
      * **分类圈不中书**——用户报的就是这一条。
@@ -565,6 +602,12 @@ export function App() {
       );
     }
     if (shelf === 'excluded') return <>没有屏蔽任何书。要屏蔽的话，去左下角「书库文件夹」。</>;
+    if (shelf === 'updates') return (
+      <>
+        还没有标「连载中」的书。在书的信息里能改连载状态，
+        或到「设置」里按目录名批量标记；抓封面时也会自动认出一部分。
+      </>
+    );
     // 「我的书评」是这个应用的立身之本，空的时候要说清怎么写第一条
     // 现在有两条路能写：读完时会主动问，平时也能自己去评。**先说不用费力的那条**
     if (shelf === 'rated') {
@@ -586,24 +629,20 @@ export function App() {
   };
 
   /*
-   * 收起时列常用的那些，**外加已经选中的那几个**。
-   *
-   * 少了后半句就会出这种事：展开、点亮一个排在第 40 位的标签、再收起——
-   * 那个开关消失了，而筛选还在生效，书架上只剩几本书而屏幕上看不出为什么，
-   * 也没法取消。**界面必须显示正在生效的状态**，同本仓库
-   * 「预览列出来的正好是不会变的那些」是一个道理。
-   */
-  /*
    * 标签条**一行横滚，全部列出来**（照用户给的 legado 参考：它的书架分组就是
    * 书架标题下面一排标签页，一行、横向滚动、选中的带下划线）。
    *
    * 原来是**换行的 chip 块 + 一个「+N」展开器**：24 个在 1280 下就占三行 98px，
    * 80 个要十行——所以当初才需要那个展开器，还得单独处理「收起时把正在生效的
    * 那几个带回来」。改成一行横滚之后**那两件事一起没了**：不占竖向空间，
-   * 所有标签本来就够得到，展开器那两个按钮也省掉了。
+   * 所有标签本来就够得到。
    *
-   * ⚠️ **仍然是多选（交集）**，不是 legado 那种一次只能选一个的标签页——
-   * 「玄幻 + 已完结」问的是同时满足，那是我们比它多的一样，别为了像它而改掉。
+   * **单选、默认收起**（用户拍的）：标签摊开比分类还长，不按标签浏览时
+   * 连入口都嫌占地方——所以入口收在分类那一排里（「标签 ▾」），展开后
+   * 接在同一排横滚列全，**不另起一行**（另起一行的话，收起后那枚入口 chip
+   * 还占整整一行）。和分类同一个手势——点没亮的换选它、点亮着的取消。
+   * 「玄幻 + 已完结」那种多标签交集在分类编辑器里照样组得出来。
+   * ⚠️ 老规矩不变：**有标签生效时标签必须看得见**（见 `tagBarOpen` 那段）。
    */
   const tagChips = allTags;
 
@@ -806,6 +845,7 @@ export function App() {
   useEffect(() => {
     shownRef.current = PAGE;
     setAtEnd(false);
+    setCleanupArmed(false);
   }, [shelf, keyword, sort, pickedTags, pickedCat]);
 
   useEffect(() => {
@@ -846,6 +886,8 @@ export function App() {
         // **定期扫描和文件监听也走这条路。** 不体检的话，这里会拿一份新报告
         // 配上一轮留下的旧名单，列出几本早就修好的书
         void checkSplits();
+        // 新章收进来后「网上有更新」角标该消掉
+        void loadHints();
       }),
     [refresh],
   );
@@ -883,6 +925,8 @@ export function App() {
       await refresh();
       // 第一次加目录**恰恰是最容易切坏的时候**（整库刚解析完），不能漏
       await checkSplits();
+      // 新章收进来后「网上有更新」角标该消掉
+      void loadHints();
     });
 
   /**
@@ -958,6 +1002,8 @@ export function App() {
       setReport(await rpc<ScanReport>('library.scan'));
       await refresh();
       await checkSplits();
+      // 新章收进来后「网上有更新」角标该消掉
+      void loadHints();
     });
 
   /**
@@ -1015,6 +1061,7 @@ export function App() {
       const b: Book = {
         id: d.id, title: d.title, author: d.author, path: d.path,
         file_status: d.file_status ?? null, chapter_count: d.chapter_count ?? null,
+        chapter_count_override: d.chapter_count_override ?? null,
         serial_status: d.serial_status ?? null, comment: d.comment ?? null,
         rating: d.rating ?? null, reading_status: d.reading_status ?? null,
         chapter_idx: null, char_offset: null, word_count: null, percent: null,
@@ -1082,45 +1129,24 @@ export function App() {
     }
   };
 
-  if (viewing) {
-    return (
-      <FileViewer
-        bookId={viewing.id}
-        bookTitle={viewing.title}
-        viewer={viewing.viewer}
-        path={viewing.path}
-        startAt={viewing.at}
-        onOpenBook={打开别的书}
-        onExit={() => { setViewing(null); void refresh(); }}
-      />
-    );
-  }
-
-  if (reading) {
-    return (
-      <Reader
-        bookId={reading.id}
-        bookTitle={reading.title}
-        startAt={reading.at}
-        startOffset={reading.off}
-        onOpenBook={打开别的书}
-        onExit={() => {
-          setReading(null);
-          void refresh();
-        }}
-      />
-    );
-  }
-
-  return (
-    <div className="app">
+  /*
+   * **「管这一本书」的那几个弹窗（编辑 / 在线地址 / 章节怎么切 / 改名 / 导出这一本）
+   * 在三个界面是同一层**：书架、txt 阅读器、PDF/EPUB 查看器都开得了。阅读器里点
+   * 「编辑」是**就地盖一层弹窗、不退出阅读**（位置边读边存，关了弹窗还在书里）——
+   * 所以抽成一份，三个 return 都摆它。这几个弹窗抄成两份的话，阅读器那一份迟早漏一个
+   * （这个仓库已经被「同一份判据抄第二份」咬过多次）。
+   * `bookModalOpen` 告诉阅读/查看界面「有一层弹窗压在你上面」：键盘全让给弹窗，
+   * 别在背后翻页/退出（Esc 由上面那条 window 监听关弹窗）。
+   */
+  const bookModalOpen = editing !== null || !!ruleFor || !!linksFor || !!renaming || !!exporting;
+  const bookModals = (
+    <>
       {editing !== null && (
         <BookEditor
           bookId={editing}
           onClose={(c) => { setEditing(null); if (c) void refresh(); }}
-          onLinks={(title) => setLinksFor({ id: editing, title })}
-          /* 这三样从卡片工具条搬进来的。**先关掉编辑弹窗再开目标弹窗**——
-             两个 `.modal` 叠着的话焦点陷阱会认错最上面那一层 */
+          // 先关编辑弹窗再开子弹窗，两个 .modal 叠着焦点陷阱会认错最上面那一层
+          onLinks={(title) => { const id = editing; setEditing(null); setLinksFor({ id, title }); }}
           onChapters={(title) => { setEditing(null); setRuleFor({ id: editing, title }); }}
           onRename={() => { const id = editing; setEditing(null); setRenaming([id]); }}
           onExport={(title) => { setEditing(null); setExporting({ id: editing, title }); }}
@@ -1134,11 +1160,64 @@ export function App() {
         />
       )}
       {linksFor && (
-        <LinksDialog bookId={linksFor.id} bookTitle={linksFor.title} onClose={() => setLinksFor(null)} />
+        <LinksDialog
+          bookId={linksFor.id}
+          bookTitle={linksFor.title}
+          onClose={(c) => { setLinksFor(null); if (c) void refresh(); }}
+        />
       )}
       {renaming && (
         <RenameDialog bookIds={renaming} onClose={(c) => { setRenaming(null); if (c) void refresh(); }} />
       )}
+      {exporting && <ExportDialog book={exporting} onClose={() => setExporting(null)} />}
+    </>
+  );
+
+  if (viewing) {
+    return (
+      <>
+      <FileViewer
+        bookId={viewing.id}
+        bookTitle={viewing.title}
+        viewer={viewing.viewer}
+        path={viewing.path}
+        startAt={viewing.at}
+        onOpenBook={打开别的书}
+        // 就地盖编辑弹窗，不退出查看器（PDF/EPUB 页码存在 app_setting，关了弹窗还在原处）
+        onEdit={() => setEditing(viewing.id)}
+        onExit={() => { setViewing(null); void refresh(); }}
+        modalOpen={bookModalOpen}
+      />
+      {bookModals}
+      </>
+    );
+  }
+
+  if (reading) {
+    return (
+      <>
+      <Reader
+        bookId={reading.id}
+        bookTitle={reading.title}
+        startAt={reading.at}
+        startOffset={reading.off}
+        onOpenBook={打开别的书}
+        // 就地盖编辑弹窗，不退出阅读器（位置边读边存，关了弹窗还在这本书里）
+        onEdit={() => setEditing(reading.id)}
+        onExit={() => {
+          setReading(null);
+          void refresh();
+        }}
+        modalOpen={bookModalOpen}
+      />
+      {bookModals}
+      </>
+    );
+  }
+
+  return (
+    <div className="app">
+      {bookModals}
       {/* 分类编辑器。**建和改是同一个弹窗**——两份表单必然分叉，
           而这个仓库已经被「抄第二份」咬过八次 */}
       {editCat && (
@@ -1175,7 +1254,8 @@ export function App() {
           onClose={(c) => { setDialog(null); if (c) void refresh(); }}
         />
       )}
-      {exporting && <ExportDialog book={exporting} onClose={() => setExporting(null)} />}
+      {/* 导出**这一本**的弹窗在 bookModals 里（阅读器/查看器里也开得了）；
+          下面这个是「导出表格」（CSV/JSON 元数据），只在书架上用 */}
       {dialog === 'exportMeta' && <ExportDialog onClose={() => setDialog(null)} />}
       {dialog === 'addBook' && (
         <AddBookDialog
@@ -1253,7 +1333,21 @@ export function App() {
       )}
 
       <nav className="nav">
-        <div className="nav-brand">书斋</div>
+        <div className="nav-brand">
+          书斋
+          {/* 项目入口。开链接走主进程的 shell.openExternal（rpc 白名单里只放 http(s)），
+              不在渲染进程里自己开窗——点了就交给系统浏览器。 */}
+          <button
+            className="nav-github"
+            title="在 GitHub 上看这个项目"
+            aria-label="在 GitHub 上打开项目主页"
+            onClick={() => { void rpc('ui.openExternal', { url: 'https://github.com/rockbenben/shuzhai' }).catch((e: Error) => setError(e.message)); }}
+          >
+            <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">
+              <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+            </svg>
+          </button>
+        </div>
 
         {/* **搜索摆在侧栏最上面**（照 legado）。它原来挤在书架标题那一行里，
             和排序、三个批量按钮抢地方——而「找一本书」是这个应用里最常做的动作，
@@ -1529,12 +1623,17 @@ export function App() {
             title="「按书名」排的是字符顺序，不是拼音"
           >
             <option value="time">最新的在前</option>
+            {/* 书评表格的「上次读」表头点一下也是这个键：表头能点出的排序必须
+                在下拉里有对应项，否则 select 会显示成第一个选项（假值） */}
+            <option value="lastread">最近读过的在前</option>
             <option value="title">按书名</option>
             <option value="words">字数多的在前</option>
             <option value="rated">最近评价的在前</option>
             <option value="rating">评分高的在前</option>
             {/* `finished_at` 一直在写、一直进备份，而在这之前**界面上一处都用不到它** */}
             <option value="finished">最近读完的在前</option>
+            {/* 「待更新」档的默认排序；下拉里也得有，否则切到这档 select 显示成假值（lastread 那次同一个坑） */}
+            <option value="stale">最久没更新的在前</option>
           </select>
           {/*
             * **「筛选」开的就是分类那个编辑器**，只是多一条「就这么筛，不存」的出路。
@@ -1552,6 +1651,79 @@ export function App() {
           >
             筛选
           </button>
+          {shelf === 'updates' && (
+            <button
+              className="chip"
+              disabled={checkingUpdates}
+              title="逐本访问每本书的主链接看对面最新章。同域名间隔 2 秒、起点要开隐藏窗口，慢是有意的礼貌"
+              onClick={() => void (async () => {
+                setCheckingUpdates(true);
+                try {
+                  const r = await rpc<{ checked: number; ok: number; dead: number; updated: number; withUpdates: number }>('link.checkUpdates', {});
+                  setNotice(`查了 ${r.checked} 本，${r.withUpdates} 本网上有更新${r.updated ? `（取到 ${r.updated} 条最新章）` : ''}`);
+                  await loadHints();
+                  await refresh();
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setCheckingUpdates(false);
+                }
+              })()}
+            >
+              {checkingUpdates ? '正在检查…' : '检查网上更新'}
+            </button>
+          )}
+          {/*
+           * **批量清理「文件不见了」。** 这一档里 parse_failed 有「重新解析」可救，
+           * missing 里**自己在应用外删掉的唯一一份**却谁都清不掉：扫描只标不删、
+           * 整理数据库只认「内容还在别处」的残留，于是它挂一辈子红点。
+           * 作用于当前筛选结果（和其它批量键一样），`cleanupMissing` 只动 missing：
+           * 文件其实还在的恢复、真没了的去指针，空书整条移走、写过评价进度的留成「只有记录」。
+           */}
+          {shelf === 'problem' && (
+            cleanupArmed ? (
+              <>
+                <button className="chip" style={{ fontSize: '.82rem' }} onClick={() => setCleanupArmed(false)}>
+                  取消
+                </button>
+                <button
+                  className="chip"
+                  style={{ fontSize: '.82rem', color: 'var(--danger)' }}
+                  title="不删你的任何评价、进度、标签：写过的书留成「只有记录」，只有一样数据都没有的空书才整条移走"
+                  onClick={() => void (async () => {
+                    try {
+                      const ids = await rpc<number[]>('book.idsByFilter', { filter });
+                      const r = await rpc<{ files: number; restored: number; recordOnly: number; removedBooks: number }>(
+                        'library.cleanupMissing', { bookIds: ids });
+                      setCleanupArmed(false);
+                      const bits = [
+                        r.restored ? `文件其实还在，恢复 ${r.restored} 条` : '',
+                        r.files ? `清掉失效指针 ${r.files} 条` : '',
+                        r.recordOnly ? `${r.recordOnly} 本留成「只有记录」（评价进度都在）` : '',
+                        r.removedBooks ? `${r.removedBooks} 本空书整条移走` : '',
+                      ].filter(Boolean);
+                      setNotice(bits.length ? bits.join('；') : '没有要清理的失效文件');
+                      await refresh();
+                    } catch (e) {
+                      setError((e as Error).message);
+                    }
+                  })()}
+                >
+                  确认清理
+                </button>
+              </>
+            ) : (
+              <button
+                className="chip"
+                disabled={!matched}
+                style={{ fontSize: '.82rem' }}
+                title="文件是你在应用外删掉的那种，扫描和「整理数据库」都清不掉。一次清掉：写过评价/进度的留成「只有记录」，空书整条移走"
+                onClick={() => setCleanupArmed(true)}
+              >
+                批量清理失效文件
+              </button>
+            )
+          )}
           {/* 批量打标签作用于**整个筛选结果**。八千本平铺在一个目录下、没有子目录，
               书名关键词搜索是唯一还剩的批量抓手（重生 / 穿越 / 华娱 / 大明……） */}
           <button
@@ -1641,11 +1813,12 @@ export function App() {
           * 三星以上横跨所有题材。用户要的是「某某文件夹里四星以上的那些」，
           * 那是几条规则的**组合**，所以它们退回到分类编辑器里当字段。
           *
-          * **单选**：分类回答的是「现在看哪一堆」；下面那排标签是多选取交集，
-          * 回答「再按什么筛一道」。两排样式**故意一样**（都照 legado 那排文字标签）——
-          * 分开做成两种视觉语言试过一轮，用户的原话是「太丑了」。
-          * 区别靠三样看出来：这排永远有个「全部」、标签那排每个后面挂着书数、
-          * 而且标签点亮之后末尾会多一个「不按标签筛」。
+          * **标签筛选的入口也在这一排里**（「标签 ▾」），不另起一排——
+          * 另起一排的话，标签收起之后还剩一枚 chip 占着整整一行。
+          *
+          * **单选**：分类回答的是「现在看哪一堆」；标签也是单选（用户拍的），
+          * 手势一样，默认收成一个入口；多标签取交集降级到分类编辑器里组。
+          * 区别看两样：分类这头永远有个「全部」，标签每个后面挂着书数。
           */}
         {(counts.total ?? 0) > 0 && (
           <div className="dir-chips shelf-tabs">
@@ -1683,47 +1856,64 @@ export function App() {
                 改「{cats.find((c) => c.id === pickedCat)?.name}」的规则
               </button>
             )}
-          </div>
-        )}
 
-        {/* 标签开关。**多选，和上面那排分类是两件事**：分类问「现在看哪一堆」（单选），
-            标签问「再按什么筛一道」（多选）。样式一样，理由见上面那段。
-            **多选是交集**——「玄幻 + 已完结」问的是同时满足。
-            一个标签都没有时整排不显示，不占地方 */}
-        {allTags.length > 0 && (
-          <div className="dir-chips shelf-tabs">
-            {tagChips.map((t) => (
+            {/*
+              * 标签筛选的入口收在**这一排**里，不另起一排（用户拍的）：标签整排
+              * 收起之后哪怕只剩一枚「标签」chip，也还占着整整一行——「标签都隐藏了，
+              * 为什么标签行还在」。展开后标签就接在同一排后面，横滚装得下。
+              *
+              * **单选**（和分类一个手势：点没亮的换选它、点亮着的取消），
+              * 默认整个收起；一个标签都没有时连入口都不显示。
+              * ⚠️ **有标签生效时强制摊开、也不给收起**——筛选在生效而屏幕上看不见，
+              * 是这个仓库栽过的错（搜「界面必须显示正在生效的状态」），所以收起
+              * 只允许发生在 pickedTags 为空的时候。
+              * 展开的标签全列、不做 slice(0, N)：截掉的正是「系统」「诸天」这类
+              * 真题材词（`tag.list` 按书数排，尾巴任意），打了标签却筛不了等于
+              * 浏览这半没做。
+              */}
+            {allTags.length > 0 && (tagBarOpen || pickedTags.length > 0 ? (
+              <>
+                {/* 收起入口：只在没有生效标签时给——有标签生效时收不得 */}
+                {pickedTags.length === 0 && (
+                  <button
+                    className="chip"
+                    aria-expanded
+                    onClick={() => setTagBarOpen(false)}
+                    title="收起标签列表"
+                  >
+                    标签 ▴
+                  </button>
+                )}
+                {tagChips.map((t) => (
+                  <button
+                    key={t.id}
+                    className="chip"
+                    aria-pressed={pickedTags.includes(t.id)}
+                    onClick={() =>
+                      setPickedTags((p) => (p.includes(t.id) ? [] : [t.id]))
+                    }
+                    title={pickedTags.includes(t.id) ? `不再按「${t.name}」筛` : `只看「${t.name}」`}
+                  >
+                    {t.name}
+                    <span className="chip-n">{t.count}</span>
+                  </button>
+                ))}
+                {pickedTags.length > 0 && (
+                  <button className="chip chip-clear" onClick={() => setPickedTags([])}>
+                    不按标签筛
+                  </button>
+                )}
+              </>
+            ) : (
               <button
-                key={t.id}
                 className="chip"
-                aria-pressed={pickedTags.includes(t.id)}
-                onClick={() =>
-                  setPickedTags((p) =>
-                    p.includes(t.id) ? p.filter((x) => x !== t.id) : [...p, t.id],
-                  )
-                }
-                title={pickedTags.includes(t.id) ? `不再按「${t.name}」筛` : `只看「${t.name}」`}
+                aria-expanded={false}
+                onClick={() => setTagBarOpen(true)}
+                title="按标签筛一道"
               >
-                {t.name}
-                <span className="chip-n">{t.count}</span>
+                标签 ▾
               </button>
             ))}
-            {/*
-              * **收起时也要能够到其余的标签。**
-              * 原来是写死的 `allTags.slice(0, 24)`，其余的**一个入口都没有**——
-              * 实测 80 个标签时列出 24 个，被截掉的正是「系统」「诸天」「轻小说」
-              * 这些真题材词（挤进去的反倒是几个只有 2 本书的冷门标签，
-              * 因为 `tag.list` 按书数排，尾巴上谁在前面是任意的）。
-              * 打了标签却筛不了，这套东西的浏览那一半就只做了一半。
-              *
-              * 不一直全列：24 个已经占 98px（1280 下三行），80 个要十行，
-              * 会把书架整个顶下去。
-              */}
-            {pickedTags.length > 0 && (
-              <button className="chip chip-clear" onClick={() => setPickedTags([])}>
-                不按标签筛
-              </button>
-            )}
           </div>
         )}
 
@@ -1778,6 +1968,12 @@ export function App() {
         {error && (
           <Toast key={error} auto={8000} danger onClose={() => setError(null)}>
             {error}
+          </Toast>
+        )}
+
+        {notice && (
+          <Toast key={notice} auto={12000} onClose={() => setNotice(null)}>
+            {notice}
           </Toast>
         )}
 
@@ -1837,6 +2033,18 @@ export function App() {
                 {report.progressGuessed.slice(0, 3).map((g) => `《${g.title}》第 ${g.from + 1} 章 → 第 ${g.to + 1} 章`).join('、')}
                 {report.progressGuessed.length > 3 && ` 等 ${report.progressGuessed.length} 本`}
                 ）。书签和划线也可能对不上，打开时会说。
+              </div>
+            )}
+            {/*
+              * **追更多了多少章要说一声。**
+              * 反过来看 progressGuessed 只说「变少了」，变多的那一半没交代——
+              * 用户盯着「更新了 3 本」那行字，不知道是哪三本、各多了几章。
+              * slice(0,3) 是同一处的惯例，多了就「等 N 本」。
+              */}
+            {report.grew?.length > 0 && (
+              <div className="muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>
+                {report.grew.slice(0, 3).map((g) => `《${g.title}》多了 ${g.to - g.from} 章`).join('、')}
+                {report.grew.length > 3 && ` 等 ${report.grew.length} 本`}
               </div>
             )}
             {/*
@@ -2095,27 +2303,45 @@ export function App() {
               const kind = formatOf(b.path);
               // 库里存的是 UTC 文本，直接 new Date 会差一个时区，见 core/format.ts
               const readAt = sqlTime(b.last_read_at);
-              /**
-               * 右上角有没有角标。**画封面的时候要知道**——生成的封面是左上角起排
-               * 书名，角标浮在右上角，标题超过五六个字就压上去了（实测
-               * 「一本PDF电子书」被 PDF 角标盖掉两个字）。
-               * 而没有真封面的书，书名是唯一能认出它的东西。
-               */
+              // 给人看的章数（手填值盖过自动识别，判据在 format.ts 的 displayChapters）。
+              // 算一次，标记/悬停/卡底共用；体检那条仍用真实 b.chapter_count
+              const 章数 = displayChapters(b.chapter_count_override, b.chapter_count);
+              // 这本书的各种状态。**不再浮在封面上**（会压住书名、把长书名挤小），
+              // 全部并到封面下方那行信息里：一枚「点+颜色」的状态标 ＋ 几枚中性事实小签。
               const 角标 = {
                 文件坏了: PROBLEM_FILE_STATUS.includes(b.file_status ?? ''),
-                // 存扩展名本身而不是 true：**判据和角标上印的字同源**，
+                // 存扩展名本身而不是 true：**判据和标记上印的字同源**，
                 // 而且省掉一个 `b.path!`（布尔化会把类型收窄弄丢）
                 格式: kind === 'catalog' && b.path ? extOf(b.path).toUpperCase() : '',
+                // ⚠️ 体检用**真实** chapter_count：手填值是给人看的修正，
+                // 不能把「根本没解析出来」盖成绿的
                 未解析: b.file_status === 'ok' && !b.chapter_count && kind === 'text',
                 只有记录: kind === 'manual',
                 笔记: (b.note_count ?? 0) > 0,
                 读完: b.reading_status === 'finished',
                 弃坑: b.reading_status === 'dropped',
                 连载中: b.serial_status === 'ongoing',
+                网上有更新: updateIds.has(b.id),
                 太监: b.serial_status === 'abandoned',
               };
-              // 角标是**竖着叠一列**的，封面要让开的是顶上那几行——传个数，不是布尔
-              const 角标数 = Object.values(角标).filter(Boolean).length;
+              // 状态标：互斥，按**要紧程度**取最要紧那一枚——点进书之前最该知道的在前。
+              // 「网上有更新」本身就意味着它在连载，所以它出现时不再另出「连载中」。
+              const 状态标 = 角标.网上有更新 ? {
+                  text: '网上有更新', tone: 'danger',
+                  title: `对面最新章：${hints.find((h) => h.bookId === b.id)?.remoteLatest ?? ''}`,
+                }
+                : 角标.文件坏了 ? { text: labelOf(FILE_STATUS, b.file_status), tone: 'danger' }
+                : 角标.未解析 ? { text: '未解析', tone: 'danger' }
+                : 角标.太监 ? { text: '太监', tone: 'warn' }
+                : 角标.弃坑 ? { text: labelOf(READING_STATUS, 'dropped'), tone: 'muted' }
+                : 角标.连载中 ? { text: '连载中', tone: 'accent' }
+                : 角标.读完 ? { text: labelOf(READING_STATUS, 'finished'), tone: 'muted' }
+                : null;
+              // 事实小签：中性色，说「这是什么」而不是「它怎么了」
+              const 事实标: Array<{ text: string; title?: string }> = [];
+              if (角标.格式) 事实标.push({ text: 角标.格式 });
+              if (角标.笔记) 事实标.push({ text: `✎ ${b.note_count}`, title: `划线和书签一共 ${b.note_count} 条` });
+              if (角标.只有记录) 事实标.push({ text: '只有记录' });
               return (
               /*
                * `data-book-id` 是给走查用的：书库里**同名的书是常态**
@@ -2137,10 +2363,17 @@ export function App() {
                 <div
                   className="book-art"
                   title={
-                    [
-                      b.drop_reason && `弃坑原因：${b.drop_reason}`,
-                      b.comment && `${b.rating != null ? `★${b.rating}　` : ''}${b.comment}`,
-                    ].filter(Boolean).join('\n') || undefined
+                    (() => {
+                      const 到手 = b.mtime ? new Date(b.mtime).toLocaleDateString('zh-CN') : null;
+                      const 进度交代 = b.serial_status === 'ongoing' && 章数
+                        ? `本地到第${章数}章${到手 ? ` · ${到手} 到手` : ''}`
+                        : null;
+                      return [
+                        进度交代,
+                        b.drop_reason && `弃坑原因：${b.drop_reason}`,
+                        b.comment && `${b.rating != null ? `★${b.rating}　` : ''}${b.comment}`,
+                      ].filter(Boolean).join('\n') || undefined;
+                    })()
                   }
                   onClick={() => open(b)}
                 >
@@ -2169,72 +2402,11 @@ export function App() {
                     aria-label={`打开《${b.title}》${b.author ? `，${b.author}` : ''}`}
                     onClick={(e) => { e.stopPropagation(); open(b); }}
                   >
-                    <Cover bookId={b.id} title={b.title} hasCover={!!b.has_cover} cornerBadge={角标数} />
+                    <Cover bookId={b.id} title={b.title} hasCover={!!b.has_cover} />
                   </button>
-                  {/* 角标排成一列。原来每个各自绝对定位、叠在同一个点，
-                      靠「条件互斥」碰巧没撞上——加一个格式角标就撞了 */}
-                  <div className="book-badges">
-                    {/*
-                      * **说法从 `labels.ts` 取，别在这儿写死。**
-                      * 这两行原来是硬编码的「文件缺失」「解析失败」，而 `labels.ts` 里
-                      * `missing` 叫「**文件不见了**」——同一个状态两个说法。
-                      * 更糟的是 `reader.ts` 的 `openHint` 上还有一句注释写着
-                      * 「和卡片角标同一个说法」，**那句话当时是假的**。
-                      * 现在角标、报错、导出的表格全都念同一份。
-                      */}
-                    {角标.文件坏了 && (
-                      <span className="book-badge warn">{labelOf(FILE_STATUS, b.file_status)}</span>
-                    )}
-                    {/* PDF / EPUB 这类只编目的书**章节数天生是 0**，落到「未解析」
-                        那一档会被标成红色警告——它没有任何问题，只是不在书斋里读。
-                        标出格式，用中性色：这是一条事实，不是一个待办 */}
-                    {角标.格式 && (
-                      <span className="book-badge">{角标.格式}</span>
-                    )}
-                    {角标.未解析 && (
-                      <span className="book-badge warn">未解析</span>
-                    )}
-                    {/* 手工添的记录。**不用 warn 色**——它不是坏数据，是「我读过它」本身 */}
-                    {角标.只有记录 && <span className="book-badge">只有记录</span>}
-                    {/*
-                      * **记过笔记的书要认得出来。**
-                      *
-                      * 划线和书签原来在书架上完全看不见——认真读过、划了几十条的书，
-                      * 和从没打开过的那本长得一模一样。而这个应用刚把「回看 / 搜索 /
-                      * 导出笔记」做齐，笔记却仍然只有进了阅读器才知道有没有。
-                      *
-                      * 用中性色：这是一条事实，不是一个待办（同上面「只有记录」那条）。
-                      * 数字直接印出来——「有笔记」和「有 47 条笔记」是两回事。
-                      */}
-                    {角标.笔记 && (
-                      <span className="book-badge" title={`划线和书签一共 ${b.note_count} 条`}>
-                        ✎ {b.note_count}
-                      </span>
-                    )}
-                    {/* 「读到第几章」原来是这里的一个角标，现在挪到卡片下面那行去了
-                        （连着「多久没碰了」一起说，比压在封面上一个孤零零的序号有用）。
-                        封面角上只留**状态**：读完、弃坑、文件出问题 */}
-                    {/* ⚠️ **说法从 `labels.ts` 取**（同这一块顶上那条）。这两行原来硬编码着
-                        「读完」，而 `READING_STATUS` 里写的是「**已读完**」——同一个状态
-                        两个说法，而卡片下面那行、表格的状态列、导出的 CSV 念的都是后者。
-                        「弃坑」两边碰巧一样，所以更该一起改：一样的时候不改，
-                        下次谁改了 labels 就又分叉了 */}
-                    {角标.读完 && <span className="book-badge">{labelOf(READING_STATUS, 'finished')}</span>}
-                    {角标.弃坑 && <span className="book-badge">{labelOf(READING_STATUS, 'dropped')}</span>}
-                    {/*
-                      * **书自己的状态，不是我和它的关系。**
-                      * 「连载中」和「太监」是点进去之前就该知道的事：前者意味着这份
-                      * txt 不是全本，后者意味着它永远不会有结局——和「烂尾了别看」
-                      * 是同一类信息，只不过来自元数据而不是我写的短评。
-                      * 编辑弹窗一直能设这两档，而设完在别处一个字都看不见。
-                      *
-                      * **只显示这两档**：`finished` 是绝大多数（真实库 8172 本里 8089 本），
-                      * 给它加角标等于给每张卡都加一个，那不是信息是噪声；
-                      * `unknown` 更是什么都没说。
-                      */}
-                    {角标.连载中 && <span className="book-badge">连载中</span>}
-                    {角标.太监 && <span className="book-badge warn">太监</span>}
-                  </div>
+                  {/* 封面上**不再挂任何状态**：连载 / 读完 / 弃坑 / 格式 / 笔记那些标记
+                      会压住书名、把长书名挤小，全部挪到了封面下方那行信息里。
+                      封面上只剩：进度条（这一条）和悬停才出现的评分 / 工具条。 */}
                   {!!b.percent && b.percent > 0 && b.percent < 100 && (
                     <div className="book-progress"><i style={{ width: `${b.percent}%` }} /></div>
                   )}
@@ -2311,9 +2483,22 @@ export function App() {
                   />
                 )}
                 <div className="book-title" title={b.title}>{b.title}</div>
+                {/*
+                  * 状态信息行。**状态标记从封面上挪到了这儿**（见 `角标` 那段）：
+                  * 一枚带色点的状态（网上有更新 / 太监 / 弃坑 / 连载中 / 已读完…）
+                  * ＋ 几枚中性事实小签（PDF / ✎N / 只有记录），都和作者、章数、字数
+                  * 排在同一行——点进书之前该知道的事在这一行说全，封面只留装帧。
+                  * 说法从 `labels.ts` 取（labelOf），和报错、导出的表格念同一份。
+                  */}
                 <div className="book-sub">
+                  {状态标 && (
+                    <span className={`book-mark ${状态标.tone}`} title={状态标.title}>{状态标.text}</span>
+                  )}
+                  {事实标.map((t) => (
+                    <span key={t.text} className="book-tag" title={t.title}>{t.text}</span>
+                  ))}
                   {b.author ?? '佚名'}
-                  {b.chapter_count ? ` · ${b.chapter_count} 章` : ''}
+                  {章数 ? ` · ${章数} 章` : ''}
                   {wan(b.word_count) && ` · ${wan(b.word_count)}`}
                 </div>
                 {/*

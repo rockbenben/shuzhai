@@ -642,10 +642,13 @@ const cardOf2 = (id) => `document.querySelector('.book[data-book-id="${id}"]')`;
   await until("![...document.querySelectorAll('.dir-chips .chip')].some(x => /不按标签筛/.test(x.textContent))");
   await until("document.querySelectorAll('.book').length > 0");
   const 满架 = await ev("document.querySelectorAll('.book').length");
-  // 打给全部书，`tag.list` 按 count desc 排，它一定落在前 24 个开关里
+  // 打给全部书，`tag.list` 按 count desc 排，它一定排在最前面几个开关里
   const all = ((await rpc('book.list', { page: { limit: 200 } })).r || []).map((b) => b.id);
   await rpc('tag.add', { bookIds: all, names: ['临时·待删'] });
   await reload();
+  // **标签排默认收起**（只剩一枚「标签 ▾」入口），不先摊开，下面那枚开关
+  // 根本不在 DOM 里，until 会等到超时。有生效标签时这排自己会摊开——但此刻还没有
+  await ev("(() => { const c=[...document.querySelectorAll('.dir-chips .chip')].find(x=>/^标签/.test(x.textContent.trim())); if(c) c.click(); return !!c; })()");
   await until("[...document.querySelectorAll('.dir-chips .chip')].some(x => x.textContent.startsWith('临时·待删'))");
   await ev("(() => { const c=[...document.querySelectorAll('.dir-chips .chip')].find(x=>x.textContent.startsWith('临时·待删')); c.click(); return 1; })()");
   await until("[...document.querySelectorAll('.dir-chips .chip')].some(x => /不按标签筛/.test(x.textContent))");
