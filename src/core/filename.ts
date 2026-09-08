@@ -50,10 +50,29 @@ const NOISE = new RegExp(`[（(\\[【]\\s*(?:${NOISE_TOKEN})+\\s*[)）\\]】]`, 
  * 「作者：」这类前缀。
  * 中文文件名里 `书名 作者：某某` 是很常见的写法，不去掉的话
  * 作者字段会带着这三个字，搜索和归组都对不上。
+ *
+ * 还有一种**没冒号**的写法：`书名作者[日]某某`——作者直接顶着一个
+ * 方括号（国籍/译者标记），括号本身就是切点（真实库里的
+ * 「寄生前夜作者[日]濑名秀明(www.cecewx.com)」）。用前瞻认括号，
+ * 不把括号吃掉，作者那截连同 `[日]` 一起留下。
+ * ⚠️ **裸「作者」后面不是括号/冒号绝不切**：真有书叫《作者不详》，
+ * 「作者」后跟个普通汉字时切了就是把书名砍了。
  */
-const AUTHOR_PREFIX = /^\s*(?:作者|著者|作\s*者)\s*[:：]\s*/;
+const AUTHOR_PREFIX = /^\s*(?:作者|著者|作\s*者)\s*(?:[:：]\s*|(?=[\[【(（]))/;
 /** 同一个前缀，但用来在整串里找位置 */
-const AUTHOR_PREFIX_ANYWHERE = /(?:作者|著者|作\s*者)\s*[:：]\s*/;
+const AUTHOR_PREFIX_ANYWHERE = /(?:作者|著者|作\s*者)\s*(?:[:：]\s*|(?=[\[【(（]))/;
+
+/**
+ * 作者尾巴上的**站点括号**：`(www.cecewx.com)` 这类下载站水印。
+ * 只认长得像网址的（www / http / .com/.cn/.net），国籍标记 `[日]`、
+ * `（美）` 这种不含点号的不动。
+ */
+const SITE_TAG = /\s*[(（][^)）]*(?:www\.|https?:|\.com\b|\.cn\b|\.net\b)[^)）]*[)）]\s*$/i;
+
+/** 作者候选剥掉站点水印 */
+function cleanAuthor(s: string): string {
+  return s.replace(SITE_TAG, '').trim();
+}
 
 /** 书名号和方括号是**无歧义**的写法，永远优先 */
 const BRACKET_PATTERNS: Array<{ re: RegExp; title: number; author: number }> = [
@@ -75,7 +94,7 @@ const DASH = /^(.+?)\s*[-_—]\s*(.+)$/;
  */
 function afterAuthorMark(s: string): string {
   const at = AUTHOR_PREFIX_ANYWHERE.exec(s);
-  return (at ? s.slice(at.index).replace(AUTHOR_PREFIX, '') : s).trim();
+  return cleanAuthor(at ? s.slice(at.index).replace(AUTHOR_PREFIX, '') : s);
 }
 
 /**
@@ -113,7 +132,7 @@ export function parseFilename(filename: string): NameInfo {
     return {
       // 切点前面留下的尾巴（`书名_`、`书名 - `）要去掉
       title: stem.slice(0, at.index).replace(/[\s\-_—]+$/, '').trim(),
-      author: stem.slice(at.index).replace(AUTHOR_PREFIX, '').trim(),
+      author: cleanAuthor(stem.slice(at.index).replace(AUTHOR_PREFIX, '')),
     };
   }
 
