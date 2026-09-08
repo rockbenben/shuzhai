@@ -1,6 +1,6 @@
 import type { Book } from './App.tsx';
 import { RatePopover } from './RatePopover.tsx';
-import { whenAgo, wan } from '../core/format.ts';
+import { whenAgo, wan, displayChapters } from '../core/format.ts';
 import { labelOf, READING_STATUS } from '../core/labels.ts';
 import type { SortBy } from '../core/library.ts';
 
@@ -29,9 +29,10 @@ const 列排序: Partial<Record<string, SortBy>> = {
   评分: 'rating',
   评价: 'rated',
   读完: 'finished',
-  // 「最新的在前」这一档的实现就是「读过的排最前、按最后阅读时间倒序」，
-  // 正好是这一列要的。不用为它新开一档排序
-  上次读: 'time',
+  // 排的是这一列自己：读过的在前按最后阅读时间倒序、没读过的沉底。
+  // 不能用「最新的在前」（time）——它取阅读/入库时间较新者，会让这一列空白
+  // （没在应用里打开过）的行拿文件时间插进有日期的行中间
+  上次读: 'lastread',
   '字数·章节': 'words',
 };
 
@@ -95,6 +96,8 @@ export function ReviewTable({ books, sort, onSort, onOpen, editing, onEdit, onCh
             const 读完 = whenAgo(b.finished_at);
             const 上次 = whenAgo(b.last_read_at);
             const tags = (b.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+            // 手填章数盖过自动识别，判据和封面卡同一份（format.ts 的 displayChapters）
+            const 章数 = displayChapters(b.chapter_count_override, b.chapter_count);
             return (
               <tr key={b.id}>
                 {/* 书名那一格＝打开这本书。浮层挂在这一格上（它 position: relative），
@@ -228,7 +231,7 @@ export function ReviewTable({ books, sort, onSort, onOpen, editing, onEdit, onCh
                     那个函数连「数字和单位之间用不换行空格」都处理过了 */}
                 <td className="muted col-num">
                   {wan(b.word_count)}
-                  {b.chapter_count ? `${b.word_count ? ' · ' : ''}${b.chapter_count} 章` : ''}
+                  {章数 ? `${b.word_count ? ' · ' : ''}${章数} 章` : ''}
                 </td>
               </tr>
             );

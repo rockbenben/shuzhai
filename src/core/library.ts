@@ -747,10 +747,11 @@ export function buildFilter(f: Filter): { sql: string; params: Array<string | nu
   return { sql: parts.join(' and '), params };
 }
 
-export type SortBy = 'time' | 'title' | 'words' | 'rated' | 'rating' | 'finished';
+export type SortBy = 'time' | 'lastread' | 'title' | 'words' | 'rated' | 'rating' | 'finished' | 'stale';
 
 /**
- * 排序。**默认按文件时间**，不是 `book.updated_at`。
+ * 排序。**默认按「这本书最近一次有动静」**——最后阅读时间和文件 mtime 取较新的那个，
+ * 不是 `book.updated_at`。
  *
  * `updated_at` 是数据库行的更新时间，一次全库扫描会把成千上万本书写成同一个值——
  * 实测用户库里 **7459 本共用一个时间戳**，所以「按更新时间排」在那批里完全是随机的，
@@ -760,12 +761,29 @@ export type SortBy = 'time' | 'title' | 'words' | 'rated' | 'rating' | 'finished
  * 没有稳定的次级键的话，翻到第二页可能出现重复或漏掉的书。
  */
 const ORDER: Record<SortBy, string> = {
-  // **读过的排最前面**，按最后阅读时间倒序；没读过的跟在后面按文件时间。
-  // 原来是单独一张「继续阅读」卡片，但它只放得下一本，而且那本书在下面的
-  // 书架里还会再出现一次。排序里解决就不用那张卡了，还能一路看到前几本
-  time: `case when r.last_read_at is null then 1 else 0 end,
-         r.last_read_at desc,
-         ifnull(fl.mtime, 0) desc, b.id desc`,
+  // **最后阅读时间和入库时间取较新的那个**，一路倒序。
+  // 旧规则是「读过的整组无条件压在没读过的前面」：三年前翻过一次的书也排在
+  // 昨天刚入库的书前面，而「最新的在前」里新入库的书恰恰最该被看见——
+  // 有阅读进度的也该拿时间出来比，不是盲目排前面。刚放下的那本 last_read_at
+  // 就是此刻，照样排第一：原来那张「继续阅读」卡片的用途没丢（见 lessons.md
+  // 「『继续阅读』那张卡片被排序取代了」）。
+  // 时间格式不一样：last_read_at / created_at 是 UTC 文本（datetime('now')），
+  // fl.mtime 是毫秒 epoch（Math.floor(mtimeMs)），strftime 折成毫秒再比。
+  // **手工书（没文件）拿 created_at 当入库时间**：它没有 mtime，也永远不会有
+  // last_read_at（纸质书 / 别的设备读的，见 manual.ts），不兜底就永远沉在所有
+  // 文件书底下。⚠️ 只在文件缺失时兜 created_at——有文件的书不许用：首次全库
+  // 扫描会把八千本的 created_at 写成同一天，带进 max 等于把 mtime 顺序整个抹掉
+  // （同上面 `updated_at` 那个坑的同款形状）。
+  time: `max(ifnull(strftime('%s', r.last_read_at) * 1000, 0),
+         coalesce(fl.mtime, strftime('%s', b.created_at) * 1000, 0)) desc,
+         b.id desc`,
+  // **纯「上次读」序**：读过的整组在前按最后阅读时间倒序，没读过的沉底按入库时间。
+  // 书评表格的「上次读」表头点一下要的就是它——那一列空白（没在应用里打开过）
+  // 的行若按 `time`（阅读/入库取较新）排，会拿文件时间插进有日期的行中间，
+  // 看起来就是坏的。`time` 答「这本书最近有动静吗」，这个答「我上次什么时候读的」。
+  lastread: `case when r.last_read_at is null then 1 else 0 end,
+             r.last_read_at desc,
+             coalesce(fl.mtime, strftime('%s', b.created_at) * 1000, 0) desc, b.id desc`,
   // ⚠️ 中文是**码位序，不是拼音序**（丙 < 乙 < 甲）。SQLite 没有拼音排序，
   // 而分页要求排序在 SQL 里做——8000 本不可能拉到前端 localeCompare 一遍。
   // 实际价值是把同前缀的系列排到一起，不是给人按字典查
@@ -781,6 +799,11 @@ const ORDER: Record<SortBy, string> = {
   // **界面上一处都没用过**（一直只在库里和备份里）
   finished: `case when r.finished_at is null then 1 else 0 end,
              r.finished_at desc, b.id desc`,
+  // **「待更新」档的排法**：本地副本**上次内容变动**最久的在前——最该去看有没有新章的排第一。
+  // 用 fl.mtime：追更覆盖写入会刷新 mtime，所以刚追更过的书重新计时、沉到后面（这是对的：
+  // 刚到手新章的不该排「最该更新」第一）。升序，和 time/lastread 方向相反；
+  // 时间折算同 `time` 那条；无文件的手工书 coalesce 到 0 沉底。
+  stale: `coalesce(fl.mtime, strftime('%s', b.created_at) * 1000, 0) asc, b.id asc`,
 };
 
 /**
@@ -832,7 +855,10 @@ export function listBooks(
     .prepare(
       `select b.id, b.title, b.author, b.serial_status, b.category_id,
               (b.cover_path is not null) as has_cover,
-              fl.path, fl.word_count, fl.chapter_count, fl.status as file_status,
+              fl.path, fl.word_count, fl.chapter_count, fl.mtime, fl.status as file_status,
+              -- 手填本地章数：NULL = 用自动识别的 chapter_count；显示层 coalesce，
+              -- SQL 里不许 coalesce——体检角标和扫描 grew 报告要的是真实解析结果
+              b.chapter_count_override,
               r.status as reading_status, r.percent, r.rating,
               -- 短评要在卡片上悬停就能看见（「烂尾了别看」必须在点进去之前出现），
               -- 所以列表里就得带上，理由和下面 chapter_idx 那条一样
@@ -1248,29 +1274,17 @@ export function repairLibrary(db: DatabaseSync): RepairReport {
      *
      * 现在的判据：**表过态就算数**（`status != 'none'`，`none` 是扫描进来的默认值，
      * 那条迁移特意把假的「想读」清成了它，所以这个信号是可信的），
-     * 加上标签、弃坑原因，和原来那几样。
+     * 加上标签、弃坑原因，和原来那几样。完整判据在 `bookHasUserData`——
+     * **只此一份**，`cleanupMissing` 删空书走的也是它，别在这儿再抄一遍 SQL。
      */
     const orphans = db
       .prepare(
         `select b.id from book b
-          where not exists (select 1 from book_file f where f.book_id = b.id)
-            and not exists (select 1 from bookmark k where k.book_id = b.id)
-            and not exists (select 1 from highlight h where h.book_id = b.id)
-            and not exists (select 1 from book_tag bt where bt.book_id = b.id)
-            and not exists (
-              select 1 from reading_state r where r.book_id = b.id
-                and (ifnull(r.status, 'none') != 'none'
-                     or r.chapter_idx > 0 or r.percent > 0 or r.rating is not null
-                     or r.comment is not null or r.drop_reason is not null
-                     or r.last_read_at is not null))
-            -- PDF / EPUB 读到哪儿存在 app_setting 里（见 deletion.ts 那段），
-            -- 上面那些 not exists 一个都看不见它
-            and not exists (select 1 from app_setting s where s.key = 'viewer.' || b.id)
-            -- 自建目录（迁移 24）也是用户手打的字，同样重扫恢复不了
-            and not exists (select 1 from app_setting s where s.key = 'outline.' || b.id)`,
+          where not exists (select 1 from book_file f where f.book_id = b.id)`,
       )
       .all() as unknown as Array<{ id: number }>;
     for (const o of orphans) {
+      if (bookHasUserData(db, o.id)) continue;
       db.prepare('delete from book where id = ?').run(o.id);
       report.orphanBooks++;
     }
@@ -1307,6 +1321,124 @@ export function repairLibrary(db: DatabaseSync): RepairReport {
     throw e;
   }
   return report;
+}
+
+/** 「文件不见了」清理结果。`library.cleanupMissing` 返回它 */
+export interface MissingCleanupReport {
+  /** 删掉的失效文件指针条数（book_file 行） */
+  files: number;
+  /** 文件其实还在磁盘上、把 status 恢复成 ok 的条数（误标，或文件夹加回来了） */
+  restored: number;
+  /** 文件没了、但这本书有你的评价/进度/标签——去掉指针、留成「只有记录」的本数 */
+  recordOnly: number;
+  /** 文件没了、又一样你的数据都没有——整条书记录删掉的本数 */
+  removedBooks: number;
+}
+
+/**
+ * 清「文件不见了」。
+ *
+ * 扫描只**标** missing、**不删记录**（spec §1.3）；`repairLibrary`（整理数据库）
+ * 只认「内容还在别处」的残留（被误屏蔽、同 hash 副本、无主孤儿）。**文件是用户自己
+ * 删的、又是唯一一份**这种，哪条路都清不掉，书在书架上挂一辈子「文件不见了」，
+ * 点开只报一句错，而给的引导（整理数据库）对它根本无效。
+ *
+ * 判据：
+ * - 文件**还在**磁盘上（误标、文件夹加回来了）：恢复成 ok，不清。
+ * - 文件**真没了**：删掉这条 book_file 指针。这本书还剩别的文件 → `ensurePrimary`
+ *   指一个能读的；一本文件都不剩 →
+ *   - 有你的东西（评分/短评/弃坑原因/进度/书签/划线/标签/viewer./outline.）：
+ *     留着书、变成「只有记录」——同手工添的书，评价还在，点它是看评价不是报错；
+ *   - 一样你的数据都没有：整条删掉。
+ *
+ * `onlyBookIds` 给了就只处理这几本（编辑器里单本清理）；不给就是全库批量。
+ * 认「文件在不在」不认「记录说什么」——同 repairLibrary，每处都 `existsSync`。
+ */
+export function cleanupMissing(db: DatabaseSync, onlyBookIds?: number[]): MissingCleanupReport {
+  const report: MissingCleanupReport = { files: 0, restored: 0, recordOnly: 0, removedBooks: 0 };
+
+  const 选 = 'select id, book_id, is_primary, path from book_file where status = \'missing\'';
+  const rows = (onlyBookIds && onlyBookIds.length
+    ? db
+        .prepare(`${选} and book_id in (${onlyBookIds.map(() => '?').join(',')})`)
+        .all(...onlyBookIds)
+    : db.prepare(选).all()) as unknown as Array<{
+    id: number; book_id: number; is_primary: number; path: string;
+  }>;
+
+  const touched = new Set<number>();
+  db.exec('begin');
+  try {
+    for (const r of rows) {
+      if (r.path && existsSync(r.path)) {
+        db.prepare("update book_file set status = 'ok' where id = ?").run(r.id);
+        report.restored++;
+        continue;
+      }
+      db.prepare('delete from book_file where id = ?').run(r.id);
+      report.files++;
+      touched.add(r.book_id);
+    }
+
+    for (const bookId of touched) {
+      const n = (
+        db.prepare('select count(*) n from book_file where book_id = ?').get(bookId) as { n: number }
+      ).n;
+      if (n > 0) {
+        ensurePrimary(db, bookId);
+        continue;
+      }
+      if (bookHasUserData(db, bookId)) report.recordOnly++;
+      else {
+        db.prepare('delete from book where id = ?').run(bookId);
+        report.removedBooks++;
+      }
+    }
+    db.exec('commit');
+  } catch (e) {
+    db.exec('rollback');
+    throw e;
+  }
+  return report;
+}
+
+/**
+ * 这本书身上有没有重扫恢复不了的**用户自己的**东西——有就不许连书记录一起删。
+ *
+ * 这是「什么算用户数据」的**唯一一份判据**：`repairLibrary` 删孤儿书、
+ * `cleanupMissing` 删空书都走它。判据是**表过态就算数**——
+ * `status != 'none'`（想读/在读/弃坑/读过，哪怕一个字没写；`none` 是扫描进来的
+ * 默认值，那条迁移把假的「想读」清成了它，所以这个信号可信），再加上书签、划线、
+ * 标签、阅读进度、评分/短评/弃坑原因，和两行按 id 命名的设置
+ * （`viewer.<id>` 是 PDF/EPUB 读到第几页、`outline.<id>` 是自建目录）。
+ *
+ * ⚠️ 这份每抄一份就漏一样（弃坑原因、标签、viewer.、outline. 各漏过一次，
+ * 见上面 repairLibrary 那段表格和铁律 3）。`deletion.ts` 的 `guardEmptyBook`
+ * 是**另一份**：它要逐条报出「你有哪几样」来拦删重复文件，而且不看 status——
+ * 改这份清单时两处一起对。
+ *
+ * ⚠️ 键在 JS 里拼好整串再传参：node:sqlite 把数字绑成 REAL，
+ * 写成 `'viewer.' || ?` 会拼出 `'viewer.7.0'` 永远匹配不上（见 deletion.ts 那处）。
+ */
+export function bookHasUserData(db: DatabaseSync, bookId: number): boolean {
+  const r = db
+    .prepare(
+      `select
+         exists(select 1 from bookmark where book_id = ?) as marks,
+         exists(select 1 from highlight where book_id = ?) as notes,
+         exists(select 1 from book_tag where book_id = ?) as tags,
+         exists(select 1 from reading_state where book_id = ?
+           and (ifnull(status, 'none') != 'none'
+                or chapter_idx > 0 or percent > 0 or last_read_at is not null
+                or rating is not null or comment is not null or drop_reason is not null)) as reading,
+         exists(select 1 from app_setting where key = ?) as viewerPos,
+         exists(select 1 from app_setting where key = ?) as outline`,
+    )
+    .get(
+      bookId, bookId, bookId, bookId,
+      `viewer.${bookId}`, `outline.${bookId}`,
+    ) as Record<string, number>;
+  return Object.values(r).some((v) => v === 1);
 }
 
 export interface DirNode {

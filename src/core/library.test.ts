@@ -18,6 +18,7 @@ import {
   saveShelf,
   listShelves,
   repairLibrary,
+  cleanupMissing,
   listDirs,
   applySerialByDir,
   shelfCounts,
@@ -385,6 +386,105 @@ test('修复：没有目录但文件还在的，留着——用户可能把目�
   assert.ok(existsSync(alive), '文件一个字都不许动');
 });
 
+// ── cleanupMissing：「文件不见了」一键清理（编辑弹窗单本 + 需要处理档批量）──
+// 判据和 repairLibrary 的孤儿清理共用 `bookHasUserData`，这几条钉的是**分流**对不对。
+
+/** 一本 status='none'、一个文件都没有的空书（addBook 默认塞 status='want'，算表过态） */
+function addGhost(title: string, path: string, status = 'missing'): number {
+  const id = Number(db.prepare('insert into book(title) values(?)').run(title).lastInsertRowid);
+  db.prepare("insert into reading_state(book_id, status) values(?, 'none')").run(id);
+  db.prepare(
+    `insert into book_file(book_id, root_id, path, size, mtime, is_primary, word_count, status)
+     values(?, ?, ?, 1, 1, 1, 100, ?)`,
+  ).run(id, rootId, path, status);
+  return id;
+}
+
+test('清理失效文件：还在的恢复、真没了删指针，空书整条删、有你的东西的留成「只有记录」', () => {
+  // ① 文件其实还在磁盘上（误标、文件夹加回来了）→ 恢复 ok
+  const back = addBook('误标的书');
+  const backPath = join(dir, '误标的书.txt');
+  writeFileSync(backPath, 'x');
+  db.prepare("update book_file set status='missing' where book_id=?").run(back);
+
+  // ② 真没了，但打过分 → 删指针、书留着
+  const reviewed = addBook('读过的书');
+  db.prepare('update reading_state set rating=5 where book_id=?').run(reviewed);
+  db.prepare("update book_file set status='missing', path=? where book_id=?")
+    .run(join(dir, '早删了.txt'), reviewed);
+
+  // ③ 真没了，只标过「想读」（status='want'，一个字没写）→ 一样留着。
+  //    这条钉的是「表过态就算数」：addBook 默认就是 want，别把它当空书删了
+  const wantOnly = addBook('想读的书');
+  db.prepare("update book_file set status='missing', path=? where book_id=?")
+    .run(join(dir, '也没了.txt'), wantOnly);
+
+  // ④ 真没了，status='none'、一样你的数据都没有 → 整条书删掉
+  const ghost = addGhost('空白书', join(dir, '空白书.txt'));
+
+  const r = cleanupMissing(db);
+  assert.equal(r.restored, 1, '文件还在的恢复');
+  assert.equal(r.recordOnly, 2, '打过分的、标过想读的都留成「只有记录」');
+  assert.equal(r.removedBooks, 1, '空白书整条移走');
+  assert.equal(r.files, 3, '删掉三条真没了的指针');
+
+  assert.equal(
+    (db.prepare("select status s from book_file where book_id=?").get(back) as { s: string }).s,
+    'ok', '误标的恢复成正常',
+  );
+  assert.ok(db.prepare('select id from book where id=?').get(reviewed), '有评价的书还在');
+  assert.equal(
+    (db.prepare('select count(*) n from book_file where book_id=?').get(reviewed) as { n: number }).n,
+    0, '失效指针删掉了',
+  );
+  assert.equal(
+    (db.prepare('select rating from reading_state where book_id=?').get(reviewed) as { rating: number }).rating,
+    5, '评价一个字都不许丢',
+  );
+  assert.ok(db.prepare('select id from book where id=?').get(wantOnly), '只标过想读的也留着');
+  assert.equal(
+    (db.prepare('select count(*) n from book where id=?').get(ghost) as { n: number }).n,
+    0, '空白书整条没了',
+  );
+});
+
+test('清理失效文件：删掉的恰好是主文件、但还有一份好的，换一个当主版本', () => {
+  const id = addBookNoFile('多版本的书');
+  const alive = join(dir, '副.txt');
+  writeFileSync(alive, 'y');
+  const ins = db.prepare(
+    `insert into book_file(book_id, root_id, path, size, mtime, is_primary, word_count, status)
+     values(?, ?, ?, 1, 1, ?, ?, ?)`,
+  );
+  ins.run(id, rootId, join(dir, '主.txt'), 1, 100, 'missing'); // 主文件没了
+  ins.run(id, rootId, alive, 0, 999, 'ok');                   // 副文件好好的
+
+  const r = cleanupMissing(db);
+  assert.equal(r.files, 1);
+  assert.equal(r.recordOnly, 0, '还有文件可读，不算「只有记录」');
+  assert.equal(r.removedBooks, 0);
+  const left = db.prepare('select is_primary p, status s from book_file where book_id=?').get(id) as {
+    p: number; s: string;
+  };
+  assert.equal(left.p, 1, '副文件提成主版本，这本书还打得开');
+  assert.equal(left.s, 'ok');
+});
+
+test('清理失效文件：给 bookIds 只清单本，不给就是全库批量', () => {
+  const a = addGhost('甲书', join(dir, 'a.txt'));
+  const b = addGhost('乙书', join(dir, 'b.txt'));
+
+  const one = cleanupMissing(db, [a]);
+  assert.equal(one.removedBooks, 1);
+  assert.equal(
+    (db.prepare('select count(*) n from book where id=?').get(b) as { n: number }).n, 1, '乙没被碰',
+  );
+
+  const all = cleanupMissing(db);
+  assert.equal(all.removedBooks, 1, '不传 id 才把乙清掉');
+  assert.equal((db.prepare('select count(*) n from book').get() as { n: number }).n, 0);
+});
+
 // ── 按目录筛选（侧栏的目录树）────────────────────────────
 
 /** 造一本挂在根目录下某个相对路径的书 */
@@ -650,15 +750,51 @@ test('还能按书名和字数排', () => {
   assert.deepEqual(by('words'), ['甲', '乙', '丙']);
 });
 
-test('默认排序把读过的排在最前面——「继续阅读」那张卡片就是被这条取代的', () => {
+test('默认排序按「最近有动静」：刚读过的排第一，但很久以前读过的不压新入库的书', () => {
+  // 「继续阅读」的用途没丢：刚放下的那本 last_read_at 就是此刻，文件再旧也排第一
+  const justRead = addBookTimed('刚读过的（文件很旧）', 1_000);
+  db.prepare("update reading_state set last_read_at = datetime('now') where book_id = ?").run(justRead);
   addBookTimed('很新但没读过', 9_000);
-  const read = addBookTimed('读过的但文件很旧', 1_000);
   addBookTimed('中等新', 5_000);
-  db.prepare("update reading_state set last_read_at = datetime('now') where book_id = ?").run(read);
+  // 旧规则是「读过的整组无条件压前面」：这本 2020 年翻过一次的书会压着 2025 年才入库的
+  const oldRead = addBookTimed('2020 年翻过一次', new Date('2019-01-01T00:00:00Z').getTime());
+  db.prepare("update reading_state set last_read_at = '2020-01-01 00:00:00' where book_id = ?").run(oldRead);
+  addBookTimed('2025 年新入库', new Date('2025-01-01T00:00:00Z').getTime());
 
   assert.deepEqual(
     (listBooks(db) as Array<{ title: string }>).map((b) => b.title),
-    ['读过的但文件很旧', '很新但没读过', '中等新'],
+    ['刚读过的（文件很旧）', '2025 年新入库', '2020 年翻过一次', '很新但没读过', '中等新'],
+  );
+});
+
+test('手工书（没有文件）按添加时间排，不沉到所有文件书底下', () => {
+  // manual.ts 添的书没有 book_file（mtime null）、也永远不会有 last_read_at——
+  // 不拿 created_at 兜底就永远排 0 沉底，刚添的待办在「全部」里看不见
+  addBookTimed('2019 年的旧文件书', new Date('2019-01-01T00:00:00Z').getTime());
+  const manual = addBookNoFile('刚手工添的书');
+  db.prepare("update book set created_at = '2026-01-01 00:00:00' where id = ?").run(manual);
+
+  const titles = (listBooks(db) as Array<{ title: string }>).map((b) => b.title);
+  assert.ok(
+    titles.indexOf('刚手工添的书') < titles.indexOf('2019 年的旧文件书'),
+    `手工书沉底了：${titles.join(' / ')}`,
+  );
+});
+
+test('lastread 排序：读过的整组在前，没读过的沉底——和「最新的在前」方向相反', () => {
+  const oldRead = addBookTimed('2020 年读过一次', new Date('2019-01-01T00:00:00Z').getTime());
+  db.prepare("update reading_state set last_read_at = '2020-01-01 00:00:00' where book_id = ?").run(oldRead);
+  addBookTimed('2025 年入库、没读过', new Date('2025-01-01T00:00:00Z').getTime());
+
+  // 书评表格「上次读」表头要的：有日期的行整组在前，空白行不许插进中间
+  assert.deepEqual(
+    (listBooks(db, {}, { sort: 'lastread' }) as Array<{ title: string }>).map((b) => b.title),
+    ['2020 年读过一次', '2025 年入库、没读过'],
+  );
+  // 而「最新的在前」正好反过来：入库时间新的该冒头
+  assert.deepEqual(
+    (listBooks(db, {}, { sort: 'time' }) as Array<{ title: string }>).map((b) => b.title),
+    ['2025 年入库、没读过', '2020 年读过一次'],
   );
 });
 
@@ -1363,6 +1499,18 @@ test('shelfCounts：total 是整个库，all 跟着筛选走', () => {
   // 真空库才是 0
   db.prepare('delete from book').run();
   assert.equal(shelfCounts(db).total, 0);
+});
+
+test('stale 排序：本地副本到手最久的在前，同 mtime 按 id；无文件的沉底', () => {
+  const old = addBookTimed('旧书', 1_000_000, 100);
+  const mid = addBookTimed('中书', 2_000_000, 100);
+  const same1 = addBookTimed('同刻一', 3_000_000, 100);
+  const same2 = addBookTimed('同刻二', 3_000_000, 100);
+  const noFile = addBookNoFile('手工书');
+  const rows = listBooks(db, {}, { sort: 'stale' }) as Array<{ id: number; title: string }>;
+  assert.deepEqual(rows.map((r) => r.title), ['旧书', '中书', '同刻一', '同刻二', '手工书']);
+  assert.ok(same1 < same2, '同 mtime 按 id 升序');
+  void noFile;
 });
 
 test('「最近读完的在前」：没读完的沉到最后，不混在中间', () => {
