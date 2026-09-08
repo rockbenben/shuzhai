@@ -65,10 +65,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [repairMsg, setRepairMsg] = useState<string | null>(null);
   /**
    * 联网补全的状态。**类型写在这儿而不是从 core 引**：它是主进程
-   * `CoverFetcher.status()` 拼出来的（`running` / `pausedReason` / `gapMs`
-   * 加上 `fetchStats` 那几个数），core 里没有对应的那个形状。
+   * `CoverFetcher.status()` 拼出来的（`autofetch` / `running` / `pausedReason`
+   * / `gapMs` 加上 `fetchStats` 那几个数），core 里没有对应的那个形状。
+   * `autofetch` 是用户那个开关（意图，落库跨重启），`running` 是此刻在不在跑——
+   * 自动暂停让路、队列跑完时 running 为 false 而开关仍开着。
    */
   const [cover, setCoverState] = useState<{
+    autofetch: boolean;
     running: boolean;
     pausedReason: string | null;
     gapMs: number;
@@ -663,13 +666,23 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
             <h3>联网补全</h3>
             <label className="row" style={{ gap: '.4rem', fontSize: '.87rem' }}>
+              {/* 绑 autofetch（用户那个开关），不是 running：自动暂停让路、队列跑完时
+                  running 都会是 false 而开关仍开着，绑它会让勾选框视觉上自己取消 */}
               <input
                 type="checkbox"
-                checked={cover?.running ?? false}
+                checked={cover?.autofetch ?? false}
                 onChange={(e) => 封面操作(e.target.checked ? 'cover.fetchStart' : 'cover.fetchStop')}
               />
               <span>批量联网找书：在线地址、封面、简介、分类一起补（可选，默认不开）</span>
             </label>
+            {/* 开关绑的是意图，所以「开着但没在跑」得说出来，不然看着像卡住了 */}
+            {cover?.autofetch && !cover.running && !cover.pausedReason && (
+              <p className="muted" style={{ fontSize: '0.82rem', margin: '.2rem 0 0' }}>
+                {cover.pending === 0
+                  ? '开关开着，待补全的都跑完了——之后扫进新书会自动接着抓'
+                  : '开关开着，此刻没有在跑：你在用应用时它会自动让路，切走几秒接着跑'}
+              </p>
+            )}
             {/* 隐私这句必须留全文：联网补全会把书名和作者发出去。
                 默认走「点一本补一本」（书籍编辑器里的「联网补全」），
                 这里是给不想一本本点的人准备的批量任务 */}

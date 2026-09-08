@@ -559,8 +559,9 @@ export function createRpc(
 
     /**
      * **联网**：用一个配置好的站点搜候选，只搜不写。
-     * 不内置主流站点的配置——起点/豆瓣各需专属解析逻辑（见 `cover-fetcher.ts` 和 `cover-source.ts`），
-     * 不适合塞进通用的正则配置。这个接口供用户自配站点或与外部工具集成用。
+     * 不内置主流站点的配置——内置 8 个站点都在 `site-adapters.ts` 里（起点要浏览器渲染、
+     * 豆瓣藏在 window.__DATA__ 的 JSON 里、晋江/飞卢是 GBK），不适合塞进通用的正则配置。
+     * 这个接口供用户自配站点或与外部工具集成用。
      */
     'enrich.search': (params) => {
       const { source, title } = asRecord(params);

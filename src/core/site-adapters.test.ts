@@ -648,6 +648,18 @@ test('detailCandidateFromHtml 一页里什么书信息都没有 → null', () =>
   assert.equal(detailCandidateFromHtml('https://example.com/', '<html><body>关于我们 联系我们</body></html>'), null);
 });
 
+test('detailCandidateFromHtml 只有 SEO description（无 title/封面）→ null，不把广告文案当简介', () => {
+  // 陌生站的首页/列表页/反爬页几乎都带一段 <meta name="description">，但那不是一本书。
+  // 放它过的话，读主地址那一跳（trustIdentity）会把文案写进 intro、记 ok 永久出队。
+  const html = '<html><head><meta name="description" content="番茄小说提供海量精彩小说，在线阅读尽在番茄。">'
+    + '<title>小说排行榜_免费阅读</title></head><body>热门推荐 登录 注册</body></html>';
+  assert.equal(detailCandidateFromHtml('https://example.com/book/1', html), null);
+  // 有 og:title（书的硬证据）时 description 照样当简介用
+  const ok = detailCandidateFromHtml('https://example.com/book/2', html.replace('<title>', '<meta property="og:title" content="某书"><title>'));
+  assert.ok(ok, '有 title 就该认');
+  assert.equal(ok!.title, '某书');
+});
+
 // 独阅读详情页：无 og 标签；封面 src 是占位图、真图在 data-original（和 alt 之间
 // 连空格都没有，照搬真实 HTML）；目录整页直出，末章带 VIP 锁图标
 const DUYUEDU_DETAIL = `

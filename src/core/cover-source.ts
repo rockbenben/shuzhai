@@ -11,19 +11,30 @@ import type { DatabaseSync } from 'node:sqlite';
 // 队列就是一条 SQL，没有游标要维护：关掉应用再打开，这条查询自然接着上次的
 // 位置。**没有「进度」这个状态要存，也就没有它和现实脱节的可能。**
 
+/**
+ * 入队条件：没有 verdict 行（cover_fetch）且满足下面之一——
+ *   - 还没封面；
+ *   - 有在线地址但没简介（只读那一页补信息，不搜索）。
+ *
+ * nextPending（取下一本）和 fetchStats.pending（「剩余 N 本」）**共用这一份**：
+ * 抄两份的话改条件时漏一处，界面上的剩余数就和实际会抓的对不上（这条件本轮刚
+ * 从「没封面」改成现在这版，两处都得动）。
+ */
+const PENDING_FROM_WHERE = `
+  from book b
+  left join cover_fetch cf on cf.book_id = b.id
+ where cf.book_id is null
+   and (b.cover_path is null
+        or (b.intro is null
+            and exists (select 1 from online_link l where l.book_id = b.id)))`;
+
 export function nextPending(
   db: DatabaseSync,
 ): { id: number; title: string; author: string | null } | null {
   return (
     (db
       .prepare(
-        `select b.id, b.title, b.author from book b
-          left join cover_fetch cf on cf.book_id = b.id
-         where cf.book_id is null
-           and (b.cover_path is null
-                or (b.intro is null
-                    and exists (select 1 from online_link l where l.book_id = b.id)))
-         order by b.id limit 1`,
+        `select b.id, b.title, b.author ${PENDING_FROM_WHERE} order by b.id limit 1`,
       )
       .get() as { id: number; title: string; author: string | null } | undefined) ?? null
   );
@@ -68,11 +79,7 @@ export function fetchStats(db: DatabaseSync): {
   const row = db
     .prepare(
       `select
-         (select count(*) from book b left join cover_fetch cf on cf.book_id = b.id
-           where cf.book_id is null
-             and (b.cover_path is null
-                  or (b.intro is null
-                      and exists (select 1 from online_link l where l.book_id = b.id)))) as pending,
+         (select count(*) ${PENDING_FROM_WHERE}) as pending,
          (select count(*) from cover_fetch where status = 'ok') as done,
          (select count(*) from cover_fetch where status = 'nomatch') as nomatch,
          (select count(*) from cover_fetch where status = 'failed') as failed`,

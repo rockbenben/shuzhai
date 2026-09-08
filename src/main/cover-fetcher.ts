@@ -88,6 +88,13 @@ const MAX_BAD_PROBES = 5;
 const SPEEDUP_AFTER = 100;
 /** fetchOne 用完窗口后，闲置这么久没有下一次请求就把窗口拆掉，别让它白白活着 */
 const IDLE_TEARDOWN_MS = 60_000;
+/**
+ * 队列跑空后的**慢心跳**：开关开着就每隔这么久再看一眼。
+ * 不看的话，同一次会话里扫描进来的新书要等下次启动 resumeIfEnabled 才会被抓
+ * （tick 跑空后没有任何定时器、失焦恢复也只在 yielded=true 时才发 resume）。
+ * 一跳只是一条 SQL，成本可以忽略；stop() 会清定时器，开关关了就不会再有心跳。
+ */
+const IDLE_RECHECK_MS = 60_000;
 
 /** stop() 打断了正在排队/飞行中的抓取——不是网络失败，调用方要能认出来别当失败记 */
 class AbortedError extends Error {}
@@ -165,8 +172,21 @@ export class CoverFetcher {
     setSetting(this.db, 'cover.gapMs', String(this.gapMs));
   }
 
+  /**
+   * `autofetch` 是用户那个开关（**意图**，落库、跨重启保留）；`running` 是此刻有没有
+   * 真在跑——自动暂停让路、队列跑完时它都是 false，而开关仍然开着。
+   *
+   * 设置界面显示 autofetch，不是 running：绑 running 的话，自动暂停和「跑完了」
+   * 会把勾选框视觉上取消掉，用户看到的是「开关自己关了」——而事实是开着。
+   */
   status() {
-    return { running: this.running, pausedReason: this.pausedReason, gapMs: this.gapMs, ...fetchStats(this.db) };
+    return {
+      autofetch: getSetting(this.db, 'cover.autofetch') === '1',
+      running: this.running,
+      pausedReason: this.pausedReason,
+      gapMs: this.gapMs,
+      ...fetchStats(this.db),
+    };
   }
 
   start(): void {
@@ -515,9 +535,15 @@ export class CoverFetcher {
 
     const book = nextPending(this.db);
     if (!book) {
-      // 全跑完了。开关保持开着：下次扫进新书会接着抓
-      this.running = false;
+      // 全跑完了。开关开着就留个慢心跳（IDLE_RECHECK_MS）：同一次会话里扫描进的
+      // 新书下一跳就捞得到，不用等下次启动。running 保持 true、让路/暂停那套机器
+      // 照常工作；开关关着（stop(true) 会清定时器）才真正停。
       this.teardownWindow();
+      if (getSetting(this.db, 'cover.autofetch') === '1') {
+        this.schedule(IDLE_RECHECK_MS);
+      } else {
+        this.running = false;
+      }
       return;
     }
     // stop() 可能恰好在下面的 await 期间发生（豆瓣/下载封面都有十几秒的网络等待）。

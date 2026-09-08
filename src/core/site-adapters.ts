@@ -237,7 +237,11 @@ export function parseOpenGraph(html: string, site: string): Candidate | null {
     ? tagRaw.split(/[,，、/／|]/).map((t) => t.trim()).filter(Boolean).slice(0, 12)
     : undefined;
   const url = metaContent(html, 'og:url') || undefined;
-  if (!title && !coverRaw && !intro) return null;
+  // 只有一段 description（通用 <meta name="description">）不算「这一页是一本书」：
+  // 陌生站的首页/列表页/反爬页几乎都带一段 SEO 广告文案，而 title/封面才是书的硬证据。
+  // 认不出就回 null——读主地址那一跳据此回落按书名搜索；要是放它过，那段文案会被当
+  // 简介写进库、书还记 ok 永久出队（搜索链有 isExactMatch 挡着，主地址这条路没有）。
+  if (!title && !coverRaw) return null;
   return {
     title: (title ?? '').trim(),
     author: author?.trim() || null,
