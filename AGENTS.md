@@ -167,7 +167,8 @@ sed -n '1234,1300p' docs/lessons.md   # 读那一段
 | `src/core/autobackup.ts` | 自动备份：何时该备、留几份 | §10 |
 | `src/core/webdav.ts` | WebDAV 同步备份文件。⚠️ **只有 rpc，界面上一个入口都没有——而这是量过之后决定不补的**：备份要防的是「盘坏了，备份和书库一起没」，而把备份目录指到 OneDrive / 坚果云的同步目录就解决了，不需要应用自己会说 WebDAV（判据写在 `BackupDialog.tsx` 那段注释上）。整个模块**只被 `rpc.ts` 引**，别看它没人调就当成死代码删掉 | §10 |
 | `src/core/db.ts` | schema + 迁移（有几条就是 `SCHEMA_VERSION`，当场跑 `counts.mjs` 看）+ 只读连接 | §11 |
-| `src/core/cover-source.ts` | 封面抓取的纯函数：提取/匹配/校验/断点队列 | §3.1 |
+| `src/core/cover-source.ts` | 封面抓取队列（nextPending / recordResult / fetchStats / reset* / dropResults）。站点解析已经搬到 `site-adapters.ts` | §3.1 |
+| `src/core/site-adapters.ts` | 内置站点的「怎么认这个站」：搜索候选、健康探针、校验源、按域名认适配器。封面链和更新检查共用同一份规则，不再各抄一份 | §3.1 |
 | `src/core/cover-custom.ts` | **自定义封面源**：搜索地址 + 四条正则，不跑 JS | §3.1 |
 | `src/core/fonts.ts` | 正文字体：装 ttf/otf、随应用发布的那份 | §6 |
 | `src/main/cover-fetcher.ts` | 封面抓取的 Electron 侧：隐藏窗口 + 后台循环 | §3.1 |

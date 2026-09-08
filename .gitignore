@@ -12,6 +12,12 @@ release/
 # 相对路径会直接落在仓库里，每跑一轮多一个几百 MB 的 Chromium 缓存目录。
 tmp*/
 
+# 一次性干跑/普查/破坏实验脚本（AGENTS.md 规定 scratchpad 是它们的位置）：
+# 连真实库、进不了 CI、跑完就扔，别被 `git add .` 扫进版本库。
+scratchpad/
+
 # 抓来的第三方帮助中心全文（GoodNotes / MarginNote 4），做笔记功能时的参考材料。
 # 本机留着好用，但那是别人的文档，不该随这个仓库分发出去。
 docs/reference/
+# superpowers 技能在本机生成的设计稿/计划草稿，是中间产物不是项目文档
+docs/superpowers/
