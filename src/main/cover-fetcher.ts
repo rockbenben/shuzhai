@@ -13,18 +13,26 @@
 //     脚本会一直跑到下次 loadURL（退避/暂停时可能是几十秒到无限期）
 import { BrowserWindow } from 'electron';
 import type { DatabaseSync } from 'node:sqlite';
-import { applyCandidate } from '../core/enrich.ts';
+import { decodeWebPage } from '../core/encoding.ts';
+import { applyCandidate, mergeCandidates, normalizeForMatch, type Candidate } from '../core/enrich.ts';
 import { getSetting, setSetting } from '../core/db.ts';
 // 「人在看的时候要不要让路」的判据。放 core 是因为**这个文件 import electron，测不了**
-import { uiYieldDecision } from '../core/pacing.ts';
+import { launchStartDecision, uiYieldDecision } from '../core/pacing.ts';
 import {
   nextPending, recordResult, fetchStats, resetMisses, resetFailed, dropResults,
-  parseQidianCandidates, parseDoubanCandidates, doubanAnswered, parseShuqiCandidates, matchWithAliases,
-  probeSaysHealthy, HEALTH_PROBE, SOURCE_PROBES, QIDIAN_SEARCH, DOUBAN_SEARCH, SHUQI_SEARCH,
+  resetForInfoBackfill,
+  type FetchOneResult,
 } from '../core/cover-source.ts';
+import {
+  qidianAdapter, shuqiAdapter, doubanAdapter, adapterById,
+  matchWithAliases, doubanAnswered, probeSaysHealthy, HEALTH_PROBE, SOURCE_PROBES,
+  backfillSerial, adapterForUrl, detailCandidateFromHtml,
+} from '../core/site-adapters.ts';
 import {
   parseByRules, parseSources, type CustomSource, type SourceTest,
 } from '../core/cover-custom.ts';
+import { checkUpdates, extractUrls } from '../core/links.ts';
+import type { UpdateReport } from '../core/links.ts';
 
 /**
  * 每本之间的间隔起步值。**这就是起点的实际请求速率**——每本书都要先搜一次起点，
@@ -89,6 +97,15 @@ export class CoverFetcher {
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private resumeTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * 启动时「开关开着就延迟半分钟接着抓」的定时器。**和 resumeTimer 必须是两个字段**：
+   * 窗口获焦时清的是 resumeTimer（8 秒失焦恢复，人回来了当然取消），
+   * 连它一起清等于把「开机接着抓」整个取消——启动后一两秒内窗口必获焦，
+   * 于是 30 秒延迟从来没活到过点上，批量冷启动后永不自启（实测）。
+   */
+  private launchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 窗口现在有没有人看。启动延迟到点时拿它决定开跑还是挂起，见 resumeIfEnabled */
+  private uiActive = true;
   /** 是不是「为了让界面流畅才停的」。用户自己关的开关不能被失焦重新打开，见 setUiActive */
   private yielded = false;
   private fails = 0;
@@ -155,12 +172,20 @@ export class CoverFetcher {
   start(): void {
     if (this.running) return;
     this.running = true;
+    // 手动/恢复开跑，启动延迟作废
+    if (this.launchTimer) { clearTimeout(this.launchTimer); this.launchTimer = null; }
     this.fails = 0;
     this.emptyStreak = 0;
     this.missRun = [];
     this.throttleHold = false;
     this.badProbes = 0;
     this.pausedReason = null;
+    // 老库一次性回填：有在线地址但没简介的书，旧 verdict 清掉让新链读一遍详情页。
+    // 标记落库就不再来——处理完行会重新落回，见 resetForInfoBackfill 的注释
+    if (getSetting(this.db, 'cover.infoBackfill') !== '1') {
+      resetForInfoBackfill(this.db);
+      setSetting(this.db, 'cover.infoBackfill', '1');
+    }
     // 上一轮限流留下的 failed 回队列——那不是「查过了没有」，是「没问出来」
     resetFailed(this.db);
     setSetting(this.db, 'cover.autofetch', '1');
@@ -169,11 +194,19 @@ export class CoverFetcher {
 
   stop(persist = true): void {
     this.running = false;
-    if (persist) setSetting(this.db, 'cover.autofetch', '0');
+    if (persist) {
+      setSetting(this.db, 'cover.autofetch', '0');
+      // **用户自己关的开关，失焦不能再把它打开**：失焦自启要求 yielded=true，
+      // 不重置的话，先前让路停过、或启动延迟挂起（defer）置过它，
+      // 用户关完开关一切走窗口就又自己开起来了（pacing 第 3 条判据靠这一行兑现）
+      this.yielded = false;
+    }
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     if (this.resumeTimer) clearTimeout(this.resumeTimer);
     this.resumeTimer = null;
+    if (this.launchTimer) clearTimeout(this.launchTimer);
+    this.launchTimer = null;
     this.teardownWindow();
   }
 
@@ -190,9 +223,10 @@ export class CoverFetcher {
    */
   async testSource(src: CustomSource, title: string): Promise<SourceTest> {
     try {
+      const url = src.searchUrl.replace('{q}', encodeURIComponent(title));
       const html = src.needsBrowser
-        ? await this.loadInHiddenWindow(src.searchUrl.replace('{q}', encodeURIComponent(title)))
-        : await this.getText(src.searchUrl, title, src.name);
+        ? await this.loadInHiddenWindow(url)
+        : await this.getText(url, src.name);
       const candidates = parseByRules(html, src);
       return {
         ok: candidates.length > 0,
@@ -223,15 +257,15 @@ export class CoverFetcher {
     const out = [];
     for (const p of SOURCE_PROBES) {
       try {
-        const cands = p.site === 'qidian'
-          ? parseQidianCandidates(await this.loadInHiddenWindow(QIDIAN_SEARCH.replace('{q}', encodeURIComponent(p.title))))
-          : p.site === 'shuqi'
-            ? parseShuqiCandidates(await this.getText(SHUQI_SEARCH, p.title, p.label))
-            : await (async () => {
-              const html = await this.getText(DOUBAN_SEARCH, p.title, p.label);
-              if (!doubanAnswered(html)) throw new Error('返回的不是搜索结果页（反爬或改版）');
-              return parseDoubanCandidates(html);
-            })();
+        const ad = adapterById(p.site);
+        const url = ad.searchUrl!(p.title);
+        const html = p.needsBrowser
+          ? await this.loadInHiddenWindow(url)
+          : await this.getText(url, ad.label);
+        if (p.site === 'douban' && !doubanAnswered(html)) {
+          throw new Error('返回的不是搜索结果页（反爬或改版）');
+        }
+        const cands = ad.parseCandidates?.(html) ?? [];
         const ok = cands.some((c) => c.title.trim() === p.title);
         out.push({
           site: p.site,
@@ -248,14 +282,22 @@ export class CoverFetcher {
     return out;
   }
 
-  /** 应用启动时叫一次：开关开着就延迟半分钟再跑，别和启动扫描抢资源 */
+  /**
+   * 应用启动时叫一次：开关开着就延迟半分钟再跑，别和启动扫描抢资源。
+   *
+   * 到点时**人还在窗口前**就不跑（抓封面书架慢二三十倍），但也不把这次启动
+   * 作废——挂到失焦恢复那条路上（yielded=true），人切走 8 秒就开。
+   * ⚠️ 这个定时器是独立的 launchTimer，获焦事件清的是 resumeTimer，
+   * 别合回去——合了启动延迟必被获焦事件清掉，冷启动永不自启。
+   */
   resumeIfEnabled(): void {
-    if (getSetting(this.db, 'cover.autofetch') === '1') {
-      this.resumeTimer = setTimeout(() => {
-        this.resumeTimer = null;
-        if (!this.running) this.start();
-      }, 30_000);
-    }
+    if (getSetting(this.db, 'cover.autofetch') !== '1') return;
+    this.launchTimer = setTimeout(() => {
+      this.launchTimer = null;
+      const d = launchStartDecision(this.running, this.uiActive);
+      if (d === 'start') this.start();
+      else if (d === 'defer') this.yielded = true;
+    }, 30_000);
   }
 
   /**
@@ -273,12 +315,14 @@ export class CoverFetcher {
    */
   setUiActive(active: boolean): void {
     // 判据本身在 core/pacing.ts，那里有测试守着（这个文件 import electron，测不了）
+    this.uiActive = active;
     const what = uiYieldDecision(active, this.running, this.yielded);
     if (active) {
       if (what === 'yield') {
         this.yielded = true;
         this.stop(false); // **false = 不动用户那个开关**，只是此刻让路
       }
+      // 只取消「失焦 8 秒恢复」；启动延迟（launchTimer）到点自己会看 uiActive 决定挂起
       if (this.resumeTimer) { clearTimeout(this.resumeTimer); this.resumeTimer = null; }
       return;
     }
@@ -292,23 +336,150 @@ export class CoverFetcher {
     }, 8_000); // 切出去 8 秒才算「真的走开了」，不然切个窗口就来回启停
   }
 
-  /** 单本抓取。界面的「给这本抓封面」和 e2e 验证都走这条。结果和 tick() 一样落表——
-   * 不落的话这次尝试对队列「隐身」，nomatch 的书下次后台队列还会再打一次几乎必败的请求 */
-  async fetchOne(bookId: number): Promise<{ status: 'ok' | 'nomatch'; source?: string; applied?: string[] }> {
+  /**
+   * 单本联网补全。界面的「联网补全」和 e2e 验证都走这条；结果和 tick() 一样落表——
+   * 不落的话这次尝试对队列「隐身」，没找到的书下次后台队列还会再打一次几乎必败的请求。
+   * 链本身在 `enrichBook`，和后台 tick() 走的是同一条。
+   */
+  async fetchOne(bookId: number): Promise<FetchOneResult> {
     const book = this.db
       .prepare('select id, title, author from book where id = ?')
       .get(bookId) as { id: number; title: string; author: string | null } | undefined;
     if (!book) throw new Error(`没有这本书：${bookId}`);
     try {
-      const r = await this.tryBook(book);
-      recordResult(this.db, book.id, r.status, r.source);
+      const r = await this.enrichBook(book);
+      /**
+       * 手动点一下没有 tick() 那套连击探测，而单本拿到的 nomatch 可能就是起点
+       * 反爬：详情页和搜索页都被挡时，只在起点有的新书必然「一本都找不到」，
+       * 《廓晋》就是这样（用户看着地址明明在，却报没找到）。探针搜一本已知一定
+       * 在的书，搜不到就**别把假结论落库成 nomatch**——记 failed，「重试失败的」
+       * 会连它一起重来，界面也照着探针说实话。同 tick() 里那条对照实验。
+       */
+      if (r.status === 'nomatch') {
+        const healthy = await this.probeHealthy();
+        if (!healthy) {
+          recordResult(this.db, bookId, 'failed', undefined, '起点疑似限流（探针搜不到已知一定在的书）');
+          return {
+            status: 'nomatch',
+            note: '起点现在疑似在限流、搜不出结果——过会儿再试；这本书的详情页地址已经记下了',
+          };
+        }
+      }
+      recordResult(this.db, bookId, r.status, r.source);
       return r;
     } catch (e) {
       if (e instanceof AbortedError) throw e; // 被 stop() 打断，不算一次真尝试，不落表
       const msg = e instanceof Error ? e.message : String(e);
-      recordResult(this.db, book.id, 'failed', undefined, msg.slice(0, 200));
+      recordResult(this.db, bookId, 'failed', undefined, msg.slice(0, 200));
       throw e;
     }
+  }
+
+  /**
+   * 一本书的联网补全，**tick() 和单本「联网补全」走的同一条链**：
+   *
+   *   ① 这本书有主在线地址 → 读那个详情页（trustIdentity：身份由用户存的链接
+   *      负责），封面/简介/作者/分类/标签「只补空缺」。**页读成功了就停**——
+   *      地址就是目标，书大部分只在一个地址出现，详情页比搜索页可信，
+   *      那一页真没图也不换站搜。
+   *   ② 没地址、或那页彻底没认出来（抛错/认不出）→ 搜书源链（`searchAndEnrich`）：
+   *      起点→书旗→自定义→豆瓣，命中后读命中的详情页再补。
+   *
+   * 限流计数（emptyStreak / missRun）只挂在②的搜索段：①不搜索，不碰计数器。
+   */
+  private async enrichBook(book: {
+    id: number; title: string; author: string | null;
+  }): Promise<{ status: 'ok' | 'nomatch'; source?: string; applied?: string[] }> {
+    const primary = this.db
+      .prepare('select url from online_link where book_id = ? order by is_primary desc, id limit 1')
+      .get(book.id) as { url: string } | undefined;
+    if (primary?.url) {
+      try {
+        const cand = await this.fetchDetailCandidate(primary.url);
+        if (cand) {
+          const res = await applyCandidate(this.db, this.userDataDir, book.id, cand, { trustIdentity: true });
+          return { status: 'ok', source: cand.site || undefined, applied: res.applied };
+        }
+      } catch (e) {
+        if (e instanceof AbortedError) throw e;
+        // 反爬/改版/超时：这条路不通，安静回落书名搜索
+      }
+    }
+
+    // 详情页这跳可能刚把作者补进来，而搜索匹配要求书名作者都对得上——重读这本书
+    const fresh = this.db
+      .prepare('select id, title, author from book where id = ?')
+      .get(book.id) as { id: number; title: string; author: string | null };
+    return this.searchAndEnrich(fresh);
+  }
+
+  /**
+   * 更新检查（spec §4 的「看看对面更新到第几章」）。**复用封面这台隐藏窗口**——
+   * 起点/番茄要浏览器渲染，不另开窗口（窗口 `name` 那条禁忌照旧，见 doLoad 注释）。
+   * 判据全在 core 的 `checkUpdates`，这里只提供两种传输：普通 fetch 和隐藏窗口。
+   */
+  async checkUpdates(opts: { bookId?: number } = {}): Promise<UpdateReport> {
+    return checkUpdates(this.db, {
+      fetchText: async (url) => {
+        const res = await fetch(url, {
+          headers: {
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0 Safari/537.36',
+            'accept-language': 'zh-CN,zh;q=0.9',
+          },
+          signal: AbortSignal.timeout(15_000),
+        });
+        // 晋江/飞卢是 GBK——按响应声明解码，UTF-8 站行为不变（decodeWebPage）
+        const buf = new Uint8Array(await res.arrayBuffer());
+        return { status: res.status, text: decodeWebPage(buf, res.headers.get('content-type')) };
+      },
+      // loadInHiddenWindow 自带队列和代数检查；排队期间封面循环也在用，互不打断
+      browserText: (url) => this.loadInHiddenWindow(url),
+    }, opts);
+  }
+
+  /**
+   * 用户亲手粘了一个**详情页**链接（「输入链接一键取封面/信息」）：取那一页的
+   * 封面/简介/作者/分类。身份由这个链接负责，不像搜索那样按书名找，所以**不跑**
+   * isExactMatch；落库时「只补空缺」仍由 enrich.applyCandidate({trustIdentity}) 兜着。
+   *
+   * `ref` 是粘贴框原文或一条已存地址：先抽第一个 URL（抽法和批量导入同一份，
+   * 不另写正则），抽不到就把整串当地址试。返回候选 + 书名是否对得上（对不上只
+   * 在预览里警告，不拦——身份由链接负责）。
+   */
+  async fetchFromUrl(
+    bookId: number,
+    ref: string,
+  ): Promise<{ candidate: Candidate; titleMismatch: boolean }> {
+    const book = this.db
+      .prepare('select title from book where id = ?')
+      .get(bookId) as { title: string } | undefined;
+    if (!book) throw new Error(`没有这本书：${bookId}`);
+    const url = extractUrls(ref)[0] ?? ref.trim();
+    if (!url) throw new Error('先粘一个这本书的网址');
+
+    const cand = await this.fetchDetailCandidate(url);
+    if (!cand) {
+      throw new Error('这个页面里没认出一本书的信息——可能不是详情页，或站点改版了');
+    }
+    const titleMismatch =
+      !!cand.title && normalizeForMatch(cand.title) !== normalizeForMatch(book.title);
+    return { candidate: cand, titleMismatch };
+  }
+
+  /**
+   * 读一个**详情页** URL → 这一页里那本书的候选信息（封面/简介/作者/分类）。
+   * 走哪条传输只认适配器的 needsBrowser（起点详情页普通 fetch 是 202 空页，要隐藏
+   * 窗口渲染，实测；其余普通 HTTP 就够），不在调用方各站特判。认不出返回 null。
+   *
+   * 两处共用：`fetchFromUrl`（用户粘链接，先预览再落库）和 `fetchOne`
+   * （这本书已经记过在线地址，直接读主地址那一页，不用再按书名搜一遍）。
+   */
+  private async fetchDetailCandidate(url: string): Promise<Candidate | null> {
+    const adapter = adapterForUrl(url);
+    const html = adapter?.needsBrowser
+      ? await this.loadInHiddenWindow(url)
+      : await this.getText(url, adapter?.label ?? '网页');
+    return detailCandidateFromHtml(url, html);
   }
 
   // ── 内部 ──────────────────────────────────────────
@@ -356,7 +527,7 @@ export class CoverFetcher {
     // 一起时跑出两条并行的 tick 链
     const gen = this.generation;
     try {
-      const r = await this.tryBook(book);
+      const r = await this.enrichBook(book);
       if (gen !== this.generation) return;
 
       /**
@@ -456,35 +627,38 @@ export class CoverFetcher {
     }
   }
 
-  private async tryBook(book: {
+  private async searchAndEnrich(book: {
     id: number; title: string; author: string | null;
   }): Promise<{ status: 'ok' | 'nomatch'; source?: string; applied?: string[] }> {
-    // 起点：必须浏览器（普通 HTTP 是 202 空响应）
-    const qidianHtml = await this.loadInHiddenWindow(
-      QIDIAN_SEARCH.replace('{q}', encodeURIComponent(book.title)),
-    );
-    const qidianCandidates = parseQidianCandidates(qidianHtml);
-    // 连续多少本 0 候选，交给 tick() 判断要不要暂停——见 EMPTY_SEARCH_LIMIT
-    this.emptyStreak = qidianCandidates.length === 0 ? this.emptyStreak + 1 : 0;
-    let hit = matchWithAliases(book, qidianCandidates);
-    let source = 'qidian';
-
-    if (!hit) {
-      // 书旗：普通 HTTP 就够，起点没有的书它补得最多（实测 40 本补回 19 本）。
-      // 排在豆瓣前面是因为命中率高一个量级——豆瓣只对有实体出版的书有用
-      hit = matchWithAliases(
-        book,
-        parseShuqiCandidates(await this.getText(SHUQI_SEARCH, book.title, '书旗')),
-      );
-      source = 'shuqi';
+    // 书源链：起点（窗口）→ 书旗（HTTP）。豆瓣兜底在自定义源之后，顺序不变。
+    // ⚠️ 这个数组是有意硬编码的——链顺序固定就是起点→书旗，zongheng/fanqie
+    // 故意不进链（实测补不到封面）。遍历 ADAPTERS 或按 coverSearch 过滤都会让
+    // 「链顺序」和「适配器表」隐式耦合，加内置源不等于自动进链。
+    let hit: Candidate | null = null;
+    let source = '';
+    for (const ad of [qidianAdapter, shuqiAdapter]) {
+      const url = ad.searchUrl!(book.title);
+      const html = ad.needsBrowser
+        ? await this.loadInHiddenWindow(url)
+        : await this.getText(url, ad.label);
+      const cands = ad.parseCandidates?.(html) ?? [];
+      // 空结果连击计数只看起点（它是每本必问的那个，见 EMPTY_SEARCH_LIMIT）
+      if (ad.id === 'qidian') this.emptyStreak = cands.length === 0 ? this.emptyStreak + 1 : 0;
+      const found = matchWithAliases(book, cands);
+      if (found) {
+        hit = found;
+        source = ad.id;
+        // 搜索页已经在手里，顺手认连载状态（只补 unknown，零额外请求）；
+        // 回填是 best-effort：它炸了不能连累封面落库
+        try { backfillSerial(this.db, book.id, ad, html); } catch { /* 顺手回填失败不影响封面 */ }
+        break;
+      }
     }
 
     /**
-     * 用户自定义的源，排在内置三个之后。
-     *
-     * **只管封面**——阅读走本地 txt，这里只是「去哪儿找一张图」。
-     * 绝不执行配置里的 JS（`cover-custom.ts` 顶上写了为什么），
-     * 只认「搜索地址 + 四条正则」。一条源出错只跳过它，不影响别的源。
+     * 用户自定义的源，排在内置之后。输入书名、输出书的主页地址；
+     * 配了 urlRe 就和内置源一样再读详情页（下面那段统一处理）。
+     * 绝不执行配置里的 JS（`cover-custom.ts` 顶上写了为什么）。一条源出错只跳过它。
      */
     if (!hit) {
       for (const src of parseSources(getSetting(this.db, 'cover.customSources'))) {
@@ -492,7 +666,7 @@ export class CoverFetcher {
         try {
           const html = src.needsBrowser
             ? await this.loadInHiddenWindow(src.searchUrl.replace('{q}', encodeURIComponent(book.title)))
-            : await this.getText(src.searchUrl, book.title, src.name);
+            : await this.getText(src.searchUrl.replace('{q}', encodeURIComponent(book.title)), src.name);
           hit = matchWithAliases(book, parseByRules(html, src));
           if (hit) { source = src.id; break; }
         } catch (e) {
@@ -504,21 +678,35 @@ export class CoverFetcher {
 
     if (!hit) {
       // 豆瓣兜底：只对有实体出版的书有用（实测 10 本补 1 本）
-      const html = await this.getText(DOUBAN_SEARCH, book.title, '豆瓣');
+      const html = await this.getText(doubanAdapter.searchUrl!(book.title), doubanAdapter.label);
       // 反爬页是 HTTP 200，光看状态码看不出来。**没答就是没答**，不能当「没搜到」
       // ——那会把结论写进库，见 `doubanAnswered` 上面那段实测
       if (!doubanAnswered(html)) throw new Error('豆瓣返回的不是搜索结果页（反爬或改版）');
-      hit = matchWithAliases(book, parseDoubanCandidates(html));
-      source = 'douban';
+      hit = matchWithAliases(book, doubanAdapter.parseCandidates!(html));
+      source = doubanAdapter.id;
     }
 
     if (!hit) return { status: 'nomatch' };
+
+    // 命中的候选带详情页地址就再读一页：简介/分类/标签只有详情页给得了，
+    // 封面也优先用详情页的、搜索缩略图兜底（mergeCandidates）。
+    // 读不了或认不出就直接落搜索候选——封面/作者/地址照拿，那是这条链的老行为。
+    // 老自定义配置没有 urlRe → hit.url 为空，自然走这条老路，不破坏旧配置。
+    let candidate: Candidate = { ...hit, title: book.title };
+    if (hit.url) {
+      try {
+        const detail = await this.fetchDetailCandidate(hit.url);
+        if (detail) candidate = { ...mergeCandidates(detail, candidate), title: book.title };
+      } catch (e) {
+        if (e instanceof AbortedError) throw e;
+        // 详情页这跳失败不连累搜索已拿到的东西
+      }
+    }
+
     // applyCandidate 内部会再跑一次 isExactMatch（对整串书名），别名命中的要把
     // 候选书名换成本地书名喂进去才过得了——这不是绕过校验：matchWithAliases
     // 已经做过更宽的同一套严格判定
-    const r = await applyCandidate(this.db, this.userDataDir, book.id, {
-      ...hit, title: book.title,
-    });
+    const r = await applyCandidate(this.db, this.userDataDir, book.id, candidate);
     return { status: 'ok', source, applied: r.applied };
   }
 
@@ -529,7 +717,7 @@ export class CoverFetcher {
   private async probeHealthy(): Promise<boolean> {
     try {
       return probeSaysHealthy(
-        await this.loadInHiddenWindow(QIDIAN_SEARCH.replace('{q}', encodeURIComponent(HEALTH_PROBE.title))),
+        await this.loadInHiddenWindow(qidianAdapter.searchUrl!(HEALTH_PROBE.title)),
       );
     } catch (e) {
       if (e instanceof AbortedError) throw e;
@@ -538,13 +726,11 @@ export class CoverFetcher {
   }
 
   /**
-   * 普通 HTTP 拿搜索页（书旗、豆瓣都够用，不用开窗口）。
-   *
-   * **429/403 必须抛出去，不能悄悄当「没搜到」**——放过的话「连败自动暂停」
-   * 永远不会被触发，限流会被误记成一整库的 nomatch，而那个结论是会持久化的。
+   * 普通 HTTP 拿页面（书旗、豆瓣都够用，不用开窗口）。
+   * **429/403 必须抛出去**（理由见原注释：放过的话连败暂停永远不触发）。
    */
-  private async getText(tpl: string, query: string, site: string): Promise<string> {
-    const res = await fetch(tpl.replace('{q}', encodeURIComponent(query)), {
+  private async getText(url: string, site: string): Promise<string> {
+    const res = await fetch(url, {
       headers: {
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0 Safari/537.36',
         'accept-language': 'zh-CN,zh;q=0.9',
@@ -552,7 +738,9 @@ export class CoverFetcher {
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error(`${site} HTTP ${res.status}`);
-    return res.text();
+    // 晋江/飞卢是 GBK——按响应头/页面 meta 声明解码，UTF-8 站行为不变（decodeWebPage）
+    const buf = new Uint8Array(await res.arrayBuffer());
+    return decodeWebPage(buf, res.headers.get('content-type'));
   }
 
   /**

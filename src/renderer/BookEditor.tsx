@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ENCODINGS } from '../core/encoding.ts';
 import { formatOf } from '../core/book-format.ts';
-import { SERIAL_STATUS, READING_STATUS } from '../core/labels.ts';
+import { SERIAL_STATUS, READING_STATUS, FILE_STATUS, labelOf, SITE_LABELS } from '../core/labels.ts';
+// 只引类型：cover-source 运行时带着 node:sqlite，渲染包不能碰
+import type { FetchOneResult } from '../core/cover-source.ts';
 import { rpc } from './rpc.ts';
 import { StarRating } from './StarRating.tsx';
 import { Cover } from './Cover.tsx';
@@ -13,7 +15,10 @@ export interface Detail {
   aliases: string | null;
   intro: string | null;
   serial_status: string;
-  source_site: string | null;
+  /** 主在线地址（bookDetail 从 online_link 带出）。「来源站点」显示的就是它，
+   *  不再有单独的自由文本框 */
+  primary_url: string | null;
+  primary_site: string | null;
   note: string | null;
   path: string | null;
   encoding: string | null;
@@ -21,6 +26,8 @@ export interface Detail {
   encoding_locked?: number;
   word_count: number | null;
   chapter_count: number | null;
+  /** 手填本地章数（盖过 chapter_count 的显示值）。NULL = 用自动识别 */
+  chapter_count_override: number | null;
   file_status: string | null;
   reading_status: string | null;
   rating: number | null;
@@ -50,7 +57,7 @@ interface Props {
    * 调用者正是这个没人挂载的组件（AGENTS.md：「另一半是组件没被挂载」）。
    *
    * 入口放这儿而不是卡片上：卡片那排已经五个按钮挤满了，而这本来就是**这本书的
-   * 元数据**，旁边「来源站点」那个单行输入框想表达的也正是同一件事。
+   * 元数据**——上面「来源站点」显示的就是这里面的主地址，两处说的是同一件事。
    */
   onLinks: (bookTitle: string) => void;
   /*
@@ -79,17 +86,29 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
   const [msg, setMsg] = useState<string | null>(null);
   /** 「已读完 → 在读」问那一句时开着。理由在下拉的 onChange 上 */
   const [rereadAsk, setRereadAsk] = useState(false);
+  /** 有关掉会丢的改动时，问一句「放弃还是继续」。三条关法（遮罩 / 关闭键 / Esc）
+      都走 `requestClose`，Esc 在下面 onKeyDown 里靠 preventDefault 拦下 App 那张总表 */
+  const [confirmClose, setConfirmClose] = useState(false);
+  /** 文件不见了时点「清理这条失效记录」的二次确认（同 confirmClose 的两段式，不用原生 confirm） */
+  const [confirmCleanup, setConfirmCleanup] = useState(false);
   const [coverVer, setCoverVer] = useState(0);
-  /** 「联网找封面」是点一下抓一本。抓一次要开隐藏窗口搜三个源，会花几秒 */
+  /** 「联网补全」是点一下补一本。跑一遍书源链要开隐藏窗口，会花几秒 */
   const [fetching, setFetching] = useState(false);
   const [fetchMsg, setFetchMsg] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  /**
+   * 手填本地章数的输入框文本。**单独一个状态、不混进 `form`**：它是数字、
+   * 留空要变成 null，而且占位提示和「自动识别是几章」那行灰字都要盯着它。
+   * null = 详情还没到；'' = 用户清空了（回到自动）
+   */
+  const [overrideText, setOverrideText] = useState<string | null>(null);
 
   useEffect(() => {
     rpc<Detail>('book.detail', { bookId })
       .then((x) => {
         setD(x);
         setForm(x);
+        setOverrideText(x.chapter_count_override != null ? String(x.chapter_count_override) : '');
       })
       .catch((e: Error) => setError(e.message));
   }, [bookId]);
@@ -139,7 +158,12 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
     }
   };
 
-  const save = async () => {
+  /**
+   * 返回有没有真的存上——存失败得留在原地改。
+   * **保存成功就是编辑结束，弹窗关掉**（底栏「保存」和未保存卡片里的「保存并关闭」
+   * 同一条路）；评分/状态那些即时生效的不受影响。
+   */
+  const save = async (): Promise<boolean> => {
     setBusy(true);
     setError(null);
     try {
@@ -151,14 +175,23 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
           aliases: form.aliases || null,
           intro: form.intro || null,
           serial_status: form.serial_status,
-          source_site: form.source_site || null,
           note: form.note || null,
+          // 手填本地章数：留空 = 回到自动识别（null）；填了就交给 core 校验正整数
+          chapter_count_override: overrideText && overrideText.trim() ? Number(overrideText) : null,
         },
       });
+      // **重新拉一份当基线**：form 还拿着刚改的值、d 是旧的，不刷新会一直算成
+      // 「有没存的改动」，存完再关反而被拦一道。同 saveStatus 里那次 re-fetch。
+      const fresh = await rpc<Detail>('book.detail', { bookId });
+      setD(fresh);
+      setForm(fresh);
+      setOverrideText(fresh.chapter_count_override != null ? String(fresh.chapter_count_override) : '');
+      setConfirmClose(false);
       setChanged(true);
-      setMsg('已保存');
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -186,6 +219,23 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
     }
   };
 
+  /**
+   * 文件没了、用户认了：删掉这条失效指针。跑完这本书要么整条没了（一样你的数据都没有）、
+   * 要么变成「只有记录」（评价进度留着）——两种都不再有文件可编辑，所以直接关弹窗刷新。
+   * 判据在 core 的 `cleanupMissing`，这儿只发 rpc。
+   */
+  const doCleanup = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await rpc('library.cleanupMissing', { bookIds: [bookId] });
+      onClose(true);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+
   if (!d) {
     return (
       <div className="modal-backdrop" onClick={() => onClose(changed)}>
@@ -205,6 +255,34 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
     charOffset: d.char_offset ?? 0,
   };
 
+  /*
+   * **跟着「保存」按钮走的字段，改了没存就是脏的。** 书名、作者、别名、
+   * 简介、备注、连载状态、手填章数——这几样只在 `book.update` 那一刻落库，
+   * 而遮罩、关闭键、Esc 三条路本来都直接 onClose，改完手一滑就没了。
+   *
+   * 评分 / 阅读状态 / 短评 / 封面 / 重新解析是**改了就生效**（各自立刻 rpc），
+   * 没有「丢掉」一说，**不算脏**——把它们也算进来，存完评分再关也会被拦。
+   */
+  const overrideVal = overrideText && overrideText.trim() ? Number(overrideText) : null;
+  const overrideDirty = overrideVal === null
+    ? d.chapter_count_override != null          // 把一个手填值清空了（要回到自动）
+    : Number.isNaN(overrideVal) ? true          // 填了还没解析成数的东西
+    : overrideVal !== d.chapter_count_override;
+  const dirty =
+    (form.title ?? '') !== (d.title ?? '') ||
+    (form.author || '') !== (d.author || '') ||
+    (form.aliases || '') !== (d.aliases || '') ||
+    (form.intro || '') !== (d.intro || '') ||
+    (form.note || '') !== (d.note || '') ||
+    (form.serial_status ?? '') !== (d.serial_status ?? '') ||
+    overrideDirty;
+
+  /** 三条关法都从这儿走：有没存的改动先问一句，没有就直接关 */
+  const requestClose = () => {
+    if (dirty) { setConfirmClose(true); return; }
+    onClose(changed);
+  };
+
   const field = (label: string, key: keyof Detail, placeholder = '') => (
     <label style={{ display: 'block', marginBottom: '.6rem' }}>
       <span className="muted" style={{ fontSize: '.85rem' }}>{label}</span>
@@ -218,7 +296,17 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
   );
 
   return (
-    <div className="modal-backdrop" onClick={() => onClose(changed)}>
+    <div
+      className="modal-backdrop"
+      onClick={requestClose}
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape') return;
+        // 确认正开着：Esc = 收回确认、接着编辑（别让 App 那张 Esc 总表把弹窗整个关掉）
+        if (confirmClose) { e.preventDefault(); setConfirmClose(false); return; }
+        // 有没存的改动：拦下 App 的关闭，先问。干净就不拦，交给 App 那张总表关
+        if (dirty) { e.preventDefault(); setConfirmClose(true); }
+      }}
+    >
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: '0 0 .8rem', fontSize: '1.1rem' }}>编辑《{d.title}》</h2>
 
@@ -258,7 +346,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
               把图片拖到这里，或者点下面的按钮。没有封面时用书名画一件素色书衣顶上。
             </p>
             <div className="row">
-              {/* 联网找封面是**点一下抓一本**，不是后台自动跑全库。
+              {/* 联网补全是**点一下补一本**，不是后台自动跑全库。
                   书名作者会发到搜索源去，那是用户该自己决定的事 */}
               <button
                 className="primary"
@@ -267,13 +355,13 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
                   setFetching(true);
                   setFetchMsg(null);
                   try {
-                    const r = await rpc<{ status: string; source?: string }>('cover.fetchOne', { bookId });
+                    const r = await rpc<FetchOneResult>('cover.fetchOne', { bookId });
                     setCoverVer((v) => v + 1);
                     setChanged(true);
                     setFetchMsg(
                       r.status === 'ok'
-                        ? `找到了（来自${r.source ?? '搜索源'}）`
-                        : '几个源上都没有书名作者都对得上的，可以自己选一张',
+                        ? `找到了（来自${r.source ? (SITE_LABELS[r.source] ?? r.source) : '搜索源'}）`
+                        : (r.note ?? '几个源上都没有书名作者都对得上的，可以自己选一张'),
                     );
                   } catch (e) {
                     setFetchMsg((e as Error).message);
@@ -282,7 +370,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
                   }
                 })()}
               >
-                {fetching ? '正在找…' : '联网找封面'}
+                {fetching ? '正在补全…' : '联网补全'}
               </button>
               <button
                 onClick={() => void (async () => {
@@ -318,17 +406,41 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
         {field('书名', 'title')}
         {field('作者', 'author')}
         {field('别名（多个用逗号分隔，参与搜索匹配）', 'aliases')}
-        {field('来源站点', 'source_site')}
-        {/* 「来源站点」是一个单行输入框，只放得下一个地址；而抓封面的时候顺手
-            记下的源页可能有好几条，还带着「哪条是主站」和探活结果。
-            那些存在 online_link 表里，得有个门进去 */}
+        {/*
+          * 「来源站点」＝主在线地址，**不是一个能打字的框**。
+          * 它原来就是个自由文本框，写的和 online_link 表里那条主地址是同一件事，
+          * 两份记录必然分叉（真实库里 875 本写着站点 id、6 本写着 URL，而链接表里
+          * 全都有）。地址统一在「在线地址…」里管（多条、主站、探活、取封面），
+          * 这儿只读显示；没地址时「联网补全」命中也会自动带上。
+          */}
+        <label style={{ display: 'block', marginBottom: '.6rem' }}>
+          <span className="muted" style={{ fontSize: '.85rem' }}>来源站点</span>
+          {d.primary_url ? (
+            <div style={{ marginTop: '.15rem', fontSize: '.82rem', overflowWrap: 'anywhere' }}>
+              <a
+                href={d.primary_url}
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.open(d.primary_url!, '_blank');
+                }}
+                title="在浏览器里打开"
+              >
+                {d.primary_site ? `${d.primary_site} · ` : ''}{d.primary_url}
+              </a>
+            </div>
+          ) : (
+            <div className="muted" style={{ marginTop: '.15rem', fontSize: '.82rem' }}>
+              未记录——在下面「在线地址…」里添加，或点「联网补全」命中后自动带上
+            </div>
+          )}
+        </label>
         {/* 书名从这儿传出去：这个弹窗手里就有 `d.title`，而 App 那头只能去
             当前那一页（最多 120 本）里 find 一遍，翻页之后的书会找不到、
             标题落成空串 */}
         <p style={{ margin: '-.3rem 0 .7rem' }}>
           <button type="button" className="mini" onClick={() => onLinks(d.title)}>在线地址…</button>
           <span className="muted" style={{ fontSize: '.8rem' }}>
-            　这本书的网上地址，可以存多条、标一个主站、批量探活
+            　存多条网址、标主站、探活、粘网址一键补全封面/信息
           </span>
         </p>
 
@@ -373,6 +485,34 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
+        </label>
+
+        {/*
+          * **本地章数手填修正**：卡片上「连载中 · 到N章」的 N 是解析出来的，
+          * 切章切错（漏切、整章没识别）时 N 就是错的。手填一个数盖过它——
+          * 只改**显示**，不动解析结果（体检、更新判断仍用真实章数）。
+          * 留空 = 回到自动识别。
+          *
+          * ⚠️ **手填值要和自动值同时摆出来**：重新解析/同名文件替换会刷新自动值，
+          * 手填值不会被清掉（那是用户数据）。两者不一致时让用户看得见「漂移」，
+          * 他自己决定要不要清空——别悄悄替他改。
+          */}
+        <label style={{ display: 'block', marginBottom: '.6rem' }}>
+          <span className="muted" style={{ fontSize: '.85rem' }}>本地章数（切错了手填，留空用自动）</span>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={overrideText ?? ''}
+            onChange={(e) => setOverrideText(e.target.value)}
+            placeholder={d.chapter_count != null ? `自动识别：${d.chapter_count} 章` : '自动识别不到，可手填'}
+            style={{ width: '100%', marginTop: '.15rem' }}
+          />
+          {overrideText && overrideText.trim() && (
+            <span className="muted" style={{ fontSize: '.8rem' }}>
+              自动识别为 {d.chapter_count ?? 0} 章；手填值只改书架显示，重新解析不会清掉它
+            </span>
+          )}
         </label>
 
         <label style={{ display: 'block', marginBottom: '.6rem' }}>
@@ -485,42 +625,116 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
           )}
         </div>
 
-        <div className="card" style={{ fontSize: '.85rem' }}>
-          <div className="muted" style={{ overflowWrap: 'anywhere' }}>{d.path}</div>
-          <div style={{ marginTop: '.3rem' }}>
-            {/* **锁住了要显示出来。** 不说的话，「我选的编码怎么又变了」和
-                「我选的编码一直没变」在屏幕上长得一模一样——
-                同本文件那条：界面必须显示正在生效的状态 */}
-            编码 <strong>{d.encoding ?? '未知'}</strong>
-            {d.encoding_locked ? <span className="muted">（你指定的）</span> : null} · {d.chapter_count ?? 0} 章 ·{' '}
-            {d.word_count ?? 0} 字
-            {d.file_status !== 'ok' && <span className="danger"> · {d.file_status}</span>}
+        {/* **没文件（手工添的、或清理后只剩记录的书）就没有这张卡**——编码、章数、
+            重新解析全是关于文件的，摆给一本没有文件的书只是噪音。 */}
+        {d.path && d.file_status === 'missing' ? (
+          /*
+           * **文件没了：打开、重解都无从谈起，给一条能直接了结它的路。**
+           * 原来这儿只印一个红的 `missing`，点开书报错时给的引导又是「整理数据库」——
+           * 而自己删掉的唯一文件整理数据库也清不掉，它只能挂一辈子「文件不见了」。
+           * 两段式确认同 confirmClose：这一下会删记录（你的评价进度都留着，变「只有记录」）。
+           */
+          <div className="card" style={{ fontSize: '.85rem', borderColor: 'var(--danger)' }}>
+            <div className="danger" style={{ fontWeight: 600 }}>文件已经不在原位置了</div>
+            <div className="muted" style={{ overflowWrap: 'anywhere', marginTop: '.2rem' }}>{d.path}</div>
+            <div style={{ marginTop: '.4rem' }}>
+              你可能在应用外删了它、或挪走了文件夹。清理会删掉这条失效指针：你写过评价、进度、标签的，
+              书留着变成「只有记录」；一样没写过的，连书一起移走。
+            </div>
+            {confirmCleanup ? (
+              <div className="row" style={{ marginTop: '.5rem', gap: '.4rem' }}>
+                <button onClick={() => setConfirmCleanup(false)} disabled={busy}>取消</button>
+                <button className="danger" disabled={busy} onClick={() => void doCleanup()}>确实清理</button>
+              </div>
+            ) : (
+              <div className="row" style={{ marginTop: '.5rem' }}>
+                <button className="danger" onClick={() => setConfirmCleanup(true)}>清理这条失效记录…</button>
+              </div>
+            )}
           </div>
-          <div className="row" style={{ marginTop: '.5rem' }}>
-            <button onClick={() => reparse()} disabled={busy}>重新解析</button>
-            <select
-              defaultValue=""
-              disabled={busy}
-              onChange={(e) => e.target.value && reparse(e.target.value)}
-              title="乱码时手动指定编码重新解析"
-            >
-              <option value="">按指定编码重解…</option>
-              {ENCODINGS.map((e) => (
-                <option key={e} value={e}>{e}</option>
-              ))}
-              {/* **凡是能锁住的东西都得有一条解锁的路**（同规则编辑器的「清除规则」）。
-                  挑错一次就再也回不到自动探测，那是个死胡同 */}
-              {d.encoding_locked ? <option value="auto">回到自动探测</option> : null}
-            </select>
+        ) : d.path ? (
+          <div className="card" style={{ fontSize: '.85rem' }}>
+            <div className="muted" style={{ overflowWrap: 'anywhere' }}>{d.path}</div>
+            <div style={{ marginTop: '.3rem' }}>
+              {/* **锁住了要显示出来。** 不说的话，「我选的编码怎么又变了」和
+                  「我选的编码一直没变」在屏幕上长得一模一样——
+                  同本文件那条：界面必须显示正在生效的状态 */}
+              编码 <strong>{d.encoding ?? '未知'}</strong>
+              {d.encoding_locked ? <span className="muted">（你指定的）</span> : null} · {d.chapter_count ?? 0} 章 ·{' '}
+              {d.word_count ?? 0} 字
+              {d.file_status && d.file_status !== 'ok' && (
+                <span className="danger"> · {labelOf(FILE_STATUS, d.file_status)}</span>
+              )}
+            </div>
+            <div className="row" style={{ marginTop: '.5rem' }}>
+              <button
+                title="用系统默认程序打开这个文件"
+                onClick={() => void rpc('ui.openFile', { path: d.path }).catch((e: Error) => setError(e.message))}
+              >
+                打开文件
+              </button>
+              <button
+                title="在文件管理器里定位到它（文件在哪个文件夹、改名挪位置都在这儿办）"
+                onClick={() => void rpc('ui.revealFile', { path: d.path }).catch((e: Error) => setError(e.message))}
+              >
+                打开所在目录
+              </button>
+              <button onClick={() => reparse()} disabled={busy}>重新解析</button>
+              <select
+                defaultValue=""
+                disabled={busy}
+                onChange={(e) => e.target.value && reparse(e.target.value)}
+                title="乱码时手动指定编码重新解析"
+              >
+                <option value="">按指定编码重解…</option>
+                {ENCODINGS.map((e) => (
+                  <option key={e} value={e}>{e}</option>
+                ))}
+                {/* **凡是能锁住的东西都得有一条解锁的路**（同规则编辑器的「清除规则」）。
+                    挑错一次就再也回不到自动探测，那是个死胡同 */}
+                {d.encoding_locked ? <option value="auto">回到自动探测</option> : null}
+              </select>
+            </div>
           </div>
-        </div>
+        ) : null}
+
+        {/*
+          * **有关掉会丢的改动时拦一道。** 两段式内联确认，同下拉里「已读完→在读」
+          * 那一句、标签删除、移除书库文件夹一个手势（**不用 window.confirm**：
+          * 原生模态和这个应用的内联确认不是一套，还挡自动化）。
+          * 三条关法（遮罩 / 关闭 / Esc）汇到 `requestClose` 才开得了这一层；
+          * 「放弃修改」是会丢东西的那个，所以它是 danger。焦点默认落在「继续编辑」
+          * 上——手滑敲回车也是安全的那一边。
+          */}
+        {confirmClose && (
+          <div className="card" style={{ marginBottom: '.6rem', borderColor: 'var(--danger)' }}>
+            <div style={{ fontSize: '.9rem' }}>
+              书名、作者、简介这些改动还没保存，关掉就丢了。要怎么办？
+            </div>
+            <div className="row" style={{ gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+              <button autoFocus onClick={() => setConfirmClose(false)}>继续编辑</button>
+              <button
+                className="primary"
+                disabled={busy || !form.title}
+                onClick={() => void save().then((ok) => { if (ok) onClose(true); })}
+              >
+                保存并关闭
+              </button>
+              <button className="danger" onClick={() => onClose(changed)}>放弃修改并关闭</button>
+            </div>
+          </div>
+        )}
 
         {error && <p className="danger" style={{ marginBottom: 0 }}>{error}</p>}
         {msg && <p style={{ color: 'var(--accent)', marginBottom: 0 }}>{msg}</p>}
 
         <div className="row modal-actions" style={{ justifyContent: 'flex-end' }}>
-          <button onClick={() => onClose(changed)}>关闭</button>
-          <button className="primary" onClick={save} disabled={busy || !form.title}>
+          <button onClick={requestClose}>关闭</button>
+          <button
+            className="primary"
+            onClick={() => void save().then((ok) => { if (ok) onClose(true); })}
+            disabled={busy || !form.title}
+          >
             保存
           </button>
         </div>

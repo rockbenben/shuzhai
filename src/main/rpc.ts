@@ -33,6 +33,7 @@ import {
   listBooks,
   shelfCounts,
   repairLibrary,
+  cleanupMissing,
   listDirs,
   applySerialByDir,
   type SerialDirRule,
@@ -52,7 +53,17 @@ import {
   undoableBatches,
   type RenameRow,
 } from '../core/rename.ts';
-import { scanRoot, emptyReport, mergeReport, type ScanReport, parseMinBytes, MIN_BYTES_KEY } from '../core/scan.ts';
+import {
+  scanRoot,
+  emptyReport,
+  mergeReport,
+  parseAndStore,
+  fingerprint,
+  type ScanReport,
+  type RefreshFileResult,
+  parseMinBytes,
+  MIN_BYTES_KEY,
+} from '../core/scan.ts';
 import { addManualBook } from '../core/manual.ts';
 import { readChapter, chapterBody, saveProgress, lastRead, markOpened, markFinished, type FileCache } from '../core/reader.ts';
 import { previewChapters, suggestForBook, applyRule, clearRule, bookRule } from '../core/reparse.ts';
@@ -94,6 +105,7 @@ import {
   listLinks,
   removeLink,
   setPrimaryLink,
+  setLinkSelector,
   extractUrls,
   checkLinks,
   updateHints,
@@ -533,12 +545,15 @@ export function createRpc(
 
     /**
      * **联网 + 写盘 + 写库**：把一条候选应用到这本书上（下封面、加官网地址、
-     * 设分类、打标签）。不匹配直接拒绝；本地已有的简介和封面不覆盖。
+     * 设分类、打标签、补空缺作者）。默认要求书名+作者精确匹配；本地已有的不覆盖。
+     * `trustIdentity` 用于用户亲手粘的**详情页**：身份由链接负责，跳过精确匹配
+     * （本地可能连作者都没有），「只补空缺」照样兜着，书名对不上只在预览里警告。
      */
     'enrich.apply': (params) => {
-      const { bookId, candidate, overwriteCover } = asRecord(params);
+      const { bookId, candidate, overwriteCover, trustIdentity } = asRecord(params);
       return applyCandidate(db, userDataDir, Number(bookId), candidate as Candidate, {
         overwriteCover: Boolean(overwriteCover),
+        trustIdentity: Boolean(trustIdentity),
       });
     },
 
@@ -619,6 +634,54 @@ export function createRpc(
     },
 
     /**
+     * **读磁盘 + 写库**：追更覆盖写之后，把这一本书重新从磁盘读进来。
+     *
+     * 和全库扫描走同一份 `parseAndStore`（重新切章、按标题恢复进度、
+     * 已读完遇新章退回在读），只是只处理一本、当场等结果。
+     *
+     * - `checkOnly`：只 `stat` 比大小/时间，不读正文——打开书时挂后台探测用。
+     * - 真刷新先 `cache.release(path)`：阅读器可能正拿着旧句柄，Windows 上
+     *   替换写入后旧 fd 读到的还是旧内容（同「重命名前必须 release」那条）。
+     * - size/mtime/hash 一起更新，否则下次扫描还会把它当「内容变了」再解析一遍。
+     */
+    'book.refreshFile': async (params): Promise<RefreshFileResult> => {
+      const p = asRecord(params);
+      const bookId = num(p, 'bookId');
+      const checkOnly = p.checkOnly === true;
+      const file = db
+        .prepare(
+          `select id, path, size, mtime, chapter_count as chapterCount
+             from book_file where book_id = ? and is_primary = 1`,
+        )
+        .get(bookId) as
+        | { id: number; path: string; size: number; mtime: number; chapterCount: number | null }
+        | undefined;
+      if (!file) throw new Error('这本书没有可读的本地文件');
+      let st;
+      try {
+        st = await stat(file.path);
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT' || code === 'ENOTDIR') {
+          throw new Error('文件不在原来的位置了——重新扫描一次书库就能按内容指纹认回来');
+        }
+        throw e;
+      }
+      const changed = st.size !== file.size || Math.floor(st.mtimeMs) !== file.mtime;
+      if (!changed || checkOnly) return { changed, from: file.chapterCount, to: null };
+      await cache.release(file.path);
+      const r = await parseAndStore(db, file.id, file.path);
+      const hash = await fingerprint(file.path, st.size);
+      db.prepare(
+        `update book_file set size = ?, mtime = ?, content_hash = ?, encoding = ?,
+                word_count = ?, chapter_count = ?, status = 'ok',
+                parse_error = null, failed_at = null, parsed_at = datetime('now')
+          where id = ?`,
+      ).run(st.size, Math.floor(st.mtimeMs), hash, r.encoding, r.words, r.chapters, file.id);
+      return { changed: true, from: file.chapterCount, to: r.chapters };
+    },
+
+    /**
      * 只读。书列表，可带筛选条件（spec §7）。
      * 筛选的翻译只有 `library.ts` 的 `buildFilter` 一处——列表、智能书架都走它，
      * 抄成两份就会出现「书架说 12 本、智能书架说 9 本」而两边各自都说得通。
@@ -637,6 +700,16 @@ export function createRpc(
      * **只删没有进度也没有书签的**：那两样重扫恢复不了。
      */
     'library.repair': () => repairLibrary(db),
+
+    /**
+     * **写库**：清「文件不见了」。文件真没了就删掉那条文件指针；一本文件都不剩的书，
+     * 有你评价/进度/标签的留成「只有记录」、一样你的数据都没有的整条删，
+     * 文件其实还在的恢复成 ok。不传 bookIds 就是全库批量（「需要处理」那栏那个键）。
+     */
+    'library.cleanupMissing': (params: unknown) => {
+      const { bookIds } = asRecord(params);
+      return cleanupMissing(db, Array.isArray(bookIds) ? bookIds.map(Number) : undefined);
+    },
 
     /** 只读。书库的目录树，侧栏拿它做「只看某个目录」 */
     'library.dirs': () => listDirs(db),
@@ -1674,12 +1747,13 @@ export function createRpc(
       });
     },
 
-    /** **写库**：从一段粘贴的文本里批量导入网址 */
+    /** **写库**：从一段粘贴的文本里批量导入网址。重复网址自动跳过，skipped 是被去重去掉的条数 */
     'link.addBatch': (params) => {
       const { bookId, text } = asRecord(params);
       const urls = extractUrls(String(text ?? ''));
-      for (const url of urls) addLink(db, num(params, 'bookId'), url);
-      return { added: urls.length, urls };
+      const ids = new Set<number>();
+      for (const url of urls) ids.add(addLink(db, num(params, 'bookId'), url).id);
+      return { added: ids.size, urls, skipped: urls.length - ids.size };
     },
 
     'link.remove': (params) => {
@@ -1689,6 +1763,13 @@ export function createRpc(
 
     'link.setPrimary': (params) => {
       setPrimaryLink(db, num(params, 'id'));
+      return { ok: true };
+    },
+
+    /** **写库**：改一条地址的「最新章提取正则」（空串＝清除）。坏正则当场抛 */
+    'link.setSelector': (params) => {
+      const { id, selector } = asRecord(params);
+      setLinkSelector(db, num(params, 'id'), selector === undefined || selector === null ? null : String(selector));
       return { ok: true };
     },
 

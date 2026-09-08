@@ -17,6 +17,10 @@ import { parseAndStore } from './scan.ts';
 // 连载状态的清单从 `labels.ts` 那份算——**这里原来抄了一份纯 id 的**，
 // 而抄的那份迟早掉队（本仓库那条「同一份约定抄成几份必然分叉」）
 import { SERIAL_STATUS } from './labels.ts';
+// 「来源站点」显示的就是主在线地址（同一个意思，见 BookEditor 那块）：
+// 地址从 online_link 取，站名认适配器、认不出退回域名
+import { siteFromUrl } from './links.ts';
+import { adapterForUrl } from './site-adapters.ts';
 
 /**
  * 能改的字段。**是白名单不是黑名单**：漏掉一个只是少一样能改的东西，
@@ -24,6 +28,8 @@ import { SERIAL_STATUS } from './labels.ts';
  */
 const EDITABLE = new Set([
   'title', 'author', 'aliases', 'intro', 'note', 'source_site', 'serial_status', 'cover_path',
+  // 手填本地章数（盖过自动识别的 chapter_count，只影响显示）。NULL = 回到自动
+  'chapter_count_override',
 ]);
 
 
@@ -54,6 +60,21 @@ export function updateBook(db: DatabaseSync, id: number, fields: Record<string, 
   const 值 = new Map<string, string | number | null>();
   for (const k of keys) {
     const v = fields[k];
+    if (k === 'chapter_count_override') {
+      // **手填本地章数**：null/undefined/空串 = 回到自动识别；只收正整数。
+      // 0 和负数没有意义（书不可能 0 章），小数也不是章数——别让 sqlite 的
+      // 列亲和性悄悄把 '1.5' 存成 1，要错当场抛（§13：外部调用方最容易发错值）
+      if (v === null || v === undefined || v === '') {
+        值.set(k, null);
+      } else {
+        const n = typeof v === 'number' ? v : Number(v);
+        if (!Number.isInteger(n) || n <= 0) {
+          throw new Error('本地章数得是正整数——留空就用自动识别的章数');
+        }
+        值.set(k, n);
+      }
+      continue;
+    }
     if (typeof v === 'string') {
       const t = v.trim();
       if (k === 'title') {
@@ -242,7 +263,7 @@ export async function reparseBooks(
 
 /** 单本书的完整信息，编辑弹窗用 */
 export function bookDetail(db: DatabaseSync, id: number): unknown {
-  return db
+  const row = db
     .prepare(
       `select b.*, f.path, f.encoding, f.encoding_locked, f.size, f.word_count, f.chapter_count,
               f.status as file_status, f.parsed_at,
@@ -252,5 +273,14 @@ export function bookDetail(db: DatabaseSync, id: number): unknown {
          left join reading_state r on r.book_id = b.id
         where b.id = ?`,
     )
-    .get(id);
+    .get(id) as Record<string, unknown> | undefined;
+  if (!row) return row;
+  // 「来源站点」就是主在线地址：编辑器不再有单独的自由文本框，显示这一条。
+  // 站名走适配器（qidian → 起点），认不出的站退回域名
+  const primary = db
+    .prepare('select url from online_link where book_id = ? order by is_primary desc, id limit 1')
+    .get(id) as { url: string } | undefined;
+  row.primary_url = primary?.url ?? null;
+  row.primary_site = primary ? (adapterForUrl(primary.url)?.label ?? siteFromUrl(primary.url)) : null;
+  return row;
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeProgressGate, uiYieldDecision } from './pacing.ts';
+import { launchStartDecision, makeProgressGate, uiYieldDecision } from './pacing.ts';
 
 /**
  * 这两组断言守的是**只在八千本的真实书库上才暴露**的两个问题。
@@ -56,4 +56,14 @@ test('用户自己关掉的开关，切个窗口不能把它打开', () => {
   assert.equal(uiYieldDecision(false, false, false), 'none');
   // 已经在跑了就别重复启动
   assert.equal(uiYieldDecision(false, true, true), 'none');
+});
+
+test('启动延迟到点：没人看就开跑，人在用就挂起等失焦', () => {
+  // 没在跑 + 窗口失焦：开跑。后台回填本来就该在没人看的时候做
+  assert.equal(launchStartDecision(false, false), 'start');
+  // 没在跑 + 人正在用：不跑（抓封面书架慢二三十倍），挂到失焦恢复那条路上
+  assert.equal(launchStartDecision(false, true), 'defer');
+  // 已经在跑（手动开的）：什么都不做
+  assert.equal(launchStartDecision(true, false), 'nothing');
+  assert.equal(launchStartDecision(true, true), 'nothing');
 });

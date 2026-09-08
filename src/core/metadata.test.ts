@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { openDb } from './db.ts';
 import { scanRoot } from './scan.ts';
-import { updateBook, batchUpdate, previewExtract, applyExtract, reparseBooks } from './metadata.ts';
+import { updateBook, batchUpdate, previewExtract, applyExtract, reparseBooks, bookDetail } from './metadata.ts';
 
 let dir: string;
 let db: DatabaseSync;
@@ -192,5 +192,72 @@ test('书名不能被清空，前后空白一律去掉', () => {
   // 连载状态那一列是 not null：转成 null 会撞出一句 sqlite 原文，这里要说人话
   assert.throws(() => updateBook(db, id, { serial_status: '' }), /不认识的连载状态/);
   assert.throws(() => updateBook(db, id, { serial_status: '连载中' }), /不认识的连载状态/);
+});
+
+/*
+ * **手填本地章数**（`book.chapter_count_override`）：自动识别的章数切错了，
+ * 用户手填一个数盖过它。只收正整数；留空/null 回到自动；重新解析不碰这列。
+ */
+test('本地章数手填：正整数生效，0/负数/小数拒掉，null 回到自动', () => {
+  const id = ids()[0];
+  assert.equal(get(id).chapter_count_override, null, '新列默认 NULL = 用自动值');
+
+  updateBook(db, id, { chapter_count_override: 1234 });
+  assert.equal(get(id).chapter_count_override, 1234);
+
+  // 数字字符串也认（rpc/界面可能传字符串过来）
+  updateBook(db, id, { chapter_count_override: '800' });
+  assert.equal(get(id).chapter_count_override, 800);
+
+  // 胡说八道的值当场抛，别让 sqlite 亲和性悄悄存下半个数
+  assert.throws(() => updateBook(db, id, { chapter_count_override: 0 }), /正整数/);
+  assert.throws(() => updateBook(db, id, { chapter_count_override: -5 }), /正整数/);
+  assert.throws(() => updateBook(db, id, { chapter_count_override: 1.5 }), /正整数/);
+  assert.throws(() => updateBook(db, id, { chapter_count_override: 'abc' }), /正整数/);
+  assert.equal(get(id).chapter_count_override, 800, '被拒之后旧值不许动');
+
+  // 留空 = 回到自动识别
+  updateBook(db, id, { chapter_count_override: null });
+  assert.equal(get(id).chapter_count_override, null);
+  updateBook(db, id, { chapter_count_override: 500 });
+  updateBook(db, id, { chapter_count_override: '' });
+  assert.equal(get(id).chapter_count_override, null, '空串也算清空');
+});
+
+test('本地章数手填后重新解析不碰它', async () => {
+  const [a] = ids();
+  updateBook(db, a, { chapter_count_override: 999 });
+  await reparseBooks(db, [a]);
+  assert.equal(
+    get(a).chapter_count_override, 999,
+    'override 是 book 表上独立的一列，重解析只刷新 book_file.chapter_count',
+  );
+  // bookDetail 两个数都要带得出来（界面要同时显示手填值和自动值）
+  const d = bookDetail(db, a) as { chapter_count_override: number; chapter_count: number };
+  assert.equal(d.chapter_count_override, 999);
+  assert.equal(d.chapter_count, 3, '自动识别那本就是 3 章');
+});
+
+test('bookDetail 带出主在线地址：「来源站点」显示的就是它', () => {
+  const [a, b] = ids();
+  // 没地址：两个字段都是 null，界面显示「未记录」
+  const empty = bookDetail(db, a) as { primary_url: string | null; primary_site: string | null };
+  assert.equal(empty.primary_url, null);
+  assert.equal(empty.primary_site, null);
+
+  // 两条地址：主地址（is_primary）胜出，认得出的站给中文名而不是域名
+  db.prepare("insert into online_link(book_id, url, site, is_primary) values(?,?,?,0)")
+    .run(b, 'https://example.com/book/1', 'example.com');
+  db.prepare("insert into online_link(book_id, url, site, is_primary) values(?,?,?,1)")
+    .run(b, 'https://www.qidian.com/book/1049314010/', 'qidian.com');
+  const withLink = bookDetail(db, b) as { primary_url: string | null; primary_site: string | null };
+  assert.equal(withLink.primary_url, 'https://www.qidian.com/book/1049314010/');
+  assert.equal(withLink.primary_site, '起点', '认得出适配器给中文名');
+
+  // 主地址是陌生站：站名退回域名，不为 null
+  db.prepare('update online_link set is_primary = 0 where book_id = ?').run(b);
+  db.prepare("update online_link set is_primary = 1 where url = 'https://example.com/book/1'").run();
+  const unknown = bookDetail(db, b) as { primary_site: string | null };
+  assert.equal(unknown.primary_site, 'example.com');
 });
 

@@ -28,6 +28,20 @@ import { bundledFonts, listFonts } from '../core/fonts.ts';
 import { makeProgressGate } from '../core/pacing.ts';
 import { closeOpenSessions } from '../core/status.ts';
 
+/**
+ * **断管道时一句日志都不许崩主进程。** 应用从终端或后台启动器里拉起来、而那个
+ * 管道的读端先走了（终端关了、后台启动命令已退出），之后任何 `console.log` 写
+ * stdout 都会抛 `EPIPE`——它在事件回调里就是 uncaught exception，Electron 弹
+ * 「A JavaScript error occurred」。联网补全一开隐藏窗口会触发主窗的 focus/blur
+ * 日志，正好踩中（2026-09 真实事故：点「联网补全」立刻弹窗）。
+ * 给两个标准流挂 error 吞掉 EPIPE（别的错误照抛）：日志永远不该有这个分量。
+ */
+for (const stream of [process.stdout, process.stderr] as const) {
+  stream.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code !== 'EPIPE') throw err;
+  });
+}
+
 const here = dirname(fileURLToPath(import.meta.url));
 
 /** 没打包时的窗口图标。打包后 `build/` 不在 asar 里，这个路径不存在 */
@@ -386,6 +400,16 @@ app.whenReady().then(async () => {
       return { ok: true };
     },
 
+    /** 用系统浏览器打开一个外部链接（侧栏的 GitHub 图标）。
+     *  只放 http(s)：`openExternal` 能唤起 mailto:/自定义协议，而这张 rpc 表
+     *  还开在 HTTP 端口上，不能让它替任何链接起本机程序。 */
+    'ui.openExternal': async (params: unknown) => {
+      const url = (params as { url?: string })?.url;
+      if (!url || !/^https?:\/\//i.test(url)) throw new Error('只接受 http(s) 链接');
+      await shell.openExternal(url);
+      return { ok: true };
+    },
+
     /**
      * 字体列表 = **随应用发布的 + 用户自己装的**。在这里覆盖 rpc.ts 那份，
      * 因为「随应用发布的字体在哪」只有主进程知道：打包后在 resources/fonts，
@@ -409,6 +433,20 @@ app.whenReady().then(async () => {
       return coverFetcher.testSource(p.source, p.title || '斗破苍穹');
     },
     'cover.fetchOne': (params) => coverFetcher.fetchOne(Number((params as { bookId: number }).bookId)),
+    // 更新检查要借封面那台隐藏窗口（起点/番茄），所以和 cover.* 一样拼在 main 这层
+    'link.checkUpdates': (params) => {
+      const p = (params ?? {}) as { bookId?: number };
+      return coverFetcher.checkUpdates(p.bookId === undefined ? {} : { bookId: Number(p.bookId) });
+    },
+    /**
+     * 用户粘了一个详情页链接：取那一页的封面/简介/作者/分类，**只取不写**。
+     * 渲染进程拿到候选先给预览，确认后走 enrich.apply({trustIdentity:true}) 落库。
+     * 起点详情页要隐藏窗口，所以也拼在 main 这层。`ref` 是粘贴框原文或已存地址。
+     */
+    'link.fetchDetail': (params) => {
+      const p = (params ?? {}) as { bookId: number; ref?: string };
+      return coverFetcher.fetchFromUrl(Number(p.bookId), String(p.ref ?? ''));
+    },
   };
 
   // 渲染进程入口。和 /api/rpc 共用 callRpc 那一处判据，不另写守卫
@@ -428,7 +466,10 @@ app.whenReady().then(async () => {
    */
   win.on('focus', () => { console.log('[cover] 窗口获得焦点，抓取让路'); coverFetcher.setUiActive(true); });
   win.on('blur', () => { console.log('[cover] 窗口失焦，8 秒后接着抓'); coverFetcher.setUiActive(false); });
-  if (win.isFocused()) coverFetcher.setUiActive(true);
+  // ⚠️ 两种状态都要报：启动时就没焦点的窗口不会再收到 blur 事件，
+  // 只报「聚焦了」的话那一侧 uiActive 永远是默认值 true，启动延迟到点只会挂起、
+  // 又永远等不到失焦事件把它放行
+  coverFetcher.setUiActive(win.isFocused());
 
   // AI 维护接口（spec §13.1）。起不来只记日志——它是附属品，不能拖垮应用
   const server = createApiServer({ readonlyDb: openReadonly(dbPath), rpc });
@@ -442,13 +483,12 @@ app.whenReady().then(async () => {
    * 现在两头读同一个环境变量，走查实例自己占一个口，互不干扰。
    */
   const 指定的口 = Number(process.env.SHUZHAI_API_PORT);
-  const port = await listen(
-    server,
-    Number.isInteger(指定的口) && 指定的口 > 0 && 指定的口 < 65536 ? 指定的口 : DEFAULT_PORT,
-  );
+  const 想要的口 =
+    Number.isInteger(指定的口) && 指定的口 > 0 && 指定的口 < 65536 ? 指定的口 : DEFAULT_PORT;
+  const port = await listen(server, 想要的口);
   console.log(
     port === null
-      ? `[api] 维护接口未启动：${DEFAULT_PORT} 端口被占用。应用其余功能不受影响`
+      ? `[api] 维护接口未启动：${想要的口} 端口被占用（检查是不是前一个实例还没退）。应用其余功能不受影响`
       : `[api] 维护接口已就绪 http://127.0.0.1:${port}`,
   );
 

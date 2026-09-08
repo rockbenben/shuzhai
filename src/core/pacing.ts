@@ -54,3 +54,18 @@ export function uiYieldDecision(
   if (uiActive) return running ? 'yield' : 'none';
   return !running && yielded ? 'resume' : 'none';
 }
+
+/**
+ * 启动时批量开关开着，半分钟的启动 cushion 到点：现在该不该真的开跑。
+ *
+ * - 已经在跑（用户手动开的）：什么都不做。
+ * - 窗口没人看（失焦）：开跑——后台回填本来就该在没人看的时候做。
+ * - 人正在用：**不跑，也别把这次启动白扔**——挂到失焦恢复那条路上
+ *   （调用方把 `yielded` 置 true）：人切走 8 秒就开，人一直看着就一直不开。
+ *   判据同「抓取进行中、窗口获焦就让路」：抓封面时书架慢二三十倍。
+ */
+export type LaunchAction = 'start' | 'defer' | 'nothing';
+export function launchStartDecision(running: boolean, uiActive: boolean): LaunchAction {
+  if (running) return 'nothing';
+  return uiActive ? 'defer' : 'start';
+}
