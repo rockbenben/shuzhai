@@ -364,9 +364,13 @@ export function App() {
   /** 每换一次筛选条件就 +1。在途的「加载下一页」回来时对不上号就丢掉，
    *  否则会把上一档筛选的书追加到新列表后面 */
   const gen = useRef(0);
-  /** 滚到底的哨兵。用 IntersectionObserver 而不是监听 scroll 事件——
-   *  后者每滚一像素都要算一次，而这里只关心「它进没进视口」 */
-  const sentinel = useRef<HTMLDivElement>(null);
+  /** 滚到底的哨兵节点 + 它的 observer。用 IntersectionObserver 而不是监听 scroll
+   *  事件——后者每滚一像素都要算一次，而这里只关心「它进没进视口」 */
+  const sentinelEl = useRef<HTMLDivElement | null>(null);
+  const sentinelIo = useRef<IntersectionObserver | null>(null);
+  /** loadMore 走 ref：哨兵的回调 ref 身份必须稳定（只在节点装卸时触发），
+   *  不能跟着 loadMore 的 useCallback 身份变而被 React 反复解绑重绑 */
+  const loadMoreRef = useRef<(() => void) | null>(null);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ file: string; done: number } | null>(null);
@@ -815,6 +819,8 @@ export function App() {
       loadingMore.current = false;
     }
   }, [filter, sort, atEnd]);
+  // 每次渲染都同步最新的 loadMore，供稳定身份的哨兵回调 ref 调用
+  loadMoreRef.current = loadMore;
 
   /** 只有一级目录上开关。子目录跟着父目录走——列全 15 个就又「不好选」了 */
   const tops = useMemo(() => dirs.filter((d) => d.depth <= 1), [dirs]);
@@ -852,32 +858,45 @@ export function App() {
     refresh().catch((e: Error) => setError(e.message));
   }, [refresh]);
 
-  // 下拉自动加载：哨兵滚进滚动容器就取下一页
-  useEffect(() => {
-    const el = sentinel.current;
-    if (!el) return;
-    // **root 必须是真正的滚动容器 `.main`，不能用视口（null）。**
-    // 这个应用 body 不滚动：`.app` 是 height:100vh + overflow:hidden，滚动发生在
-    // `.main`（overflow-y:auto）这个内部容器里。哨兵在它里面滚。拿视口当 root 时，
-    // 相交要靠浏览器跨 `.app`/`.main`/`.tablewrap` 好几层 overflow clip 去推——
-    // 表格视图多一层 `.tablewrap`（overflow-x:auto），实测滚到底哨兵已经进了可视区
-    // （getBoundingClientRect 在视口内）observer 却一个回调都不发，分页永远停在 120。
-    // 直接拿滚动容器当 root，判定相对它，封面墙/表格/书评三个视图走同一条。
-    const scrollRoot = el.closest('.main') as Element | null;
+  /**
+   * 把无限滚动 observer 挂到哨兵节点上（重挂前先 disconnect 旧的）。
+   *
+   * **root 必须是真正的滚动容器 `.main`，不能用视口（null）。** 这个应用 body
+   * 不滚动：`.app` 是 height:100vh + overflow:hidden，滚动发生在 `.main`
+   * （overflow-y:auto）这个内部容器里，哨兵在它里面滚。拿视口当 root 时相交要靠
+   * 浏览器跨 `.app`/`.main`/`.tablewrap` 好几层 overflow clip 去推——表格视图多
+   * 一层 `.tablewrap`（overflow-x:auto），实测滚到底哨兵已进可视区却一个回调都不发，
+   * 分页永远停在 120。直接拿滚动容器当 root，三视图（封面墙/表格/书评）走同一条。
+   *
+   * 它是**回调 ref**（`ref={attachSentinel}`），身份稳定、空依赖：React 在哨兵节点
+   * 出现/消失时直接调用它。这一点至关重要——进阅读器/查看器时 `App` 提前 return
+   * `<Reader>`，书架整块**卸载**，回来时是一个全新的哨兵节点；而 App 组件本身没卸载，
+   * 若只靠 effect（依赖 [books.length, view]），回来时这些依赖全没变、effect 不重跑，
+   * observer 就一直盯着已被销毁的旧节点，「从阅读界面回到书架」后无限滚动永久失灵。
+   * 回调 ref 随节点卸载时拿到 null（disconnect）、重新挂载时拿到新节点（重连）。
+   */
+  const attachSentinel = useCallback((node: HTMLDivElement | null) => {
+    sentinelIo.current?.disconnect();
+    sentinelIo.current = null;
+    sentinelEl.current = node;
+    if (!node) return;
     const io = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) void loadMore();
+        if (entries[0]?.isIntersecting) void loadMoreRef.current?.();
       },
       // 提前一屏开始加载，滚到底时下一批通常已经就位
-      { root: scrollRoot, rootMargin: '600px' },
+      { root: node.closest('.main'), rootMargin: '600px' },
     );
-    io.observe(el);
-    return () => io.disconnect();
-    // books.length 必须在依赖里：IntersectionObserver 只在**相交状态变化**时回调，
-    // 追加完一页后哨兵要是还在视口内（比如窗口很高、一页填不满）就永远等不到下一次回调，
-    // 加载会静悄悄停住。每次追加后重建 observer，它一挂上就会立刻报一次当前状态。
-    // view 也要在：封面墙↔表格切换后重新 observe 当前哨兵并立刻判一次，不靠旧观察器。
-  }, [loadMore, books.length, view]);
+    io.observe(node);
+    sentinelIo.current = io;
+  }, []);
+
+  // 回调 ref 管节点「装卸」；这里在追加一页/切视图后重挂一次：IntersectionObserver
+  // 只在相交**变化**时回调，追加后哨兵若仍在 rootMargin 内（窗口极高、一页填不满）
+  // 就不会再有下一次回调，重挂让它立刻按当前状态再判一次。
+  useEffect(() => {
+    attachSentinel(sentinelEl.current);
+  }, [attachSentinel, books.length, view]);
 
   // 扫描进度。大库第一次扫要好几分钟，只显示「正在扫描」的话
   // 分不清是在干活还是卡死了
@@ -2608,7 +2627,7 @@ export function App() {
 
         {/* 滚到这儿就自动加载下一页，不用点 */}
         {!atEnd && books.length > 0 && (
-          <div ref={sentinel} className="muted" style={{ textAlign: 'center', padding: '1.6rem 0', fontSize: '.85rem' }}>
+          <div ref={attachSentinel} className="muted" style={{ textAlign: 'center', padding: '1.6rem 0', fontSize: '.85rem' }}>
             正在加载更多…（已显示 {books.length} 本）
           </div>
         )}

@@ -14421,3 +14421,29 @@ chapter_idx、reread_count+1**——那是铁律 3 的进度；「我只是标�
 表格 120→720、封面墙 720→1200 一路加载。查这类问题别只盯 `loadMore` 逻辑——
 后端分页用 `/api/rpc` 两个 offset 一调就知道是不是前端；前端再挂一个**全新** observer
 观察同一个哨兵，看它到底发不发回调，比读十遍 effect 都快。
+
+## 2026-09-08 同一棵 observer，从阅读器回来又死了：effect 依赖里没有「组件没卸载但节点卸载了」
+
+root 改成 `.main` 之后表格视图好了，但**从阅读界面回到书架**又卡住。根因和上一条
+是两码事：App 组件里 `if (reading) return <Reader/>` 是提前 return——进阅读器时
+书架整块 DOM（含哨兵）被**卸载**，回来时是一个**全新**哨兵节点；而 App 组件本身
+（和它的 useEffect）从头到尾没卸载。observer 那个 effect 依赖是
+`[loadMore, books.length, view]`，回来时这三样全没变，effect 不重跑，observer 还
+盯着已经脱离文档的旧节点——新书一个都加载不了。
+
+判据：**观察的节点会条件渲染、而它的 observer 挂在一个不卸载的父组件里，就别用
+`useRef + useEffect`，用回调 ref。** 回调 ref 由 React 在「这个节点出现/消失」时
+直接调用（挂载给节点、卸载给 null），不依赖你记得把哪些会导致卸载的状态加进依赖。
+这里是 `attachSentinel`：`useCallback([], )` 稳定身份，`ref={attachSentinel}`；
+节点来了 disconnect 旧的、observe 新的，节点走了 disconnect。loadMore 走
+`loadMoreRef`（每次渲染同步），否则回调 ref 要跟 loadMore 的 useCallback 身份绑，
+身份一变就被 React 反复解绑重绑。原来那份「books.length 变了就重建 observer 好让它
+立刻重判一次」的需求保留成一个小 effect，deps 不变、只在追加/切视图后 `attachSentinel(
+sentinelEl.current)` 重挂。
+
+另一条测量教训：**后台/没焦点的 Electron 窗口不产帧时，IntersectionObserver 整体
+暂停**——root 对、节点对、节点也在视口里，observer 照样一个回调都不发（连初始的
+isIntersecting=false 都不发）。走查这种场景，CDP 里要先
+`Emulation.setFocusEmulationEnabled(true)` + `Page.setWebLifecycleState('active')`，
+否则你会把「窗口没在渲染」误判成「代码坏了」，白改半天。判据：同一个 observer、
+同一份几何，开活跃模拟前后行为不一致，就是这个问题。
