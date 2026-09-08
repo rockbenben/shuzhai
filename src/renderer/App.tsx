@@ -852,23 +852,32 @@ export function App() {
     refresh().catch((e: Error) => setError(e.message));
   }, [refresh]);
 
-  // 下拉自动加载：哨兵进入视口就取下一页
+  // 下拉自动加载：哨兵滚进滚动容器就取下一页
   useEffect(() => {
     const el = sentinel.current;
     if (!el) return;
+    // **root 必须是真正的滚动容器 `.main`，不能用视口（null）。**
+    // 这个应用 body 不滚动：`.app` 是 height:100vh + overflow:hidden，滚动发生在
+    // `.main`（overflow-y:auto）这个内部容器里。哨兵在它里面滚。拿视口当 root 时，
+    // 相交要靠浏览器跨 `.app`/`.main`/`.tablewrap` 好几层 overflow clip 去推——
+    // 表格视图多一层 `.tablewrap`（overflow-x:auto），实测滚到底哨兵已经进了可视区
+    // （getBoundingClientRect 在视口内）observer 却一个回调都不发，分页永远停在 120。
+    // 直接拿滚动容器当 root，判定相对它，封面墙/表格/书评三个视图走同一条。
+    const scrollRoot = el.closest('.main') as Element | null;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) void loadMore();
       },
       // 提前一屏开始加载，滚到底时下一批通常已经就位
-      { root: null, rootMargin: '600px' },
+      { root: scrollRoot, rootMargin: '600px' },
     );
     io.observe(el);
     return () => io.disconnect();
     // books.length 必须在依赖里：IntersectionObserver 只在**相交状态变化**时回调，
     // 追加完一页后哨兵要是还在视口内（比如窗口很高、一页填不满）就永远等不到下一次回调，
-    // 加载会静悄悄停住。每次追加后重建 observer，它一挂上就会立刻报一次当前状态
-  }, [loadMore, books.length]);
+    // 加载会静悄悄停住。每次追加后重建 observer，它一挂上就会立刻报一次当前状态。
+    // view 也要在：封面墙↔表格切换后重新 observe 当前哨兵并立刻判一次，不靠旧观察器。
+  }, [loadMore, books.length, view]);
 
   // 扫描进度。大库第一次扫要好几分钟，只显示「正在扫描」的话
   // 分不清是在干活还是卡死了

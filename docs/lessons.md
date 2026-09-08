@@ -14393,3 +14393,31 @@ chapter_idx、reread_count+1**——那是铁律 3 的进度；「我只是标�
 
 返回类型 `RefreshFileResult` 放在 `scan.ts`（rpc 和 Reader 两个调用点共用
 一份）——探测和真刷新两个内联泛型写得不一样，dup-decls 当场抓撞名。
+
+## 2026-09-08 无限滚动的 IntersectionObserver：root 必须是滚动容器，不是视口
+
+表格视图滚到底显示「正在加载更多…（已显示 120 本）」但永远不加载下一页；封面墙
+没事。后端分页没问题（直接调 `listBooks` 和 /api/rpc 第二页都返回 120 行、不重叠），
+死在渲染层。
+
+根因：书架哨兵用的是 `new IntersectionObserver(cb, { root: null })`——**root:null
+是视口，但这个应用 body 根本不滚动**：`.app` 是 `height:100vh; overflow:hidden`，
+真正在滚的是 `.main`（`overflow-y:auto`）这个内部容器，哨兵在它里面滚。
+封面墙凑巧能触发；表格视图多了一层 `.tablewrap`（`overflow-x:auto`）的裁剪上下文，
+跨 `.app`/`.main`/`.tablewrap` 多层 overflow clip 再去和视口求交，Chromium **一个回调
+都不发**——实测滚到底后哨兵 `getBoundingClientRect()` 已经落在 `.main` 可视区内
+（top 641 / bottom 715 / clientHeight 763），`display/visibility/opacity` 全正常、
+`isConnected` 为真，现挂一个全新的 observer 也是 no-callback。而 `loadMore` 有
+`gen.current !== g` 丢弃、`observer` effect 又只在 `books.length` 变时重建——
+不加载 → 行数不变 → observer 不重建，死锁。
+
+判据：**哨兵在 `overflow:auto` 的内部容器里滚动时，observer 的 `root` 就该是那个容器**
+（`sentinel.closest('.main')`），不是视口。相交直接相对滚动容器算，三个视图
+（封面墙/表格/书评）走同一条，不依赖浏览器替你跨多层 clip 去推。effect 依赖顺手补上
+`view`：封面墙↔表格切换后重新 observe 当前哨兵并立刻判一次，别指望旧观察器还连着
+那个节点。
+
+真机验证（副本库 8290 本）：修复前表格滚到底停 120、滚动高度不再涨；修复后
+表格 120→720、封面墙 720→1200 一路加载。查这类问题别只盯 `loadMore` 逻辑——
+后端分页用 `/api/rpc` 两个 offset 一调就知道是不是前端；前端再挂一个**全新** observer
+观察同一个哨兵，看它到底发不发回调，比读十遍 effect 都快。
