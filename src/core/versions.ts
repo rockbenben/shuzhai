@@ -303,12 +303,12 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
       const 有 = (k: string) =>
         (db.prepare('select count(*) n from app_setting where key = ?').get(k) as { n: number }).n > 0;
       /*
-       * ⚠️ **按 id 命名的设置现在有两种了**：读到哪儿（`viewer.`）和
-       * **自建目录**（`outline.`，迁移 24）。两者搬法一模一样，所以走同一个循环——
-       * 写成两段的话，下一种加进来时又会漏一份（这个仓库那条
-       * 「同一件事抄两份必分叉」，在这张清单上已经应验了四次）。
+       * ⚠️ **按 id 命名的设置有三种**：读到哪儿（`viewer.`）、
+       * **自建目录**（`outline.`，迁移 24）和**繁简转换**（`convert.book.`，迁移 26）。
+       * 搬法一模一样，所以走同一个循环——写成多段的话，下一种加进来时又会漏一份
+       * （这个仓库那条「同一件事抄两份必分叉」，在这张清单上已经应验了四次）。
        */
-      for (const 前缀 of ['viewer', 'outline'] as const) {
+      for (const 前缀 of ['viewer', 'outline', 'convert.book'] as const) {
         const 败方位置 = `${前缀}.${id}`;
         const 赢家位置 = `${前缀}.${keeper.id}`;
         if (!有(败方位置)) continue;

@@ -56,6 +56,8 @@ const CHECKS = [
    * 同一次还漏了 `deletion.ts` / `library.ts` / `versions.ts` 三处。
    */
   ['outline.<id> 指向不存在的书', "select 1 from app_setting s where s.key like 'outline.%' and not exists (select 1 from book b where 'outline.' || b.id = s.key)"],
+  // 繁简转换设置（convert.book.<bookId>，迁移 26）。第三个按 id 命名的设置
+  ['convert.book.<id> 指向不存在的书', "select 1 from app_setting s where s.key like 'convert.book.%' and not exists (select 1 from book b where 'convert.book.' || b.id = s.key)"],
   /*
    * 笔记的标签（`highlight_tag`，迁移 23）。形状拄 `book_tag` 那一条：
    * 两边外键都带 `on delete cascade`，所以这条平时应该恒为 0；

@@ -92,6 +92,24 @@ test('每本书的转换模式默认是「原文」', () => {
   assert.equal(bookConvertMode(db, 2), 'off', '设置是按书的，不该串到别的书');
 });
 
+test('删书时触发器顺手清掉该书的繁简转换设置，防止复用 book.id 串味', () => {
+  db.prepare("insert into book(id, title) values(10, '某书')").run();
+  setBookConvertMode(db, 10, 'to-traditional');
+  assert.equal(bookConvertMode(db, 10), 'to-traditional');
+
+  // 删掉这本书
+  db.prepare('delete from book where id = 10').run();
+  assert.equal(
+    db.prepare('select value from app_setting where key = ?').get('convert.book.10'),
+    undefined,
+    '删书后触发器必须删掉 convert.book.10',
+  );
+
+  // 即使随后插入新书复用该 id，它的模式也必须是默认的 off
+  db.prepare("insert into book(id, title) values(10, '新书')").run();
+  assert.equal(bookConvertMode(db, 10), 'off');
+});
+
 // ── 实时监听 ─────────────────────────────────────────────
 
 /**

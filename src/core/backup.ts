@@ -33,6 +33,7 @@ import { COLORS, 解析矩形, tagsOfHighlights } from './highlight.ts';
 import { READING_STATUS_IDS, asFinite, asText, asWhen } from './status.ts';
 import { sqlTime } from './format.ts';
 import { readOutline, writeOutline } from './outline.ts';
+import { bookConvertMode, setBookConvertMode, type ConvertMode } from './convert.ts';
 
 /**
  * 备份格式版本。
@@ -174,6 +175,13 @@ export interface BackupBook {
    * PDF 自带的 outline 不在这里——那东西在文件里，重新打开就有。
    */
   outline?: Array<{ page: number; title: string }>;
+  /**
+   * **繁简转换模式**（`convert.book.<bookId>`，迁移 26）。
+   *
+   * 和 `viewerPos` / `outline` 同一形状：按 id 命名的设置，恢复时 book id 会重新分配，
+   * 所以拿恢复之后的 id 写，不能照搬那个键。缺省或 'off' 不写进备份。
+   */
+  convertMode?: ConvertMode | null;
   onlineLinks: unknown[];
 }
 
@@ -306,6 +314,8 @@ export function exportBackup(db: DatabaseSync): BackupFile {
         )?.value || null,
       // 自建目录。空的就不写进去，别让每本书都多一个空数组
       ...(readOutline(db, id).length ? { outline: readOutline(db, id) } : {}),
+      // 繁简转换模式。默认 'off' 不写进备份
+      ...(bookConvertMode(db, id) !== 'off' ? { convertMode: bookConvertMode(db, id) } : {}),
       onlineLinks: tableExists(db, 'online_link')
         ? db.prepare('select * from online_link where book_id = ?').all(id)
         : [],
@@ -834,6 +844,15 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
        */
       if (Array.isArray(bb.outline) && bb.outline.length) {
         try { writeOutline(db, bookId, bb.outline); } catch { report.fixed++; }
+      }
+
+      /*
+       * **繁简转换模式**（迁移 26）。同上：按恢复之后的 `bookId` 写。
+       * 缺省或 'off' 不写进备份；非法值由 setBookConvertMode 拦截并抛错，
+       * 包 try 兜住，一条坏数据不破坏整份恢复。
+       */
+      if (bb.convertMode && bb.convertMode !== 'off') {
+        try { setBookConvertMode(db, bookId, bb.convertMode); } catch { report.fixed++; }
       }
 
       report.matched++;

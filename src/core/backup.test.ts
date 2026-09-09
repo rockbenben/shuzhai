@@ -11,6 +11,7 @@ import { setStatus, addBookmark, listBookmarks } from './status.ts';
 import { tagBooks } from './library.ts';
 import { addManualBook } from './manual.ts';
 import { addHighlight, tagHighlights, tagsOfHighlights } from './highlight.ts';
+import { setBookConvertMode, bookConvertMode } from './convert.ts';
 
 let dir: string;
 let lib: string;
@@ -248,6 +249,39 @@ test('PDF / EPUB 读到哪儿也要备份，而且要跟着新的 book id 走', 
       (fresh.prepare('select count(*) n from app_setting where key = ?').get(`viewer.${id}`) as { n: number }).n,
       0,
       '别按备份里那个旧 id 写——那个 id 在新库里是别的书',
+    );
+  } finally {
+    fresh.close();
+  }
+});
+
+test('繁简转换设置也要备份，而且要跟着新的 book id 走', async () => {
+  const id = await seed();
+  setBookConvertMode(db, id, 'to-simplified');
+  const bk = exportBackup(db);
+
+  const 那本 = bk.books.find((b) => b.title === '雪中悍刀行');
+  assert.equal(那本?.convertMode, 'to-simplified', '备份里要带上繁简设置');
+
+  const 另一本 = bk.books.find((b) => b.title === '斗破苍穹');
+  assert.equal(另一本?.convertMode, undefined, '默认 off 不写进备份，保持精简');
+
+  // 换一个库恢复，先塞两本占位书把自增顶掉
+  const fresh = openDb(join(dir, 'fresh-convert.db'));
+  try {
+    fresh.prepare("insert into book(title, author) values('占位用的', '某某')").run();
+    fresh.prepare("insert into book(title, author) values('也是占位', '某某')").run();
+    const r2 = Number(fresh.prepare('insert into library_root(path) values(?)').run(lib).lastInsertRowid);
+    await scanRoot(fresh, { id: r2, path: lib });
+    importBackup(fresh, bk);
+
+    const 新 = (fresh.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+    assert.notEqual(新, id, '夹具必须有差值');
+    assert.equal(bookConvertMode(fresh, 新), 'to-simplified', '繁简设置要落在恢复之后那本书的 id 上');
+    assert.equal(
+      (fresh.prepare('select count(*) n from app_setting where key = ?').get(`convert.book.${id}`) as { n: number }).n,
+      0,
+      '别按旧 id 写',
     );
   } finally {
     fresh.close();

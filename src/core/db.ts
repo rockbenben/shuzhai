@@ -602,6 +602,20 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
       db.exec('alter table book add column chapter_count_override integer');
     }
   },
+
+  /*
+   * 26：删书时顺手删掉繁简转换设置（`convert.book.<id>`）。
+   *
+   * 这是第三个「按 id 命名的设置」（前两个是 `viewer.<id>` 和 `outline.<id>`）。
+   * 没有外键保护，删书时漏清就会在复用 `book.id` 时悄悄生效。
+   */
+  (db) => db.exec(`
+    create trigger if not exists 删书时清掉繁简设置
+      after delete on book
+    begin
+      delete from app_setting where key = 'convert.book.' || old.id;
+    end;
+  `),
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

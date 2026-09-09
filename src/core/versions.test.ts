@@ -230,6 +230,28 @@ test('合并：PDF / EPUB 读到哪儿要跟过去，keeper 已经有的不许�
   }
 });
 
+test('合并：繁简转换设置（convert.book）要跟过去，keeper 已经有的不许被盖', () => {
+  const a = addBook('书 A', '某人');
+  const b = addBook('书 A', '某人');
+  addFile(a, 'C:\\a.txt', { primary: true });
+  addFile(b, 'C:\\b.txt', { primary: true });
+  db.prepare('update reading_state set chapter_idx = 5 where book_id = ?').run(b); // b 当 keeper
+  db.prepare('insert into app_setting(key, value) values(?, ?)').run(`convert.book.${a}`, 'to-simplified');
+
+  const { keptBookId } = mergeBooks(db, [a, b]);
+  assert.equal(keptBookId, b);
+  assert.equal(
+    (db.prepare('select value from app_setting where key = ?').get(`convert.book.${b}`) as { value: string } | undefined)?.value,
+    'to-simplified',
+    '败方的繁简转换设置要搬到 keeper 上',
+  );
+  assert.equal(
+    (db.prepare('select count(*) n from app_setting where key = ?').get(`convert.book.${a}`) as { n: number }).n,
+    0,
+    '败方的繁简转换设置记录要清掉',
+  );
+});
+
 test('合并后必须仍有且只有一个主版本', () => {
   const a = addBook('同名书', null);
   const b = addBook('同名书', null);
