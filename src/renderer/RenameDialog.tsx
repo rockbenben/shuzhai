@@ -149,7 +149,9 @@ export function RenameDialog({ bookIds, onClose }: Props) {
   if (!warned) {
     return (
       <div className="modal-backdrop">
-        <div className="modal" style={{ maxWidth: '32rem' }}>
+        {/* 宽度不单独收窄：下一张试算弹窗是基准 44rem（.modal 自带），这一张 32rem、
+            点「去试算预览」弹窗体横着跳一下。32rem 是初次提交带进来的值，没有判据 */}
+        <div className="modal">
           {/* 标题里要说**这次要动几本**。原来只写「关于重命名」，通篇是通则，
               读起来像一份说明书——而用户此刻是带着「我要改这 68 本」来的，
               点下去之前根本不知道这一下涉及多少文件。

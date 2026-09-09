@@ -13,6 +13,10 @@
 // 3. **说明只留会导致数据事故的那几句**。原来每个开关下面挂三四行解释，
 //    读完一屏才知道有几个选项。真正必须说的只有两处：重命名/删除那个总开关，
 //    和在线朗读会把正文发到第三方。其余移进 title 里。
+// 4. **弹窗是「头 / 滚动体 / 底栏」三段 flex**（settings-head / settings-body /
+//    modal-actions）：原来整个弹窗一个滚动条，sticky 底栏浮在内容上，最后一行
+//    正文正好滚到折缝时被切掉半个字（朗读引擎那句「自己加」常年只剩半截）。
+//    底栏放到滚动体外就没有「压字」这回事，页签标题行也一起固定了。
 
 import { useEffect, useRef, useState } from 'react';
 import { loadShowRating, saveShowRating, keyLabel, loadImportedThemes, saveImportedThemes } from './settings.ts';
@@ -210,7 +214,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal settings" onClick={(e) => e.stopPropagation()}>
-        <div className="row" style={{ marginBottom: '.8rem' }}>
+        <div className="row settings-head">
           <h2 style={{ margin: 0, fontSize: '1.1rem' }}>设置</h2>
           <div className="tabs">
             <button aria-current={tab === 'read'} onClick={() => setTab('read')}>阅读</button>
@@ -220,6 +224,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           <span className="muted" style={{ fontSize: '.78rem' }}>改动即时生效</span>
         </div>
 
+        <div className="settings-body">
         {tab === 'read' ? (
           <>
             {/* **外观和纸色是两件事，界面上也要分开摆。**
@@ -246,38 +251,21 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <span className="muted" style={{ fontSize: '.78rem' }}>书架、侧栏、对话框</span>
             </div>
 
-            {/* **纸色和排版都不在这儿，在阅读器的设置浮层里。**
-                这个弹窗是从书架打开的——在这里调正文颜色、把每行字数从 53 改到 60，
-                屏幕上没有一个字会变。这一行是指路，不是控件：留一份下拉在这里
-                就又变成两处能改同一件事，而其中一处看不见效果。
+            {/* 阅读器里调的东西在这儿只指路、不放控件：在书架上调字号，屏幕上
+                没有一个字会变，留一份控件就是两处改同一件事、其中一处看不见效果。
+                ⚠️ **逐个点名，别写「都」**：列出来的每一项都得真在阅读界面里
+                （齿轮管排版，朗读弹窗管换引擎），多一个少一个都会把指路变成假话。
+                这段的历史（两栏 / 说大话的「都」）在 docs/lessons.md 搜「设置弹窗」。 */}
+            <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.7rem' }}>
+              正文怎么排——<strong>字号、行距、纸色、字体、繁简、阅读方式、自动滚动</strong>——
+              和用哪个朗读引擎，都在阅读界面里边看边调：工具栏的齿轮管排版，
+              朗读弹窗管换引擎，改一下整页当场变。这里只管书架外观，
+              以及字体和引擎<strong>装了哪些</strong>。
+            </p>
 
-                **原来这是两行**，一行讲纸色一行讲排版，两句话说的是同一件事
-                （「在阅读器里调，那里改一下整页正文当场跟着变」），
-                前后隔着字体那一段所以没人发现。同一件事只能有一个说法。 */}
-            {/* 标签栏很窄，**四个词的标签会把最后一个字挤到第二行**
-                （「纸色、字号、行距、每行字数」→ 孤零零一个「数」），
-                和书架卡片上那个「2 万」/「字」是同一类。右边那句话同样不能长到
-                只剩一个字掉到第二行。
-
-                ⚠️ **但也不能为了短就把范围说大。** 一度写成「纸色和排版**都**在
-                阅读器里调」——而**正文字体就在这句话下面九行**，自动滚动还在再下面，
-                两个都在这个弹窗里。一个「都」字把指路变成了假话，
-                用户会关掉弹窗去阅读器里找一个根本不在那儿的字体选择器。
-                列三个真搬走了的就够，不必凑齐也不许说「都」 */}
-            {/* ⚠️ **逐个点名，别写「都」。** 这句话原来写成「纸色和排版都在阅读器里调」，
-                而正文字体和自动滚动当时还在这个弹窗里——一个「都」字把指路变成假话，
-                用户会关掉弹窗去阅读器里找一个根本不在那儿的东西。
-                现在它们真的搬过去了，所以这里列的是**全部**搬走的那些。 */}
-            <div className="field">
-              <span className="muted">纸色、字号、行距、正文字体、朗读、自动滚动</span>
-              <span className="muted" style={{ fontSize: '.78rem' }}>
-                在阅读器里调（工具栏的齿轮）——挑朗读引擎得一边听一边换，
-                改排版得看着整页正文当场变，那些事在书架上做不了
-              </span>
-            </div>
-
-            {/* 装字体。**应用不下载任何字体**——用户自己把文件放进来，
-                装没装、许可允不允许都是他自己的事 */}
+            <h3>字体</h3>
+            {/* 装字体。**应用不下载任何字体**——用户自己把文件装进来，
+                装没装、许可允不允许都是他自己的事；**选用哪个**在阅读器齿轮里 */}
             <div className="row" style={{ marginBottom: '.5rem', flexWrap: 'wrap' }}>
               <button
                 onClick={() => void (async () => {
@@ -373,9 +361,9 @@ export function Settings({ onClose }: { onClose: () => void }) {
               ))}
             </div>
             <p className="muted" style={{ fontSize: '.78rem', margin: '0 0 .6rem' }}>
-              收「阅读」里导出的主题文件。<strong>随应用发布的 10 张里有 6 张就是这么来的。</strong>
+              能导入 legado「阅读」导出的主题文件——<strong>随应用发布的 10 张里有 6 张就是这么转的</strong>。
               <br />
-              导进来的和你在阅读器里调过的颜色<strong>都跟着备份走</strong>，换台机器恢复一下就回来。
+              导入的纸色和你在阅读器里调过的颜色<strong>都跟着备份走</strong>，换台机器恢复一下就回来。
             </p>
             {paperMsg && <p className="muted" style={{ fontSize: '.8rem', margin: '0 0 .5rem' }}>{paperMsg}</p>}
 
@@ -426,6 +414,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           </>
         ) : (
           <>
+            <h3>扫描入库</h3>
             {/*
               * **收录下限。** 真实案例：一个装短文合集的目录，55 个 txt 里 27 个
               * 在 3–8 KB 之间，一扫全被 10 KB 那条线挡在外面——而 pdf 一个不少地进来了，
@@ -539,9 +528,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
               * 星星会不见，分不会丢。后半句是必须的：一个看起来会毁数据的开关，用户不敢点。
               */}
             <p className="muted" style={{ fontSize: '.8rem', marginTop: '.2rem' }}>
-              关掉之后书架上就不出现 ★ 了：封面上的角标、搜索结果里的那一列。
-              <strong>点开「评价」时那五颗星照旧在</strong>——评分和短评是一件事的两半，
-              藏掉一半剩下的就不成立了。<strong>已经打过的分一个都不会丢</strong>。
+              关掉后书架上不显示 ★：封面角标、搜索结果里的那一列都会收起来。
+              点「评价」时五颗星照旧在，<strong>已经打过的分一个都不会丢</strong>。
             </p>
 
             <h3>改动磁盘文件</h3>
@@ -564,11 +552,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
             <h3>按文件夹设连载状态</h3>
             <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 .4rem' }}>
-              书库本来就是按状态分文件夹放的，这里把那个信息接进来。
-              <strong>文件夹名你自己定</strong>——没在下面点过的走「其余文件夹」那一档。
+              书库本来就按状态分文件夹放，这里把那个信息接进来：以后扫描到的新书
+              自动按这套规则补状态，<strong>但不覆盖你手动改过的书</strong>。
               <br />
-              以后扫描进来的新书会自动按这套规则补状态，
-              <strong>但不会覆盖你手动改过的书</strong>。
+              <strong>文件夹名你自己定</strong>——没在下面点过的走「其余文件夹」那一档。
             </p>
             <label className="row" style={{ gap: '.4rem', fontSize: '.87rem', marginBottom: '.3rem' }}>
               <span style={{ minWidth: '7rem' }}>其余文件夹</span>
@@ -633,10 +620,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
             <h3>整理数据库</h3>
             <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 .4rem' }}>
-              清掉扫描修不好的残留记录（空书、没有主版本、内容还在别处的「文件缺失」、
-              移除文件夹后的孤儿）。<strong>只动记录，不碰磁盘文件。</strong>
-              要是文件是你自己在应用外删掉的（不是残留、是真没了），去书架侧栏
-              「需要处理」那档点「批量清理失效文件」——那种记录这儿清不掉。
+              清掉扫描修不好的残留记录（空书、缺主版本、文件其实还在别处的「文件缺失」、
+              移走文件夹后的孤儿），<strong>只动记录，不碰磁盘文件</strong>。
+              你在应用外自己删掉的文件不算残留——去侧栏「需要处理」档
+              点「批量清理失效文件」，那种记录这儿清不掉。
             </p>
             <div className="row">
               <button
@@ -687,17 +674,16 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 默认走「点一本补一本」（书籍编辑器里的「联网补全」），
                 这里是给不想一本本点的人准备的批量任务 */}
             <p className="warn-line">
-              平时用<strong>书籍编辑器里的「联网补全」</strong>，点一本补一本。
-              这个开关是批量：打开后把没补过的书都跑一遍——已经记下在线地址的
-              直接读那一页，没地址的按书名搜，搜到就读它的详情页，
-              会把<strong>书名和作者</strong>发到搜索源去，除此之外不发任何数据。
-              搜索来的东西只有书名、作者都精确一致才会用——宁可没有，不能配错。
+              平时用<strong>书籍编辑器里的「联网补全」</strong>，点一本补一本；这个开关是批量，
+              把没补过的书都跑一遍：记下过地址的直接读那一页，没地址的按书名搜。
+              会把<strong>书名和作者</strong>发到搜索源，除此之外不发任何数据；
+              搜索结果只有书名、作者都精确一致才采用——宁可没有，不能配错。
               <br />
               {/* 这条不是客套：抓一本要在隐藏窗口里真的渲染一遍对面的页面，
                   实测能让书架从 1.9 秒变成 40 秒。让路是自动的，但得让人知道，
                   否则「开着开关却看到剩余数不动」会被当成坏了 */}
-              <strong>你在用应用的时候它会自动停下来让路</strong>，切到别的窗口
-              几秒后接着跑——不这样的话，补全期间整个界面会明显变慢。
+              <strong>你在用应用时它自动停下让路</strong>，切走几秒后接着跑；
+              不让路的话，补全期间整个界面会明显变慢。
             </p>
             {cover && (
               <p className="muted" style={{ fontSize: '0.82rem', margin: '.2rem 0 .4rem' }}>
@@ -750,6 +736,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             {coverErr && <span className="danger">　{coverErr}</span>}
           </>
         )}
+        </div>
 
         <div className="row modal-actions" style={{ justifyContent: 'flex-end' }}>
           {/* ⚠️ **这个键只负责合上，改的每一项早就落库了**（`setting.set` / `clean.add`

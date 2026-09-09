@@ -1424,12 +1424,39 @@
 }
 
 
-/* 设置弹窗。原来是六段挤在一个滚动条里、还混着两套保存语义，
-   现在分两页、全部即时生效 */
+/* 设置弹窗。分两页、全部即时生效；结构是「头 / 滚动体 / 底栏」三段 flex——
+   原来整个弹窗一个滚动条 + sticky 底栏，最后一行正文滚到折缝处会被
+   底栏切掉半个字（朗读引擎那句「自己加」常年只剩半截），标题行也跟着滚走。
+   宽度用所有弹窗的基准 44rem：原来单独收在 38rem 是初次提交带进来的值、没有判据，
+   书库页「按文件夹设连载状态」的长目录名在 566px 内容宽里折成了好几行。 */
 .modal.settings {
-  max-width: 38rem;
+  max-width: 44rem;
   max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.settings-head {
+  flex: none;
+  margin-bottom: 0.8rem;
+}
+.settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  /* 负边距把滚动条送回弹窗边缘，padding 把内容拉回对齐线，同 .main-scroll */
+  margin: 0 -1.3rem;
+  padding: 0.1rem 1.3rem 0.9rem;
+}
+.modal.settings .modal-actions {
+  /* 覆盖 styles.css 里所有弹窗共享的 sticky 底栏：这一个的底栏在滚动体外 */
+  position: static;
+  flex: none;
+  margin: 0 -1.3rem;
+  padding: 0.6rem 1.3rem 1.1rem;
+  background: var(--bg);
 }
 .modal.settings h3 {
   font-size: 0.92rem;
