@@ -912,6 +912,26 @@ test('改标签名撞上已有的名字就是合并，书数取并集不是和',
   assert.equal(tags[0].count, 2, '两边都打过的书不能重复计');
 });
 
+test('改标签名合并时，划线上的标签也要跟过去', () => {
+  const a = addBook('甲');
+  tagBooks(db, [a], ['好句']);
+  tagBooks(db, [a], ['佳句']);
+  const tOld = listTags(db).find((t) => t.name === '佳句')!;
+  const tNew = listTags(db).find((t) => t.name === '好句')!;
+
+  const hlId = Number(
+    db.prepare("insert into highlight(book_id, chapter_idx, char_offset, length, excerpt) values(?, 1, 10, 5, '好段落')")
+      .run(a).lastInsertRowid,
+  );
+  db.prepare('insert into highlight_tag(highlight_id, tag_id) values(?, ?)').run(hlId, tOld.id);
+
+  renameTag(db, tOld.id, '好句');
+
+  const tags = db.prepare('select tag_id from highlight_tag where highlight_id = ?').all(hlId) as Array<{ tag_id: number }>;
+  assert.equal(tags.length, 1, '合并后划线标签不该丢失');
+  assert.equal(tags[0].tag_id, tNew.id, '划线标签应该指向合并后的目标标签');
+});
+
 test('改成一个没人用过的名字就是单纯改名', () => {
   const a = addBook('甲');
   tagBooks(db, [a], ['玄幻']);

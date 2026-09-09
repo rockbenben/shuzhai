@@ -347,11 +347,14 @@ export function renameTag(db: DatabaseSync, tagId: number, raw: string): { merge
 
   db.exec('begin');
   try {
-    // insert or ignore：两个标签都打过的书不能插两遍（主键挡着，但要静默跳过）
+    // insert or ignore：两个标签都打过的书/划线不能插两遍（主键挡着，但要静默跳过）
     db.prepare(
       'insert or ignore into book_tag(book_id, tag_id) select book_id, ? from book_tag where tag_id = ?',
     ).run(exists.id, tagId);
-    db.prepare('delete from tag where id = ?').run(tagId); // book_tag 由外键级联删掉
+    db.prepare(
+      'insert or ignore into highlight_tag(highlight_id, tag_id) select highlight_id, ? from highlight_tag where tag_id = ?',
+    ).run(exists.id, tagId);
+    db.prepare('delete from tag where id = ?').run(tagId); // book_tag 和 highlight_tag 由外键级联删掉
     db.exec('commit');
   } catch (e) {
     db.exec('rollback');
