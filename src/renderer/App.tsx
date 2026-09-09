@@ -415,12 +415,19 @@ export function App() {
   /** 正在导出哪一本。不传就是导全库元数据 */
   const [exporting, setExporting] = useState<{ id: number; title: string } | null>(null);
   /**
-   * 标签筛选。**单选、默认收起**（`tagBarOpen`）：标签有几十个，摊开比分类还长，
-   * 不按标签浏览时一枚入口 chip 都嫌占地方——所以入口收进分类那一排
-   * （「标签 ▾」），展开后标签接在同一排后面横滚，不另起一行。
+   * 标签筛选。**单选、默认收起**（`tagBarOpen`）：标签有几十个，不按标签浏览时
+   * 一枚入口都嫌占地方。
+   *
+   * 开关（「标签 ▾/▴」）是**钉在分类排右缘的独立按钮**（`.shelf-bar` 里
+   * `.shelf-tabs` 的兄弟，不在横滚的页签条里面）：展开、收起、选中标签、选了
+   * 分类冒出「改规则」——它的位置一律不变（用户反馈：按钮不该跳来跳去）。
+   * 展开后的标签列表在分类页签**下面另起一块**（`.tag-row`），**换行多行**、
+   * 限高内滚。
+   *
    * 点标签是**换选**（和分类一个手势：点亮着的取消、点没亮的只看它一个）。
-   * ⚠️ **有标签生效时强制摊开、也收不起**——界面必须显示正在生效的筛选，
-   * 收起只允许发生在没有生效标签的时候。
+   * ⚠️ **生效中的筛选必须看得见**——但看得见的位置是开关自己：折叠后有标签
+   * 生效时，开关呈选中填充态（aria-pressed），悬停还挂着标签名；不是强制摊开
+   * 那整块（多行面板占着竖向空间，筛上之后用户要把地方还给书架）。
    *
    * 补这个是因为：整套标签功能做完了，却没有按标签浏览的入口——
    * 归完类找不到，等于白归。
@@ -430,7 +437,7 @@ export function App() {
    */
   const [allTags, setAllTags] = useState<Array<{ id: number; name: string; count: number }>>([]);
   const [pickedTags, setPickedTags] = useState<number[]>([]);
-  /** 标签那排摊开没有。默认收起；有生效标签时无视它强制摊开 */
+  /** 标签那块摊开没有。默认收起；有生效标签时折叠是允许的（开关自己显示选中态） */
   const [tagBarOpen, setTagBarOpen] = useState(false);
   /**
    * 「几星以上」。null = 不限。
@@ -485,6 +492,7 @@ export function App() {
       [ruleFor, () => setRuleFor(null)],
       [renaming, () => setRenaming(null)],
       [editing, () => setEditing(null)],
+      [editCat, () => setEditCat(null)],
       [dialog, () => setDialog(null)],
     ];
     const onKey = (e: KeyboardEvent) => {
@@ -512,7 +520,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rating, exporting, linksFor, ruleFor, renaming, editing, dialog]);
+  }, [rating, exporting, linksFor, ruleFor, renaming, editing, editCat, dialog]);
 
   // 搜索框边打边筛，但等手停下来——大库上每敲一个字查一次太浪费
   useEffect(() => {
@@ -633,20 +641,21 @@ export function App() {
   };
 
   /*
-   * 标签条**一行横滚，全部列出来**（照用户给的 legado 参考：它的书架分组就是
-   * 书架标题下面一排标签页，一行、横向滚动、选中的带下划线）。
+   * 标签面板**换行多行、限高内滚，全部列出来**（`.tag-row`）。
    *
-   * 原来是**换行的 chip 块 + 一个「+N」展开器**：24 个在 1280 下就占三行 98px，
-   * 80 个要十行——所以当初才需要那个展开器，还得单独处理「收起时把正在生效的
-   * 那几个带回来」。改成一行横滚之后**那两件事一起没了**：不占竖向空间，
-   * 所有标签本来就够得到。
+   * 这一处的形状变过两次，每次都是用户拍的：
+   * ① 最早是换行 chip 块 +「+N」展开器——标签多了占行，改成单行横滚；
+   * ② 单行横滚和分类页签混在一排分不清 → 另起一排但仍单行横滚；
+   * ③ 现在回到多行（用户反馈标签就该多行才看得全），两个老问题的答案
+   *    不再是「横滚」而是：**默认收起**（不看标签时整块高度为 0）+
+   *    **限高约 6 行**（真实库 83 个标签全铺约 7 行，超出在面板内部纵滚，
+   *    不把书架顶没）。
    *
-   * **单选、默认收起**（用户拍的）：标签摊开比分类还长，不按标签浏览时
-   * 连入口都嫌占地方——所以入口收在分类那一排里（「标签 ▾」），展开后
-   * 接在同一排横滚列全，**不另起一行**（另起一行的话，收起后那枚入口 chip
-   * 还占整整一行）。和分类同一个手势——点没亮的换选它、点亮着的取消。
+   * 开关不在这一块里——它钉在分类排右缘（`.tag-toggle`，见下面 JSX），
+   * 所以选中/取消时这一块里一枚 chip 都不增删，药丸位置不跳
+   * （「不按标签筛」追加在末尾，至多影响最后一行的折行）。
+   * 和分类同一个手势——点没亮的换选它、点亮着的取消。
    * 「玄幻 + 已完结」那种多标签交集在分类编辑器里照样组得出来。
-   * ⚠️ 老规矩不变：**有标签生效时标签必须看得见**（见 `tagBarOpen` 那段）。
    */
   const tagChips = allTags;
 
@@ -861,12 +870,15 @@ export function App() {
   /**
    * 把无限滚动 observer 挂到哨兵节点上（重挂前先 disconnect 旧的）。
    *
-   * **root 必须是真正的滚动容器 `.main`，不能用视口（null）。** 这个应用 body
-   * 不滚动：`.app` 是 height:100vh + overflow:hidden，滚动发生在 `.main`
-   * （overflow-y:auto）这个内部容器里，哨兵在它里面滚。拿视口当 root 时相交要靠
-   * 浏览器跨 `.app`/`.main`/`.tablewrap` 好几层 overflow clip 去推——表格视图多
-   * 一层 `.tablewrap`（overflow-x:auto），实测滚到底哨兵已进可视区却一个回调都不发，
-   * 分页永远停在 120。直接拿滚动容器当 root，三视图（封面墙/表格/书评）走同一条。
+   * **root 必须是真正的滚动容器 `.main-scroll`，不能用视口（null）。** 这个应用
+   * body 不滚动：`.app` 是 height:100vh + overflow:hidden，`.main` 是「固定头 +
+   * `.main-scroll`（overflow-y:auto）」的 flex 列，哨兵在 `.main-scroll` 里滚。
+   * 拿视口当 root 时相交要靠浏览器跨 `.app`/`.main`/`.main-scroll`
+   * 好几层 overflow clip 去推，
+   * 实测滚到底哨兵已进可视区却一个回调都不发，分页永远停在 120。直接拿滚动容器
+   * 当 root，三视图（封面墙/表格/书评）走同一条。⚠️ `.main` 自己已经不滚了，
+   * 选择器写成 `.main` 会拿到一个 overflow:hidden 的非滚动祖先（caf6c60 那个坑
+   * 会原样重现）。
    *
    * 它是**回调 ref**（`ref={attachSentinel}`），身份稳定、空依赖：React 在哨兵节点
    * 出现/消失时直接调用它。这一点至关重要——进阅读器/查看器时 `App` 提前 return
@@ -885,7 +897,7 @@ export function App() {
         if (entries[0]?.isIntersecting) void loadMoreRef.current?.();
       },
       // 提前一屏开始加载，滚到底时下一批通常已经就位
-      { root: node.closest('.main'), rootMargin: '600px' },
+      { root: node.closest('.main-scroll'), rootMargin: '600px' },
     );
     io.observe(node);
     sentinelIo.current = io;
@@ -1391,6 +1403,9 @@ export function App() {
           />
         )}
 
+        {/* 品牌、搜索框在这层外面（固定）；档位多到放不下时只滚这一段，
+            底部工具（`.nav-foot`）也在外面、始终够得到。判据在 shell.css 的 `.nav` */}
+        <div className="nav-scroll">
         {/* **空档不显示。** 一个刚建好的库里「在读/已读完/弃坑/需要处理/已屏蔽」
             全是 0，五个永远点不出东西的档占满了侧栏最显眼的位置。
             「全部」和「在读」永远留着——前者是主入口，后者是这个应用的日常用途 */}
@@ -1447,6 +1462,7 @@ export function App() {
         </div>
 
         <div className="nav-spacer" />
+        </div>
 
         {/*
           * 管理功能沉到底部：一天用不到一次的东西，不该占着最显眼的一横排。
@@ -1831,22 +1847,26 @@ export function App() {
         )}
 
         {/*
-          * **分类**（照 legado：标题下面一排文字标签，横滚，选中的带下划线）。
+          * **分类排 + 标签开关**。分类（照 legado：标题下面一排文字页签，横滚，
+          * 选中的带下划线）；标签开关是页签条右缘的兄弟药丸（`.tag-toggle`），
+          * 不随展开/选中挪位置。
           *
           * 这一排替掉了原来的**两排开关**——「按文件夹」和「按评分」。
           * 那两样当规则可以，当分类太粗：一个文件夹里什么都有，
           * 三星以上横跨所有题材。用户要的是「某某文件夹里四星以上的那些」，
           * 那是几条规则的**组合**，所以它们退回到分类编辑器里当字段。
           *
-          * **标签筛选的入口也在这一排里**（「标签 ▾」），不另起一排——
-          * 另起一排的话，标签收起之后还剩一枚 chip 占着整整一行。
+          * 标签开关为什么在页签条**外面**：在里面它就是横滚内容的一部分，
+          * 选中分类冒出「改规则」键、页签横滚都会让它挪位置；在外面它一枚
+          * 药丸钉死右缘，收起态一枚药丸之外不占任何地方。
           *
           * **单选**：分类回答的是「现在看哪一堆」；标签也是单选（用户拍的），
-          * 手势一样，默认收成一个入口；多标签取交集降级到分类编辑器里组。
+          * 手势一样；多标签取交集降级到分类编辑器里组。
           * 区别看两样：分类这头永远有个「全部」，标签每个后面挂着书数。
           */}
         {(counts.total ?? 0) > 0 && (
-          <div className="dir-chips shelf-tabs">
+          <div className="shelf-bar">
+            <div className="dir-chips shelf-tabs">
             <button
               className="chip"
               aria-pressed={pickedCat === null}
@@ -1881,67 +1901,78 @@ export function App() {
                 改「{cats.find((c) => c.id === pickedCat)?.name}」的规则
               </button>
             )}
+            </div>
 
-            {/*
-              * 标签筛选的入口收在**这一排**里，不另起一排（用户拍的）：标签整排
-              * 收起之后哪怕只剩一枚「标签」chip，也还占着整整一行——「标签都隐藏了，
-              * 为什么标签行还在」。展开后标签就接在同一排后面，横滚装得下。
-              *
-              * **单选**（和分类一个手势：点没亮的换选它、点亮着的取消），
-              * 默认整个收起；一个标签都没有时连入口都不显示。
-              * ⚠️ **有标签生效时强制摊开、也不给收起**——筛选在生效而屏幕上看不见，
-              * 是这个仓库栽过的错（搜「界面必须显示正在生效的状态」），所以收起
-              * 只允许发生在 pickedTags 为空的时候。
-              * 展开的标签全列、不做 slice(0, N)：截掉的正是「系统」「诸天」这类
-              * 真题材词（`tag.list` 按书数排，尾巴任意），打了标签却筛不了等于
-              * 浏览这半没做。
-              */}
-            {allTags.length > 0 && (tagBarOpen || pickedTags.length > 0 ? (
-              <>
-                {/* 收起入口：只在没有生效标签时给——有标签生效时收不得 */}
-                {pickedTags.length === 0 && (
-                  <button
-                    className="chip"
-                    aria-expanded
-                    onClick={() => setTagBarOpen(false)}
-                    title="收起标签列表"
-                  >
-                    标签 ▴
-                  </button>
-                )}
-                {tagChips.map((t) => (
-                  <button
-                    key={t.id}
-                    className="chip"
-                    aria-pressed={pickedTags.includes(t.id)}
-                    onClick={() =>
-                      setPickedTags((p) => (p.includes(t.id) ? [] : [t.id]))
-                    }
-                    title={pickedTags.includes(t.id) ? `不再按「${t.name}」筛` : `只看「${t.name}」`}
-                  >
-                    {t.name}
-                    <span className="chip-n">{t.count}</span>
-                  </button>
-                ))}
-                {pickedTags.length > 0 && (
-                  <button className="chip chip-clear" onClick={() => setPickedTags([])}>
-                    不按标签筛
-                  </button>
-                )}
-              </>
-            ) : (
+            {/* 标签开关：位置恒定的一枚药丸，不在会横滚的页签条里。
+                aria-expanded 说面板摊开没有；aria-pressed 说有没有标签正在生效
+                （折叠时生效状态就挂在这枚按钮自己身上） */}
+            {allTags.length > 0 && (
               <button
-                className="chip"
-                aria-expanded={false}
-                onClick={() => setTagBarOpen(true)}
-                title="按标签筛一道"
+                className="chip tag-toggle"
+                aria-expanded={tagBarOpen}
+                aria-pressed={pickedTags.length > 0}
+                onClick={() => setTagBarOpen((o) => !o)}
+                title={
+                  tagBarOpen
+                    ? '收起标签列表'
+                    : pickedTags.length > 0
+                      ? `正在按「${allTags.find((t) => t.id === pickedTags[0])?.name ?? ''}」筛，点开展开`
+                      : '按标签筛一道'
+                }
               >
-                标签 ▾
+                标签 {tagBarOpen ? '▴' : '▾'}
               </button>
-            ))}
+            )}
           </div>
         )}
 
+        {/*
+          * **标签面板——开关下面另起一块，换行多行、限高内滚。**
+          *
+          * 只在开关摊开时存在（`tagBarOpen`）；有标签生效时允许折叠——
+          * 生效状态看得见的位置是开关自己（aria-pressed 填充 + title 挂标签名），
+          * 不必占着整块面板。
+          *
+          * 药丸样式（分类是纯文字页签，标签是边框药丸），形状分开才不会混。
+          * 展开的标签全列、不做 slice(0, N)：截掉的正是「系统」「诸天」这类
+          * 真题材词（`tag.list` 按书数排，尾巴任意），打了标签却筛不了等于
+          * 浏览这半没做；多到装不下时限高内滚，不截断名单。
+          *
+          * **单选**（和分类一个手势：点没亮的换选它、点亮着的取消），
+          * 一个标签都没有时连开关都不显示。
+          */}
+        {(counts.total ?? 0) > 0 && tagBarOpen && allTags.length > 0 && (
+          <div className="tag-row" role="group" aria-label="按标签筛">
+            {tagChips.map((t) => (
+              <button
+                key={t.id}
+                className="chip"
+                aria-pressed={pickedTags.includes(t.id)}
+                onClick={() =>
+                  setPickedTags((p) => (p.includes(t.id) ? [] : [t.id]))
+                }
+                title={pickedTags.includes(t.id) ? `不再按「${t.name}」筛` : `只看「${t.name}」`}
+              >
+                {/* 名字单独一层：长标签在这一层省略，书数和全名（title）都不受影响 */}
+                <span className="chip-t">{t.name}</span>
+                <span className="chip-n">{t.count}</span>
+              </button>
+            ))}
+            {pickedTags.length > 0 && (
+              <button className="chip chip-clear" onClick={() => setPickedTags([])}>
+                不按标签筛
+              </button>
+            )}
+          </div>
+        )}
+
+        {/*
+          * 以下全部在 `.main-scroll` 里滚：上面 `.main-head` / `.adhoc` /
+          * `.shelf-bar`（页签 + 标签开关）/ `.tag-row` 是固定头
+          * （`.main` 是 flex 列、overflow:hidden）。
+          * 无限滚动哨兵的 observer root 也是这一层（见 attachSentinel）。
+          */}
+        <div className="main-scroll">
         {shelf === 'excluded' && books.length > 0 && (
           <p className="muted" style={{ fontSize: '.85rem', marginTop: 0 }}>
             这些书<strong>没有被删除</strong>，只是不在书架上显示、扫描时也跳过。
@@ -2628,6 +2659,7 @@ export function App() {
             正在加载更多…（已显示 {books.length} 本）
           </div>
         )}
+        </div>
       </main>
 
       {(busy ?? progress) && (

@@ -22,7 +22,23 @@
   background: var(--panel);
   display: flex;
   flex-direction: column;
+  /*
+   * **整条侧栏不滚，只有中间的档位区滚。**
+   * 品牌、搜索框、底部工具都是「随时要够得到」的壳——窗口矮到 520（main.ts 的
+   * 下限）时它们也得全在。原来整根 `.nav` 是 overflow-y:auto，搜索框和底部
+   * 那排工具都跟着滚走，短窗口下「扫描书库」得先把侧栏滚到底才点得到。
+   * 滚动收进 `.nav-scroll`；它是 flex 兄弟不是浮层，内容不会从固定区底下漏过去。
+   */
+  overflow: hidden;
+}
+
+/* 品牌 + 搜索框 + 底部工具之外的那段：书架档位。它长了自己滚，上下两段不动 */
+.nav-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 /*
@@ -31,6 +47,8 @@
  * 最常做的动作——该有一个固定的、一眼看得见的位置。
  */
 .nav .search-box {
+  /* 留在 `.nav-scroll` 外面：搜索是侧栏上最常用的动作，档位区再长它也不滚走 */
+  flex: none;
   width: 100%;
   box-sizing: border-box;
   /* ⚠️ **`min-width` 要一起覆盖掉。** 基础那条给的是 `min-width: 15rem`（240px），
@@ -46,6 +64,7 @@
 
 
 .nav-brand {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -119,6 +138,7 @@
 }
 
 .nav-foot {
+  flex: none;
   border-top: 1px solid var(--line);
   padding: 0.35rem 0 0.6rem;
 }
@@ -161,14 +181,41 @@
 
 /* ── 主区 ─────────────────────────────────── */
 
+/*
+ * **主区是「固定头 + 自己滚的内容区」，不是整栏一起滚。**
+ * 标题行（视图 / 排序 / 筛选 / 批量）、临时筛选条、分类标签页是壳，
+ * 八千本滚下去它们也得在——滚到中途想换排序、切分类不该先滚回顶部。
+ * 滚动只发生在 `.main-scroll` 里。它和头部是 flex 兄弟，内容不会从头底下漏过去，
+ * 所以头部不需要底色。左右 padding 留在 `.main` 上管固定头，内滚容器用负边距
+ * 把自己撑到窗口边沿——滚动条贴右沿（和原来整栏滚时一致），再用自己的左右
+ * padding 把内容对齐线放回 1.6rem。
+ * ⚠️ **书架哨兵的 IntersectionObserver root 是 `.main-scroll`**
+ * （App.tsx 的 attachSentinel），改这个类名要一起改。
+ */
 .main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 1.1rem 1.6rem 0;
+}
+
+/*
+ * 横滚也归这一层：表格装不下时它本身就是横滚容器（`overflow-y:auto` 的
+ * 计算值让 x 轴也是 auto）。别把 overflow 加回 `.tablewrap`——那会抢走
+ * thead 的 sticky，判据在 `.tablewrap` 那段。
+ */
+.main-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding: 1.1rem 1.6rem 3rem;
+  margin: 0 -1.6rem;
+  padding: 0 1.6rem 3rem;
 }
 
 .main-head {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 0.7rem;
@@ -607,8 +654,10 @@
   gap: 0.2rem;
 }
 
-/* 正在生效的临时筛选。**摆在书架正上方**，理由在 App.tsx 那段注释里 */
+/* 正在生效的临时筛选。**摆在书架正上方**，理由在 App.tsx 那段注释里。
+   和 `.main-head` / `.shelf-tabs` 同属固定头，不跟着 `.main-scroll` 滚 */
 .adhoc {
+  flex: none;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -626,17 +675,25 @@
 }
 
 /*
- * 表格视图。**横滚关在自己这个盒子里**——页面本身横滚是走查里单独一条判据，
- * 而八列在 760 那一档（窗口自己的下限）一定装不下。
+ * 表格视图。**这个盒子不能自己滚**——表宽装不下时的横滚由外面的 `.main-scroll`
+ * 兜（它 overflow-y:auto，横纵是同一个滚动容器）。
+ *
+ * ⚠️ **别在这儿加 `overflow-x: auto`。** sticky 钉在「最近的滚动祖先」上：
+ * 一个 overflow-x:auto 的盒子，overflow-y 计算值也跟着变 auto，于是它成了
+ * thead 最近的滚动祖先；可它自己纵轴不滚（高度跟着表格长），`thead th` 的
+ * top:0 就钉在一个整块随 `.main-scroll` 滚走的盒子上——表头跟着书一起滚没了，
+ * 而且**不报警告**（实测：滚 4000px 后 th 的 top 是 -3886）。
+ * 这一条在 `.main` 自己滚的年代就潜伏着（最近祖先一直是这个盒子，不是 `.main`），
+ * 是把滚动容器拆出来那次对照实验量出来的。
  * `audit.mjs` 认得真的横滚容器（那一支是标签条横滚时补的），不会误报「跑出右边界」。
  */
 .tablewrap {
-  overflow-x: auto;
+  /* 故意没有 overflow：横滚归 .main-scroll，理由见上 */
 }
 .booktable {
   width: 100%;
   /*
-   * ⚠️ **`min-width` 不能省，否则外面那个 `overflow-x` 永远用不上。**
+   * ⚠️ **`min-width` 不能省，否则 `.main-scroll` 那个横滚永远用不上。**
    *
    * 光有 `width: 100%` 的话，表格窄到装不下时**宁可压缩也不溢出**——
    * 实测 560 宽（窗口下限那一档正文区的宽度）下作者列被压到「敢」「为」
@@ -658,8 +715,9 @@
   vertical-align: top;
 }
 /*
- * 表头**钉在顶上**。`.main` 是滚动容器，八千本滚下去之后没有表头的话，
- * 中间那几列（评分/状态/读完）根本认不出是什么。
+ * 表头**钉在顶上**。`.main-scroll` 是滚动容器（`.main` 的固定头在它外面），
+ * 八千本滚下去之后没有表头的话，中间那几列（评分/状态/读完）根本认不出是什么。
+ * sticky 自动钉在最近的滚动容器顶沿，也就是固定头的紧下面，不用算偏移。
  */
 .booktable thead th {
   position: sticky;
@@ -723,7 +781,8 @@
  * 而表格存在的全部理由就是密着扫一屏。
  *
  * 关掉换行，min-content 变成「整排标签」，列自然被撑到该有的宽度（挤不下时
- * `.tablewrap` 横滚，那本来就是它的活）。表格里只摆两个（组件里 slice(0, 2)）——
+ * `.main-scroll` 横滚，不是 `.tablewrap`——后者不能有 overflow，见上面那段）。
+ * 表格里只摆两个（组件里 slice(0, 2)）——
  * 这一列在表格里是提示不是内容，完整那份在悬停的 title 里。
  */
 .booktable .rv-tags {
@@ -1185,11 +1244,37 @@
  * 当初为此加过一个「+N」展开器，还要单独处理「收起时把正在生效的那几个带回来」——
  * 一行横滚之后这两件事一起没了。
  */
+/*
+ * 分类页签条 + 标签开关同一排：页签条在左、会横滚，标签开关是钉在右缘的
+ * 兄弟（`.tag-toggle`），不进横滚内容——选中分类冒出「改规则」、页签横滚
+ * 都挪不动它。整条是固定头的一部分（`.main` 是 flex 列）。
+ */
+.shelf-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.7rem;
+}
+.tag-toggle {
+  /* 不被页签条挤扁，也不随它横滚 */
+  flex: none;
+}
+/* 开关的 pressed 态也不加粗：粗体字宽不同，开关会在选中那一刻变宽、
+   右沿钉死于是左边挪位（实测挪 0.7px）。状态靠填充色和边框已经够认。
+   特异度要高过下面那个通用 `.chip[aria-pressed='true']`（同特异度后者赢） */
+.shelf-bar .tag-toggle[aria-pressed='true'] {
+  font-weight: 400;
+}
+
 .dir-chips.shelf-tabs {
+  /* 在 .shelf-bar 里吃剩余宽度、自己横滚；固定头身份属于 .shelf-bar */
+  flex: 1 1 auto;
+  min-width: 0;
   /*
    * ⚠️ **类名不能叫 `tabs`。** 这个文件里早就有一个 `.tabs`（设置弹窗那两页），
    * 它写着 `display: inline-flex`、而且排在后面——同特异度后来者赢，
-   * 于是这一条整个变成 inline 盒子：**按内容撑到 1361px，把 `.main` 顶出一条
+   * 于是这一条整个变成 inline 盒子：**按内容撑到 1361px，把主区顶出一条
    * 页面级横滚条**（用户看到的正是那条「太丑」的横杠）。
    * 我这条声明里没写 display，所以完全没察觉。
    */
@@ -1198,7 +1283,8 @@
   overflow-y: hidden;
   gap: 1.4rem;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 0.7rem;
+  /* 排间距归 .shelf-bar */
+  margin-bottom: 0;
   /* ⚠️ **滚动条藏起来。** 那条横杠是这一排最丑的东西（用户原话），
      而 legado 那边一根都没有 */
   scrollbar-width: none;
@@ -1241,10 +1327,59 @@
   color: var(--accent);
   border-bottom-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
-/* 「不按标签筛」那个是动作不是分组，压淡、不给下划线 */
-.dir-chips.shelf-tabs > .chip-clear {
-  border-style: none;
-  color: var(--muted);
+
+/*
+ * **标签面板：点标签开关后在它下面另起的一块**（分类页签排的下一排）。
+ *
+ * 原来标签接在分类**同一排**里横滚，两批又是同一种纯文字页签样式，
+ * 用户反馈混在一起分不清；后来独立成行但仍单行横滚，又被反馈「标签该有多行、
+ * 开关不该跳」。现在的形状：**换行多行**，开关钉在分类排右缘（`.tag-toggle`）。
+ *
+ * 标签数量完全不受控（真实库 83 个，全铺约 7 行），竖向空间的答案不是截断
+ * 名单、也不是横滚，而是**默认收起 + 限高内滚**：不看标签时整块高度为 0；
+ * 摊开后约 6 行以内全看得见，再多在面板内部纵滚。短窗口（760×520）下也只占
+ * 固定头的一部分，书架还留得住。
+ *
+ * 标签用回普通**药丸** chip（`.chip` 的边框 + 选中填充）：分类是文字「页签」，
+ * 标签是「筛选项」，形状上就分开了。
+ */
+.tag-row {
+  /* 固定头的一部分（`.main` 是 flex 列），不跟着 `.main-scroll` 滚 */
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: -0.2rem 0 0.7rem;
+  /* 恰好 6 行药丸（每行 1.8rem + 缝 0.4rem）；第七行露一条边提示还能滚，
+     再多在面板内部滚，不把书架顶没 */
+  max-height: 12.8rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.tag-row > .chip {
+  /* 不许被挤扁（flex 项默认会缩），但太长也不许独占一排 */
+  flex: none;
+  max-width: 14rem;
+}
+/* 选中不加粗：粗体字宽不同，会让多行折行位置整排重排、别的药丸跳行。
+   选中态靠填充色（`.chip[aria-pressed=true]`）已经够认 */
+.tag-row > .chip[aria-pressed='true'] {
+  font-weight: 400;
+}
+/*
+ * 长标签名在名字这层省略，按钮本身不缩布局、书数（`.chip-n`）不截；
+ * 全名挂在按钮的 title 上，悬停看全。不包这一层的话裸文本是匿名 flex item，
+ * ellipsis 作用不到它头上。
+ */
+.tag-row .chip-t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag-row .chip-n {
+  flex: none;
 }
 
 .chip {
