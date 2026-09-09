@@ -242,13 +242,17 @@ export async function applyCandidate(
   }
 
   if (candidate.category) {
-    db.prepare('insert or ignore into category(name) values(?)').run(candidate.category);
-    const cat = db.prepare('select id from category where name = ?').get(candidate.category) as
-      | { id: number }
-      | undefined;
-    if (cat) {
-      db.prepare('update book set category_id = ? where id = ?').run(cat.id, bookId);
-      applied.push(`分类「${candidate.category}」`);
+    if (local.category_id !== null) {
+      skipped.push('分类（本地已有，不覆盖）');
+    } else {
+      db.prepare('insert or ignore into category(name) values(?)').run(candidate.category);
+      const cat = db.prepare('select id from category where name = ?').get(candidate.category) as
+        | { id: number }
+        | undefined;
+      if (cat) {
+        db.prepare('update book set category_id = ? where id = ?').run(cat.id, bookId);
+        applied.push(`分类「${candidate.category}」`);
+      }
     }
   }
 

@@ -229,6 +229,18 @@ test('本地已有的简介和封面不被覆盖', async () => {
   assert.equal(readdirSync(join(userData, 'covers')).length, before, '不该又下一张');
 });
 
+test('本地已有的分类不被覆盖', async () => {
+  db.prepare("insert into category(name) values('我的专属分类')").run();
+  const catId = (db.prepare("select id from category where name = '我的专属分类'").get() as { id: number }).id;
+  db.prepare('update book set category_id = ? where id = ?').run(catId, bookId);
+
+  const r = await applyCandidate(db, userData, bookId, { ...good, category: '仙侠' }, { fetchImpl: fakeFetch(routes) });
+  assert.ok(r.skipped.some((s) => s.includes('分类')));
+  const currentCat = (db.prepare('select category_id from book where id = ?').get(bookId) as { category_id: number }).category_id;
+  assert.equal(currentCat, catId, '本地分类不该被覆盖');
+});
+
+
 test('封面下载按 Content-Type 定扩展名，不信 URL 后缀', async () => {
   const url = 'https://example.com/img?id=123'; // 没有后缀
   const path = await downloadCover(userData, bookId, url, {
