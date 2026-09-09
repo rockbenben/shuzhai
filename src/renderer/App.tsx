@@ -60,8 +60,8 @@ export interface Book {
   chapter_count: number | null;
   /**
    * 手填本地章数（`book.chapter_count_override`）。NULL = 用自动识别的
-   * `chapter_count`；非 NULL 时**只盖过显示**（角标/悬停/卡底三处），
-   * 体检角标和更新判断仍用真实 chapter_count。
+   * `chapter_count`；非 NULL 时**只盖过显示**（状态标/悬停/卡底三处），
+   * 体检状态标和更新判断仍用真实 chapter_count。
    */
   chapter_count_override: number | null;
   word_count: number | null;
@@ -92,11 +92,11 @@ export interface Book {
    * 是 UTC 文本，印之前必须走 `format.ts`。
    */
   finished_at: string | null;
-  /** 划线 + 书签一共几条。卡片上那个 ✎ 角标靠它（判据见 `core/library.ts` 的 `hasNotesSql`） */
+  /** 划线 + 书签一共几条。信息行上那个 ✎ 标记靠它（判据见 `core/library.ts` 的 `hasNotesSql`） */
   note_count?: number;
   /** 弃坑原因。和短评同一条道理，而且更该看见 */
   drop_reason: string | null;
-  /** 书自己的连载状态。卡片上只给「连载中」和「太监」加角标，理由见渲染那一段 */
+  /** 书自己的连载状态。卡片状态标展示「连载中」和「太监」，理由见渲染那一段 */
   serial_status: string | null;
   /** 主文件的 mtime（毫秒 epoch）。没有文件的手工书是 null */
   mtime?: number | null;
@@ -2570,7 +2570,7 @@ export function App() {
                     className="book-read"
                     title={b.chapter_title ? `读到「${b.chapter_title}」` : undefined}
                   >
-                    {/* 读完的书不再报「读到 12/12」——封面角上那个「读完」角标
+                    {/* 读完的书不再报「读到 12/12」——信息行那个「已读完」状态标
                         已经说过一遍了，同一张卡上不说两次同一件事。
                         这一行剩下的信息是**什么时候读完的**。
                         ⚠️ **没读完的那行也去掉了「读到」和总章数**：总章数就在上一行
@@ -2610,7 +2610,7 @@ export function App() {
                 {/*
                   * 弃坑原因排在短评前面：**「我当初为什么弃了它」比评分更能拦住
                   * 重复翻开**。原来它只存进库、只在编辑弹窗里看得见——写了
-                  「写崩了，主角人设一直在变」，回到书架只剩一个「弃坑」角标，
+                  「写崩了，主角人设一直在变」，回到书架只剩一个「弃坑」状态标，
                   * 那句话等于没写。
                   */}
                 {(b.drop_reason || b.comment) && (
@@ -2618,7 +2618,7 @@ export function App() {
                     className="book-note"
                     title={[b.drop_reason && `弃坑原因：${b.drop_reason}`, b.comment].filter(Boolean).join('\n')}
                   >
-                    {/* **不加「弃坑：」前缀**——封面角上那个角标已经说过一遍了，
+                    {/* **不加「弃坑：」前缀**——状态标已经说过一遍了，
                         而这一行是全卡片唯一被截断压着的：实测 1280 下只印得下
                         11 个字，前缀要吃掉 3 个（真正的原因少 37%）。
                         两样都写过的话完整版在封面的 title 里，分了标签 */}
