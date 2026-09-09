@@ -328,19 +328,19 @@ function readSerialRules(db: DatabaseSync): { rules: SerialDirRule[]; fallback: 
  */
 const 干活中 = new Map<string, Promise<unknown>>();
 
-async function 只干一次<T>(key: string, fn: () => Promise<T>): Promise<T> {
+function 只干一次<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const 已经在跑 = 干活中.get(key);
   if (已经在跑) return 已经在跑 as Promise<T>;
   // 别的 key 排在后面：一次只让一件长活动数据库
   const 别人 = [...干活中.values()];
-  if (别人.length) await Promise.allSettled(别人);
-  const p = fn();
+  const p = (async () => {
+    if (别人.length) await Promise.allSettled(别人);
+    return await fn();
+  })();
   干活中.set(key, p);
-  try {
-    return await p;
-  } finally {
+  return p.finally(() => {
     if (干活中.get(key) === p) 干活中.delete(key);
-  }
+  }) as Promise<T>;
 }
 
 async function runScan(

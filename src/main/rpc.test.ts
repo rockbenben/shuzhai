@@ -390,6 +390,25 @@ test('并发建同一本书的索引：不翻倍', async () => {
   assert.equal(行数(), 单次, `并发建完变成 ${行数()} 行——搜出来会是双份`);
 });
 
+test('有任务在排队时并发建同一本书的索引：依然不翻倍', async () => {
+  const lib = join(dir, 'idxbooks2');
+  mkdirSync(lib, { recursive: true });
+  db.prepare('insert into library_root(path) values(?)').run(lib);
+  const filler = Array.from({ length: 400 }, () => '风雪夜归人，孤灯照旧影。').join('\n');
+  writeFileSync(join(lib, '《测排队》某人.txt'), `第一章 起\n${filler}\n第二章 承\n${filler}\n`, 'utf8');
+  await rpc['library.scan']!({});
+
+  const bookId = (db.prepare('select id from book where title = ?').get('测排队') as { id: number }).id;
+  const 行数 = () => (db.prepare('select count(*) n from chapter_fts where book_id = ?').get(bookId) as { n: number }).n;
+
+  // 模拟一个任务占用队列时，排队期间并发两次 buildIndex
+  const slowScan = rpc['library.scan']!({});
+  const p1 = rpc['search.buildIndex']!({ bookIds: [bookId] });
+  const p2 = rpc['search.buildIndex']!({ bookIds: [bookId] });
+  await Promise.all([slowScan, p1, p2]);
+  assert.equal(行数(), 2, `排队期间并发触发建索引不能翻倍，实际为 ${行数()}`);
+});
+
 /*
  * ── 数组参数缺了要说人话 ──────────────────────
  *
