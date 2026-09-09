@@ -203,6 +203,15 @@ test('书内搜索：跨窗口边界的匹配不会丢', async () => {
     const r = await searchInBook(db, cache2, id, `独特词组${n}，`);
     assert.equal(r.length, 1, `独特词组${n} 应该正好命中一次，实际 ${r.length}`);
   }
+
+  // 相同内容 UTF-16LE 编码：4MB 窗口跨越时不能因 0x0a 单字节切分造成 1 字节错位乱码
+  writeFileSync(join(lib, '《大书十六》作者：某人.txt'), Buffer.from(many, 'utf16le'));
+  await scanRoot(db, { id: rootId, path: lib });
+  const id16 = (db.prepare("select id from book where title = '大书十六'").get() as { id: number }).id;
+  for (const n of [0, 1500, 2999, 3999]) {
+    const r = await searchInBook(db, cache2, id16, `独特词组${n}，`);
+    assert.equal(r.length, 1, `UTF-16LE 独特词组${n} 应该正好命中一次，实际 ${r.length}`);
+  }
   await cache2.releaseAll();
 });
 

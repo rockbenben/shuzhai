@@ -334,14 +334,28 @@ export async function searchInBook(
       chunk.set(buf.subarray(0, bytesRead), carry.length);
 
       // 切到最后一个换行为止，剩下的半行留给下个窗口——
-      // 不这么做的话，跨窗口的那一行会被从中间劈开，正好落在断点上的匹配就丢了
+      // 不这么做的话，跨窗口的那一行会被从中间劈开，正好落在断点上的匹配就丢了。
+      // ⚠️ UTF-16 下换行是两字节（LE: 0x0a 0x00，BE: 0x00 0x0a），且必须保持 2 字节对齐，
+      // 单按 0x0a 切会切断两字节并导致后续所有窗口移位 1 字节变成全篇乱码。
       const isLast = base + chunk.length >= file.size;
       let cut = chunk.length;
       if (!isLast) {
-        for (let i = chunk.length - 1; i >= 0; i--) {
-          if (chunk[i] === 0x0a) { cut = i + 1; break; }
+        if (file.encoding === 'utf-16le') {
+          for (let i = chunk.length - (chunk.length % 2) - 2; i >= 0; i -= 2) {
+            if (chunk[i] === 0x0a && chunk[i + 1] === 0x00) { cut = i + 2; break; }
+          }
+        } else if (file.encoding === 'utf-16be') {
+          for (let i = chunk.length - (chunk.length % 2) - 2; i >= 0; i -= 2) {
+            if (chunk[i] === 0x00 && chunk[i + 1] === 0x0a) { cut = i + 2; break; }
+          }
+        } else {
+          for (let i = chunk.length - 1; i >= 0; i--) {
+            if (chunk[i] === 0x0a) { cut = i + 1; break; }
+          }
         }
-        if (cut === chunk.length) cut = chunk.length; // 整窗没有换行，只能硬切
+        if (cut === chunk.length && (file.encoding === 'utf-16le' || file.encoding === 'utf-16be')) {
+          cut -= cut % 2; // 整窗没有换行时硬切也须保持 2 字节对齐
+        }
       }
 
       for (const line of splitLines(chunk.subarray(0, cut), file.encoding as Encoding)) {
