@@ -106,6 +106,8 @@ test('没填作者的那条记录，也要被带作者的 txt 认走（书评跟
     { rating: number; comment: string };
   assert.equal(s2.rating, 5, '书评要留在原来那条记录上');
   assert.equal(s2.comment, '黑暗森林');
+  const bk = db.prepare('select author from book where id = ?').get(id) as { author: string | null };
+  assert.equal(bk.author, '刘慈欣', '手工填书时缺的作者，认领时要自动补上');
   const files = db.prepare('select book_id from book_file').all() as Array<{ book_id: number }>;
   assert.equal(files[0].book_id, id, '文件要挂到原来那条记录上');
 });

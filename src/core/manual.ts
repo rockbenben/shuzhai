@@ -237,9 +237,13 @@ export function claimFileless(
   const tk = key(title, null);
   const cands = idx.byTitle.get(tk);
   if (cands?.length === 1) {
+    const matchedId = cands[0];
+    if (author?.trim()) {
+      db.prepare('update book set author = ? where id = ? and author is null').run(author.trim(), matchedId);
+    }
     idx.byKey.delete(tk);
     idx.byTitle.delete(tk);
-    return cands[0];
+    return matchedId;
   }
   return null;
 }
