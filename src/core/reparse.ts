@@ -107,7 +107,8 @@ export async function applyRule(
   const r = await parseAndStore(db, fileId, path, [compile(pattern)]);
   db.prepare(
     `update book_file set chapter_count = ?, word_count = ?, encoding = ?,
-            status = 'ok', parsed_at = datetime('now') where id = ?`,
+            status = 'ok', parse_error = null, failed_at = null,
+            parsed_at = datetime('now') where id = ?`,
   ).run(r.chapters, r.words, r.encoding, fileId);
 
   // 一本书只留一条自定义规则，改了就覆盖——留一串历史规则没人看得懂哪条在生效
@@ -129,7 +130,9 @@ export async function clearRule(db: DatabaseSync, bookId: number): Promise<Parse
   const { id: fileId, path } = primaryFile(db, bookId);
   const r = await parseAndStore(db, fileId, path);
   db.prepare(
-    `update book_file set chapter_count = ?, word_count = ?, parsed_at = datetime('now') where id = ?`,
-  ).run(r.chapters, r.words, fileId);
+    `update book_file set chapter_count = ?, word_count = ?, encoding = ?,
+            status = 'ok', parse_error = null, failed_at = null,
+            parsed_at = datetime('now') where id = ?`,
+  ).run(r.chapters, r.words, r.encoding, fileId);
   return previewChapters(db, bookId);
 }

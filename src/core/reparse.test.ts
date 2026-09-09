@@ -147,3 +147,25 @@ test('没有文件的书要说人话，不是「书 9 没有主文件」', async
   );
 });
 
+test('清除规则和应用规则能将解析失败状态刷回 ok 并清空 parse_error', async () => {
+  db.prepare("update book_file set status = 'parse_failed', parse_error = '损坏的规则', failed_at = datetime('now') where book_id = ?").run(bookId);
+  await clearRule(db, bookId);
+  const f1 = db.prepare('select status, parse_error, failed_at, encoding from book_file where book_id = ?').get(bookId) as {
+    status: string; parse_error: string | null; failed_at: string | null; encoding: string;
+  };
+  assert.equal(f1.status, 'ok');
+  assert.equal(f1.parse_error, null);
+  assert.equal(f1.failed_at, null);
+  assert.ok(f1.encoding);
+
+  db.prepare("update book_file set status = 'parse_failed', parse_error = '旧错误', failed_at = datetime('now') where book_id = ?").run(bookId);
+  await applyRule(db, bookId, '^@@@');
+  const f2 = db.prepare('select status, parse_error, failed_at from book_file where book_id = ?').get(bookId) as {
+    status: string; parse_error: string | null; failed_at: string | null;
+  };
+  assert.equal(f2.status, 'ok');
+  assert.equal(f2.parse_error, null);
+  assert.equal(f2.failed_at, null);
+});
+
+
