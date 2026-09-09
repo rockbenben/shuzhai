@@ -220,6 +220,9 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
   const states = db
     .prepare(
       `select b.id, ifnull(r.chapter_idx, 0) as chapterIdx, ifnull(r.percent, 0) as percent,
+              r.status as readingStatus, r.drop_reason as dropReason,
+              r.last_read_at as lastReadAt, r.finished_at as finishedAt,
+              r.reread_count as rereadCount,
               r.rating, r.comment, r.rated_at as ratedAt,
               ${FOLD_COLS.map((c) => 'b.' + c).join(', ')}
          from book b left join reading_state r on r.book_id = b.id
@@ -228,6 +231,8 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
     )
     .all(...bookIds) as unknown as Array<{
       id: number; chapterIdx: number; percent: number;
+      readingStatus: string | null; dropReason: string | null;
+      lastReadAt: string | null; finishedAt: string | null; rereadCount: number | null;
       rating: number | null; comment: string | null; ratedAt: string | null;
     } & Record<string, unknown>>;
 
@@ -239,12 +244,12 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
   const others = bookIds.filter((id) => id !== keeper.id);
 
   /*
-   * **书评要跟着合并过来，不能只并标签。**
+   * **书评和阅读状态要跟着合并过来，不能只并标签。**
    *
    * keeper 是按**阅读进度**挑的，跟「哪本写过书评」无关：《诛仙》在库里有
    * 校对版和精校版两个文件，你在其中一本上读到 500 章、在另一本上写了
    * 「结局烂尾了别看」——合并之后另一本连同 `reading_state` 被
-   * `on delete cascade` 删掉，那句话就没了。而书评和进度一样**重扫恢复不了**，
+   * `on delete cascade` 删掉，那句话就没了。而书评、弃坑原因和进度一样**重扫恢复不了**，
    * 这个应用的正事全靠它。标签早就并过来了，评分短评没有，同一次合并里
    * 两种用户数据两套待遇。
    *
@@ -272,7 +277,23 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
     const ratedAt = rating != null || comment
       ? (mine.ratedAt ?? rest.find((x) => x.ratedAt)?.ratedAt ?? new Date().toISOString())
       : null;
-    return { rating, comment, ratedAt };
+
+    const status = (mine.readingStatus && mine.readingStatus !== 'none')
+      ? mine.readingStatus
+      : (rest.find((x) => x.readingStatus && x.readingStatus !== 'none')?.readingStatus ?? 'none');
+
+    const dropReasons: string[] = [];
+    for (const x of [mine, ...rest]) {
+      const d = (x.dropReason ?? '').trim();
+      if (d && !dropReasons.includes(d)) dropReasons.push(d);
+    }
+    const dropReason = dropReasons.length ? dropReasons.join('\n') : null;
+
+    const lastReadAt = mine.lastReadAt ?? rest.find((x) => x.lastReadAt)?.lastReadAt ?? null;
+    const finishedAt = mine.finishedAt ?? rest.find((x) => x.finishedAt)?.finishedAt ?? null;
+    const rereadCount = Math.max(mine.rereadCount ?? 0, ...rest.map((x) => x.rereadCount ?? 0));
+
+    return { rating, comment, ratedAt, status, dropReason, lastReadAt, finishedAt, rereadCount };
   })();
 
   db.exec('begin');
@@ -320,11 +341,31 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
       }
       db.prepare('delete from book where id = ?').run(id);
     }
-    // 书评补到 keeper 上。**放在删掉别人之后**——`on delete cascade` 已经把
+    // 书评与阅读状态补到 keeper 上。**放在删掉别人之后**——`on delete cascade` 已经把
     // 那些 reading_state 行带走了，这里写的是从内存里那份快照算出来的结果
-    db.prepare('insert or ignore into reading_state(book_id) values(?)').run(keeper.id);
-    db.prepare('update reading_state set rating = ?, comment = ?, rated_at = ? where book_id = ?')
-      .run(review.rating, review.comment, review.ratedAt, keeper.id);
+    db.prepare('insert or ignore into reading_state(book_id, status) values(?, ?)').run(keeper.id, review.status);
+    db.prepare(
+      `update reading_state set
+         status = ?,
+         drop_reason = ?,
+         last_read_at = ?,
+         finished_at = ?,
+         reread_count = ?,
+         rating = ?,
+         comment = ?,
+         rated_at = ?
+       where book_id = ?`,
+    ).run(
+      review.status,
+      review.dropReason,
+      review.lastReadAt,
+      review.finishedAt,
+      review.rereadCount,
+      review.rating,
+      review.comment,
+      review.ratedAt,
+      keeper.id,
+    );
 
     // keeper 缺的那几个字段从别人那儿补（谁先有算谁的，keeper 自己有的不动）
     const mineRow = states.find((x) => x.id === keeper.id)!;

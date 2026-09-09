@@ -397,6 +397,44 @@ test('合并时书签、划线、阅读会话跟着搬到留下的那本上', ()
   assert.equal(ses.n, 1, '阅读会话被 cascade 吃掉了');
 });
 
+test('合并：弃坑原因、阅读状态与时间戳不许被吃掉', () => {
+  const keep = addBook('凡人修仙传', '忘语');
+  const gone = addBook('凡人修仙传', '忘语');
+  addFile(keep, join(dir, 'fr-a.txt'), { primary: true });
+  addFile(gone, join(dir, 'fr-b.txt'), { primary: true });
+  db.prepare("update reading_state set status = 'none', percent = 0 where book_id = ?").run(keep);
+  db.prepare(
+    "update reading_state set status = 'dropped', drop_reason = '后面写崩了', last_read_at = '2026-08-01 12:00:00', reread_count = 2 where book_id = ?",
+  ).run(gone);
+
+  mergeBooks(db, [keep, gone]);
+
+  const rs = db.prepare('select * from reading_state where book_id = ?').get(keep) as {
+    status: string;
+    drop_reason: string | null;
+    last_read_at: string | null;
+    reread_count: number;
+  };
+  assert.equal(rs.status, 'dropped', '未标记的 keeper 应该从败方继承已标的状态');
+  assert.equal(rs.drop_reason, '后面写崩了', '弃坑原因绝不能丢');
+  assert.equal(rs.last_read_at, '2026-08-01 12:00:00', '阅读时间戳要继承');
+  assert.equal(rs.reread_count, 2, '重读次数要继承');
+});
+
+test('合并：两本都未标记时，合并后状态不能变成「想读」', () => {
+  const a = Number(db.prepare("insert into book(title, author) values('新书A', '无名')").run().lastInsertRowid);
+  const b = Number(db.prepare("insert into book(title, author) values('新书A', '无名')").run().lastInsertRowid);
+  addFile(a, join(dir, 'new-a.txt'), { primary: true });
+  addFile(b, join(dir, 'new-b.txt'), { primary: true });
+  // 模拟刚扫进来的书：没有 reading_state 记录
+  db.prepare('delete from reading_state where book_id in (?, ?)').run(a, b);
+
+  mergeBooks(db, [a, b]);
+
+  const rs = db.prepare('select status from reading_state where book_id = ?').get(a) as { status: string };
+  assert.equal(rs.status, 'none', '绝不能默认变成 want（想读）');
+});
+
 /*
  * keeper 是按**阅读进度**挑的，跟「哪本填过封面简介」没关系。
  * 真实库里 774 本有封面，抓一本要 6 秒——keeper 空着而败方有的话，
