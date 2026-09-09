@@ -1471,6 +1471,25 @@ button.toc-more:hover {
 }
 
 /*
+ * 弹窗顶部的标题区——**粘住**，是下面 `.modal-actions`（管底）的镜像。
+ *
+ * 「我的笔记」面板按设计直接在 `.modal` 里铺 300 行、翻到底再铺一截，
+ * 没有自己的内滚盒（AGENTS.md「HighlightsPanel」那条）。标题行 + 三档页签
+ * + 搜索框不钉住的话，滚到第 300 条想换一档或改搜一个词，都得先滚回顶部。
+ *
+ * 负的 `top` 和 `margin-top` 抵掉 `.modal` 自己的 padding-top：静止时和改之前
+ * 逐像素一致（内容仍从原来那条线开始），滚起来后这块底色盖住从下面滑过去的卡片。
+ */
+.notes-head {
+  position: sticky;
+  top: -1.1rem;
+  z-index: 2;
+  margin: -1.1rem 0 0.6rem;
+  padding: 1.1rem 0 0;
+  background: var(--bg);
+}
+
+/*
  * 弹窗底部的动作行——**粘住，别让人为了找「保存」滚半屏**。
  *
  * 量出来的：「编辑一本书」在 1280×720 下要往下滚 **449px** 才够得到「保存」，

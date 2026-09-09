@@ -512,7 +512,15 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" style={{ width: 'min(44rem, 100%)' }} onClick={(e) => e.stopPropagation()}>
-        <div className="row" style={{ marginBottom: '.6rem' }}>
+        {/*
+          * **标题 + 页签 + 搜索框钉在弹窗顶上**（`.notes-head` 是 sticky）。
+          * 这个面板按设计直接在 `.modal` 里铺 300 行、翻到底再铺一截，
+          * 没有自己的内滚盒（见 AGENTS.md「HighlightsPanel」）——不钉的话，
+          * 滚到第 300 条想切「划线/书签/全库」或者改搜一个词，都得先滚回顶部。
+          * 搜索框也收进这里：从书架进来的全库模式没有页签，光钉个标题没有用。
+          */}
+        <div className="notes-head">
+        <div className="row">
           {/* 标题里要有「书签」：它是这三样里唯一能从别处（右轨那个图标、按 B）
               加进来的，而加完的人只会照着「书签」这两个字找 */}
           <h2 style={{ margin: 0, fontSize: '1.05rem' }}>{全库模式 ? '我的笔记' : '书签与划线'}</h2>
@@ -539,9 +547,10 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
             onChange={(e) => set找(e.target.value)}
             placeholder="搜摘录、笔记、章名"
             aria-label="在笔记里搜"
-            style={{ width: '100%', marginBottom: '.5rem' }}
+            style={{ width: '100%', marginTop: '.4rem' }}
           />
         )}
+        </div>
 
         {/*
           * **给颜色写上用途。** 到这一步之前，颜色只是四种好看的底色：
