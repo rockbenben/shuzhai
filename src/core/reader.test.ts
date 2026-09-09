@@ -81,6 +81,23 @@ test('释放句柄之后文件才能改名（重命名功能依赖这条）', as
   renameSync(target, path);
 });
 
+test('并发读取同一个文件不会泄露句柄，释放后能正常改名', async () => {
+  const lib = join(dir, 'books');
+  const path = join(lib, '《测试书》某作者.txt');
+  // 并发触发多次读取同一个尚未打开的文件
+  await Promise.all([
+    cache.read(path, 0, 20),
+    cache.read(path, 20, 20),
+    cache.read(path, 40, 20),
+  ]);
+
+  const target = join(lib, '并发后改名.txt');
+  await cache.release(path);
+  renameSync(path, target);
+  assert.ok(true, '并发读取后释放句柄成功，改名不被锁');
+  renameSync(target, path);
+});
+
 test('读到最后一章之外要报错，不能返回空内容', async () => {
   await assert.rejects(() => readChapter(db, cache, bookId, 99), /没有第 99 章/);
 });

@@ -74,6 +74,7 @@ const DEFAULT_MAX_HANDLES = 3;
 
 export class FileCache {
   #handles = new Map<string, FileHandle>();
+  #opening = new Map<string, Promise<FileHandle>>();
   #max: number;
 
   constructor(max = DEFAULT_MAX_HANDLES) {
@@ -89,9 +90,20 @@ export class FileCache {
       return hit;
     }
 
-    const fh = await open(path, 'r').catch((e: NodeJS.ErrnoException) => {
+    const pending = this.#opening.get(path);
+    if (pending) return pending;
+
+    const p = open(path, 'r').catch((e: NodeJS.ErrnoException) => {
       throw new Error(openHint(e));
     });
+    this.#opening.set(path, p);
+
+    let fh: FileHandle;
+    try {
+      fh = await p;
+    } finally {
+      this.#opening.delete(path);
+    }
     this.#handles.set(path, fh);
 
     while (this.#handles.size > this.#max) {
@@ -117,6 +129,13 @@ export class FileCache {
    * 文件没开着也不报错。
    */
   async release(path: string): Promise<void> {
+    const opening = this.#opening.get(path);
+    if (opening) {
+      try {
+        const fh = await opening;
+        await fh.close();
+      } catch {}
+    }
     const fh = this.#handles.get(path);
     if (!fh) return;
     this.#handles.delete(path);
@@ -124,6 +143,13 @@ export class FileCache {
   }
 
   async releaseAll(): Promise<void> {
+    const opening = [...this.#opening.values()];
+    for (const p of opening) {
+      try {
+        const fh = await p;
+        await fh.close();
+      } catch {}
+    }
     const all = [...this.#handles.values()];
     this.#handles.clear();
     await Promise.all(all.map((fh) => fh.close()));

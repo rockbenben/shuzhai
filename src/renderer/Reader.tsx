@@ -395,8 +395,16 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
   // 阅读会话（spec §5.2）：进来开一次、离开结束一次，供「最近在读」用
   useEffect(() => {
     let sid: number | null = null;
-    void rpc<{ id: number }>('session.start', { bookId }).then((s) => { sid = s.id; });
+    let closed = false;
+    void rpc<{ id: number }>('session.start', { bookId }).then((s) => {
+      if (closed) {
+        void rpc('session.end', { id: s.id });
+      } else {
+        sid = s.id;
+      }
+    });
     return () => {
+      closed = true;
       if (sid !== null) void rpc('session.end', { id: sid });
     };
   }, [bookId]);
