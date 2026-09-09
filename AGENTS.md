@@ -75,7 +75,7 @@ sed -n '1234,1300p' docs/lessons.md   # 读那一段
 
 `npm test` **全绿**（条数以当场输出为准，别在这儿记一个会过期的数），
 `npm run typecheck` 干净，`npm run lint:ui` 干净，
-（`ci.yml` 已经跑过且修过两条跨环境问题；`release.yml` 仍是零次运行，见后文。）
+（两个 workflow 都真跑过：`ci.yml` 第一次就抓到两条跨环境问题；`release.yml` 已出过 v1.0.0 / v1.0.1 / v1.1.0，见后文。）
 `npm run dist` 能出安装包。**CI 跑的是前三条加 `npm run build`**
 （`.github/workflows/ci.yml`，windows-latest × node 24）——**`npm run dist` 不在里面**，
 那个 workflow 里专门有一节写着为什么不跑它。**别把「CI 绿了」当成「包打得出来」。**
@@ -732,46 +732,31 @@ node scripts/ui-check/notes.mjs      # 端到端：做笔记那条线（划线�
 
 ## 还没做的
 
-**两条，都不是「功能」**：
+**这一节原来记的两条 2026-09 都已落地，留作记录；每次发版仍然成立的规矩写在第 1 条里。**
 
-1. **`release.yml` 还没有真的跑过。** `.github/workflows/` 下有两个：
-   `ci.yml`（push 到 main / PR 时跑四道闸门）和 `release.yml`（打 `v*` 的 tag 时打包、
-   给产物签一份来源证明、传成**草稿** release）。
+1. ✅ **`release.yml` 已经跑过四次**（v1.0.0 / v1.0.1 / v1.1.0 三次 tag，
+   加 2026-09-04 一次 `workflow_dispatch` 预检，全绿）。两个 workflow 的分工不变：
+   `ci.yml`（push main / PR 跑四道闸门）守「代码编得过」，`release.yml`
+   （`v*` tag 触发：下 Electron 运行时、electron-builder 打包、签来源证明、
+   传**草稿** release）守「包发得出去」。
 
-   ✅ **`ci.yml` 已经跑过了，而且第一次就抓到两条**——都是本地一万次也跑不出来的：
-   一条断言只在「机器时区不是 UTC」时才成立（runner 是 UTC），
-   以及 `fs.watch` 在 8.3 短名路径上让 libuv **原地 abort**、把整个测试文件打死。
-   两条都修了，经过写在 `docs/lessons.md`。「一个从没跑过的 workflow 不算数」这句
-   当场兑现了一次。
+   **每次发版都仍然成立的规矩**：
+   - **先 push `main` 等 CI 绿，再打 tag。** v1.1.0 那次 main 上的 CI 真抓到东西：
+     被跟踪的 lessons/spec 引用了 `.gitignore` 里的 `docs/superpowers/` 文件——
+     **本地有文件所以全绿、CI 干净检出才红**（修法见 `docs/lessons.md` 同日条目）。
+   - **release 永远是草稿**：先把那个 exe（和 zip）下下来真跑一次再点 Publish。
+     CI 打的包在按下发布之前没有任何人运行过它。
+   - **tag 必须等于 `package.json` 的 `version`**，workflow 里有一步专门对，对不上当场停。
+   - 改过这个 workflow 或打包链之后，先 `workflow_dispatch` 手跑一次（没 tag 时上传步骤自己跳过）。
 
-   ⚠️ **`release.yml` 仍是零次运行**，而且它跑的是 `ci.yml` 完全不碰的那一半
-   （下 Electron 运行时、electron-builder、签来源证明、传资产）。
-   **打第一个 tag 之前先 `workflow_dispatch` 手跑一遍**——那条路验的就是构建这一半，
-   没有 tag 时上传步骤自己跳过，不会误发。
-
-   `release.yml` 留了两道口子专门对付「第一次」：**`workflow_dispatch` 能不打 tag
-   手跑一遍**（验的是构建那一半，没有 tag 时上传步骤自己跳过，不会误发），
-   而出来的 release 是**草稿**——**先把那个 exe 下下来真跑一次再点 Publish**。
-   本地打包那条路每次都真的启动过 exe，换成 CI 就把这一步丢了，得自己补回来。
-
-   ⚠️ 写它的时候当场撞了三个坑，都记在那两个文件的注释里，别再踩一遍：
-   PowerShell 的 here-string 要顶格而 YAML 块标量要缩进（两者互斥，整个文件会被
-   判成无效 workflow）、`Get-ChildItem release -Include` 不带 `\*` 返回 0 个、
+   写它时撞的三个坑还记在 `release.yml` 头注释里，别再踩：
+   PowerShell here-string 与 YAML 块标量互斥、`Get-ChildItem release -Include` 不带 `\*` 返回 0 个、
    通配符不给外部命令展开。
 
-2. **仓库元数据四项还没设，因为仓库还不存在。** 读者从链接到用上工具要过三道门，
-   README 只是其中之一——另外三样（`description` / `homepage` / `topics` / 社交预览图）
-   全在 GitHub 的仓库设置里，本地一个字都写不了。
-
-   **文案和图的正本在 `build/brand/README.md`**：标语、副文、description 定稿、
-   topics 建议、图标和社交卡的重新生成命令都在那儿，**这里不复述**
-   （抄第二份必分叉，这个仓库栽过的次数够多了）。社交卡的成品是
-   `build/brand/social-card.png`。要动名字、标语或那张卡，改那份。
-
-   ⚠️ **`topics` 留哪几个只能等 push 之后**：`repo-facade` 那个 skill 带着一个排名脚本，
-   数的是「这个 topic 里 star 比你多的仓库有几个」——排到 30 名开外基本等于没有，
-   而它**要仓库真的在 GitHub 上**才跑得动（脚本不在这个仓库里，别去 `scripts/` 找）。
-
+2. ✅ **仓库已上线且元数据已设**：https://github.com/rockbenben/shuzhai ——
+   `description` / `homepage`（指向 releases/latest）/ `topics` 都已在仓库设置里配好。
+   **社交预览图** API 看不到、只能在设置页肉眼确认；文案、图与换图命令的正本仍在
+   `build/brand/README.md`，**这里不复述**（抄第二份必分叉）。
    ⚠️ **仓库名是 `shuzhai`，不带序号**，理由在 `build/brand/README.md` 的「仓库名」那节。
    改名要连 README 首屏那个「⬇ 下载」一起改。
 

@@ -14631,3 +14631,22 @@ audit 点名（760x520、1280x720 × 设置/设置·书库/自定义封面源/�
 keyboard 0 处；956 测试、typecheck、lint:ui、build 全绿。
 宽度清点后：设置弹窗与改名警告卡实测 704px（760 档 696）、截图复核；
 audit 加跑 编辑一本书/改名 共 7 界面 × 两档仍 0 条，keyboard、lint:ui、956 测试复跑全绿。
+
+## 2026-09-09 v1.1.0 发布：CI 先红在「被跟踪文档引用了被忽略目录」
+
+**现象**：push main 后 CI 在 `npm run lint:ui` 的 stale-refs 判红，3 条
+`docs/superpowers/{specs,plans}/2026-09-07-…md 路径不存在`（lessons 2 条、spec 1 条）。
+本地这些文件**都在**——`docs/superpowers/` 整个在 `.gitignore` 里，而 08 月两份设计文档
+当年是 `git add -f` 强制纳入的。于是「本地有文件、git 里没有」：本地全绿，CI 干净检出判红。
+
+**修法**：只把**被引用的**那两个文件 `git add -f`（没被引用的 09-06 那对继续留本地），
+与 08 月先例一致。教训：**往被跟踪的 .md 里写指向被忽略目录的路径时，要么强制纳入
+那个文件，要么别引用**——stale-refs 在本地永远查不出这一类（本地文件在，对它来说路就是通的）。
+
+**发版顺序也当场验了一遍**：① bump `package.json` / lockfile 到 1.1.0 并 push；
+② 等 main 的 CI 全绿（第一次就是在这一步红的，修好重推再绿）；③ 在绿的那个提交上
+打轻量 tag `v1.1.0` 推送；④ Release workflow 自己再跑一遍四道闸门 + 打包 + 校验和 +
+来源证明，产出**草稿**；⑤ 剩下的只能人来：把 exe/zip 下下来真跑一次才许 Publish。
+tag 与 package.json 版本对不上 workflow 会当场停（产物名走 `${version}` 不带 v）。
+release.yml 至此跑过四次（v1.0.0 / v1.0.1 / v1.1.0 三次 tag + 一次 workflow_dispatch），
+AGENTS.md 里「零次运行」那段自 v1.0.0（09-03）起就是假的，这次一并订正。

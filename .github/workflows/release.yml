@@ -4,17 +4,20 @@
 # 这就是那个 workflow。`ci.yml` 不出包也不该出包（那边专门有一节写为什么），
 # 两件事分开：**CI 守的是「代码还编得过」，这里守的是「包发得出去」**。
 #
-# ── ⚠️ 这个 workflow 至今没有真的跑过 ──
+# ── 已经跑过四次：v1.0.0 / v1.0.1 / v1.1.0 三次 tag + 2026-09-04 一次 workflow_dispatch ──
 #
-# 和 `ci.yml` 一样，写下来不等于验过。所以留了两道口子，**第一次发版前先走一遍**：
+# workflow_dispatch 的「第一次」预检在 v1.0.1 之前走过（7 分钟绿）。平时不用再手跑；
+# **改了这个文件或打包链之后**再手动跑一次——没有 tag 时上传那几步自己跳过，不会误发。
 #
-#   1. `workflow_dispatch` —— 不打 tag 也能手动跑一次，验的是**构建这一半**
-#      （下面那个 `install-electron` 的坑就在这一半）。没有 tag 时上传那几步自己跳过，
-#      所以手跑一次不会误发一个 release 出去。
-#   2. 出来的 release 是**草稿**（`draft: true`）。草稿不出现在 releases/latest 上、
+# 每次发版仍然成立的两条：
+#   1. 出来的 release 是**草稿**（`draft: true`）。草稿不出现在 releases/latest 上、
 #      也不通知任何人——**先自己把那个 exe 下下来真跑一次**，再点 Publish。
 #      这一条不是客套：CI 打的包在你按下发布之前，没有任何人运行过它。
 #      （本地那条路至少每次都真的启动过 exe，换成 CI 就把这一步丢了，得自己补回来。）
+#   2. 打 tag 不触发 ci.yml，所以下面「四道闸门」那步不能省。发版顺序：
+#      先 push main 等 CI 绿再打 tag。v1.1.0 那次 main 的 CI 先抓到 stale-refs：
+#      被跟踪的 .md 引用了 .gitignore 里的 docs/superpowers 文件，本地有文件所以绿、
+#      干净检出才红（详见 docs/lessons.md 2026-09-09 条目）。
 #
 # ── ⚠️ `npm ci` 之后必须自己下 Electron 的运行时 ──
 #
