@@ -1049,9 +1049,7 @@ export function App() {
    * **从「全库笔记」点一条：打开那本书、落到那一处。**
    *
    * ⚠️ **书要现查，不能在 `books` 里找。** `books` 是**当前书架筛选**的结果——
-   * 笔记那一档是跨全库的，那本书十有八九不在这一页里
-   * （`SearchPanel` 那处至今还是 `books.find`，是同一个坑，只是全文索引
-   * 目前只收纯文本书所以还没咬到人）。
+   * 笔记和全库搜索都是跨全库的，那本书十有八九不在这一页里。
    *
    * ⚠️ **两个状态都要先清掉。** 从一本 txt 跳到一本 PDF 时，`reading` 不清的话
    * 退出查看器会掉回**上一本书的阅读器**——而用户以为自己回的是书架。
@@ -1353,9 +1351,8 @@ export function App() {
         <SearchPanel
           onClose={() => setDialog(null)}
           onOpen={(bookId, chapterIdx) => {
-            const b = books.find((x) => x.id === bookId);
             setDialog(null);
-            if (b) setReading({ id: b.id, title: b.title, at: chapterIdx });
+            打开别的书(bookId, chapterIdx);
           }}
         />
       )}
