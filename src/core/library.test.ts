@@ -959,14 +959,16 @@ test('按评分筛：minRating 和「评价过 / 没评价过」', () => {
   const a = addBook('五星');
   const b = addBook('两星');
   const c = addBook('只写了短评');
+  const d = addBook('只写了弃坑原因');
   addBook('没碰过');
   setStatus(db, a, { rating: 5 });
   setStatus(db, b, { rating: 2 });
   setStatus(db, c, { comment: '烂尾了别看' });
+  setStatus(db, d, { status: 'dropped', dropReason: '中期崩了' });
 
   assert.deepEqual(titles(listBooks(db, { minRating: 4 })), ['五星']);
-  // **只写了短评没打分的也算「评价过」**——那句话恰恰是「避免重复阅读」最有用的信息
-  assert.deepEqual(titles(listBooks(db, { rated: true })), ['两星', '五星', '只写了短评']);
+  // **只写了短评或弃坑原因没打分的也算「评价过」**——那句话恰恰是「避免重复阅读」最有用的信息
+  assert.deepEqual(titles(listBooks(db, { rated: true })), ['两星', '五星', '只写了弃坑原因', '只写了短评']);
   assert.deepEqual(titles(listBooks(db, { rated: false })), ['没碰过']);
 });
 
@@ -1542,4 +1544,22 @@ test('「最近读完的在前」：没读完的沉到最后，不混在中间',
 
   const 顺序 = (listBooks(db, {}, { sort: 'finished' }) as Array<{ id: number }>).map((r) => r.id);
   assert.deepEqual(顺序, [晚, 早, 没读完], '晚 → 早 → 没读完');
+});
+
+test('excludeReadingStatus 与 shelfCounts.all 默认排除弃坑', () => {
+  const a = addBook('在读的书');
+  const b = addBook('弃坑的书');
+  const c = addBook('未标记的书');
+  setStatus(db, a, { status: 'reading' });
+  setStatus(db, b, { status: 'dropped' });
+
+  // 1. listBooks 传入 excludeReadingStatus 排除弃坑
+  const unExcluded = (listBooks(db, { excludeReadingStatus: ['dropped'] }) as Array<{ id: number }>).map((r) => r.id);
+  assert.deepEqual(unExcluded.sort(), [a, c].sort(), '正确排除了弃坑书');
+
+  // 2. shelfCounts.all 默认不含弃坑，而 total 仍然包含
+  const counts = shelfCounts(db);
+  assert.equal(counts.total, 3, 'total 守住全库真实总量');
+  assert.equal(counts.all, 2, 'all 默认排除弃坑书');
+  assert.equal(counts.byReading.dropped, 1, 'byReading.dropped 准确统计弃坑数');
 });

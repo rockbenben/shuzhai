@@ -97,6 +97,12 @@ export interface BackupBook {
   chapterCountOverride?: number | null;
   categoryName: string | null;
   tags: string[];
+  /**
+   * 手动加入的智能书架名（`shelf_member`，迁移 27）。**按名存不按 id**——
+   * 跨库 id 不可移植，同 tags/categoryName。规则本身在顶层 `shelves` 里。
+   * 纯新增字段，旧备份没有就 `?? []`，不升 BACKUP_VERSION。
+   */
+  shelves?: string[];
   /** 认回本地文件靠这两样：hash 优先，路径次之 */
   files: Array<{ path: string; contentHash: string | null; isPrimary: boolean; encoding: string | null }>;
   reading: BackupReading | null;
@@ -273,6 +279,13 @@ export function exportBackup(db: DatabaseSync): BackupFile {
           .prepare('select t.name from book_tag bt join tag t on t.id = bt.tag_id where bt.book_id = ?')
           .all(id) as unknown as Array<{ name: string }>
       ).map((t) => t.name),
+      shelves: (
+        db
+          .prepare(
+            'select s.name from shelf_member sm join smart_shelf s on s.id = sm.shelf_id where sm.book_id = ? order by s.id',
+          )
+          .all(id) as unknown as Array<{ name: string }>
+      ).map((s) => s.name),
       files: files.map((f) => ({ ...f, isPrimary: f.isPrimary === 1 })),
       reading: r ?? null,
       bookmarks: db
@@ -714,6 +727,18 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
 
   db.exec('begin');
   try {
+    /*
+     * 智能书架（规则）必须在逐书循环**之前**就位：逐书恢复手动成员时要按名
+     * 拿 shelf id。若成员先用 '{}' 把书架建出来，下面的按名去重会把真规则
+     * 跳过去——老备份只在顶层带书架、新备份才在书里带成员，顺序不能反。
+     */
+    for (const s of (backup.shelves ?? []) as Array<{ name: string; filter_json: string }>) {
+      const dup = db.prepare('select id from smart_shelf where name = ?').get(s.name);
+      if (!dup) {
+        db.prepare('insert into smart_shelf(name, filter_json) values(?, ?)').run(s.name, s.filter_json);
+      }
+    }
+
     for (const bb of backup.books) {
       let bookId: number | null = null;
 
@@ -818,6 +843,15 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
         db.prepare('insert or ignore into book_tag(book_id, tag_id) values(?,?)').run(bookId, t.id);
       }
 
+      // 手动加入的分类：顶层 shelves 已经在逐书循环**之前**按名建好了；
+      // 旧备份/手工 JSON 里书带了一个顶层没有的名字时，兜底建个空规则分类，
+      // 别让一条坏行连累整份恢复（同分类名的处理形状）
+      for (const name of (bb.shelves ?? []).filter((s) => typeof s === 'string' && s.trim())) {
+        db.prepare("insert or ignore into smart_shelf(name, filter_json) values(?, '{}')").run(name.trim());
+        const s = db.prepare('select id from smart_shelf where name = ?').get(name.trim()) as { id: number };
+        db.prepare('insert or ignore into shelf_member(shelf_id, book_id) values(?, ?)').run(s.id, bookId);
+      }
+
       restoreUserData(db, bookId, bb, report);
 
       if (bb.parseRule) {
@@ -877,13 +911,6 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
         db.prepare(
           'insert into clean_rule(name, pattern, replacement, enabled, scope) values(?,?,?,?,?)',
         ).run(r.name, r.pattern, r.replacement, r.enabled, r.scope);
-      }
-    }
-
-    for (const s of (backup.shelves ?? []) as Array<{ name: string; filter_json: string }>) {
-      const dup = db.prepare('select id from smart_shelf where name = ?').get(s.name);
-      if (!dup) {
-        db.prepare('insert into smart_shelf(name, filter_json) values(?, ?)').run(s.name, s.filter_json);
       }
     }
 

@@ -193,7 +193,8 @@ export function setPrimary(db: DatabaseSync, fileId: number): void {
  * 跟当前正文对账、对不上标 `intact: false`，那条路已经在了。
  *
  * **不搬，跟着没**：
- * - `book_file`、`book_tag`、`reading_state` —— 上面单独处理了（搬文件、并标签、并书评）。
+ * - `book_file`、`book_tag`、`shelf_member`、`reading_state` —— 上面单独处理了
+ *   （搬文件、并标签、并手动分类成员、并书评）。
  * - `parse_rule` / `clean_rule` —— 那是「这本书按什么规则切章/净化」。keeper 有自己的
  *   一份，两份规则叠在同一本书上只会互相打架，而重新设一次是几秒钟的事。
  * - `online_link` / `cover_fetch` —— 抓取顺手记的源页和抓取状态，重抓就有。
@@ -305,6 +306,11 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
         keeper.id,
         id,
       );
+      // **手动分类成员也并过来**（迁移 27 的 shelf_member）：败方是被人手滑
+      // 归过类的那一本时，成员关系不能跟着败方一起被 cascade 删掉，判据同标签
+      db.prepare(
+        'insert or ignore into shelf_member(shelf_id, book_id) select shelf_id, ? from shelf_member where book_id = ?',
+      ).run(keeper.id, id);
       for (const t of MOVED_TABLES) db.prepare(`update ${t} set book_id = ? where book_id = ?`).run(keeper.id, id);
       /*
        * ⚠️ **PDF / EPUB 读到哪儿不是一张表，`MOVED_TABLES` 那条守卫看不见它。**

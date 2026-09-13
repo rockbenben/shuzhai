@@ -435,6 +435,8 @@ export interface Filter {
   tagIds?: number[];
   /** 阅读状态：want / reading / finished / dropped / shelved */
   readingStatus?: string[];
+  /** 排除的阅读状态：例如 ['dropped'] 让「全部」默认不含弃坑 */
+  excludeReadingStatus?: string[];
   /** 连载状态：ongoing / finished / abandoned / unknown */
   serialStatus?: string[];
   minWords?: number;
@@ -498,6 +500,16 @@ export interface Filter {
    */
   rated?: boolean;
   /**
+   * 选中某个**智能书架**：命中它的规则、**或**被手动加进这个书架的书
+   * （`shelf_member`，迁移 27）。规则允许为空——空规则 + 手动成员 = 纯手动分类。
+   *
+   * ⚠️ 规则必须**原样带在这个键里**：buildFilter 不读 smart_shelf 表
+   * （它没有 db 参数，书架列表/统计/批量所有调用方才共用同一份解释）。
+   * 外层的其余筛选（关键字、标签、内置档位）照常和它取交集——
+   * 手动成员不享有豁免，搜书名时搜不到的成员照样不显示。
+   */
+  shelf?: { id: number; rule: Filter };
+  /**
    * **记过笔记的**（划线或书签，任意一样）。
    *
    * 笔记原来在书架上**完全看不见**：`highlight` / `bookmark` 两张表只在孤儿检测
@@ -537,9 +549,9 @@ export const BOOK_JOIN = `from book b
  * 挡一次全都护住——挡在调用方就是抄 N 份。
  */
 const FILTER_KEYS = new Set([
-  'keyword', 'categoryId', 'tagIds', 'readingStatus', 'serialStatus',
+  'keyword', 'categoryId', 'tagIds', 'readingStatus', 'excludeReadingStatus', 'serialStatus',
   'minWords', 'maxWords', 'fileStatus', 'excluded', 'dir', 'hideDirs',
-  'minRating', 'rated', 'format', 'hasNotes', 'finishedYear',
+  'minRating', 'rated', 'format', 'hasNotes', 'finishedYear', 'shelf',
 ]);
 
 /**
@@ -621,7 +633,7 @@ export function finishedYears(db: DatabaseSync): Array<{ year: string; n: number
 
 export function ratedSql(alias = ''): string {
   const c = alias ? `${alias}.` : '';
-  return `(${c}rating is not null or ifnull(${c}comment, '') != '')`;
+  return `(${c}rating is not null or ifnull(${c}comment, '') != '' or ifnull(${c}drop_reason, '') != '')`;
 }
 
 export function buildFilter(f: Filter): { sql: string; params: Array<string | number> } {
@@ -651,6 +663,10 @@ export function buildFilter(f: Filter): { sql: string; params: Array<string | nu
   if (f.readingStatus?.length) {
     parts.push(`ifnull(r.status, 'none') in (${f.readingStatus.map(() => '?').join(',')})`);
     params.push(...f.readingStatus);
+  }
+  if (f.excludeReadingStatus?.length) {
+    parts.push(`ifnull(r.status, 'none') not in (${f.excludeReadingStatus.map(() => '?').join(',')})`);
+    params.push(...f.excludeReadingStatus);
   }
   if (f.serialStatus?.length) {
     parts.push(`b.serial_status in (${f.serialStatus.map(() => '?').join(',')})`);
@@ -700,6 +716,20 @@ export function buildFilter(f: Filter): { sql: string; params: Array<string | nu
          (${f.tagIds.map(() => '?').join(',')})) = ?`,
     );
     params.push(...f.tagIds, f.tagIds.length);
+  }
+
+  // 智能书架 = 规则命中 ∪ 手动成员。规则的解释递归走自己这一份（同口径），
+  // 空规则（sql 就一个起手的 1=1）时只剩手动成员那一档
+  if (f.shelf) {
+    // 规则里不许再嵌书架——自己嵌自己就是无限递归（规则来自外部 rpc，
+    // FILTER_KEYS 只会把 `shelf` 当合法键放进来，得在这儿明挡）
+    if (f.shelf.rule.shelf) throw new Error('分类规则里不能再套分类');
+    // 递归走自己：空规则翻译出来就是起手的 '1=1'，那时只剩手动成员那一档
+    const rule = buildFilter(f.shelf.rule);
+    const member = 'b.id in (select sm.book_id from shelf_member sm where sm.shelf_id = ?)';
+    if (rule.sql === '1=1') parts.push(member);
+    else parts.push(`(${rule.sql} or ${member})`);
+    params.push(...rule.params, f.shelf.id);
   }
 
   /*
@@ -939,6 +969,147 @@ export function removeShelf(db: DatabaseSync, id: number): void {
   db.prepare('delete from smart_shelf where id = ?').run(id);
 }
 
+// ── 智能书架的手动成员（迁移 27）─────────────────────────
+// 一个分类的成员 = 规则命中 ∪ 手动加入。下面这些只管「手动」那一半；
+// 规则那一半永远是 buildFilter 现算，不存快照（library.test.ts 钉着这条）。
+
+function assertShelfExists(db: DatabaseSync, shelfId: number): void {
+  const row = db.prepare('select 1 from smart_shelf where id = ?').get(shelfId);
+  if (!row) throw new Error(`没有 id 为 ${shelfId} 的分类。先 shelf.list 看一下有哪些`);
+}
+
+/** 把一批书手动加进一个分类。已经在的跳过（主键挡着），返回实际新增条数 */
+export function addShelfBooks(db: DatabaseSync, shelfId: number, bookIds: number[]): number {
+  assertShelfExists(db, shelfId);
+  const link = db.prepare('insert or ignore into shelf_member(shelf_id, book_id) values(?, ?)');
+  let added = 0;
+  db.exec('begin');
+  try {
+    for (const bookId of bookIds) {
+      added += link.run(shelfId, bookId).changes as number;
+    }
+    db.exec('commit');
+  } catch (e) {
+    db.exec('rollback');
+    throw e;
+  }
+  return added;
+}
+
+/** 从一个分类的手动成员里摘掉一批书（规则还命中的书不会消失）。返回实际摘掉条数 */
+export function removeShelfBooks(db: DatabaseSync, shelfId: number, bookIds: number[]): number {
+  const link = db.prepare('delete from shelf_member where shelf_id = ? and book_id = ?');
+  let removed = 0;
+  db.exec('begin');
+  try {
+    for (const bookId of bookIds) {
+      removed += link.run(shelfId, bookId).changes as number;
+    }
+    db.exec('commit');
+  } catch (e) {
+    db.exec('rollback');
+    throw e;
+  }
+  return removed;
+}
+
+/** 这本书被手动加进了哪些分类（id）。书的归类页签数据来源 */
+export function manualShelfIdsForBook(db: DatabaseSync, bookId: number): number[] {
+  return (
+    db.prepare('select shelf_id as id from shelf_member where book_id = ? order by shelf_id')
+      .all(bookId) as unknown as Array<{ id: number }>
+  ).map((r) => r.id);
+}
+
+export interface BookShelfMembership {
+  id: number;
+  name: string;
+  /** 手动成员（界面上可勾掉） */
+  manual: boolean;
+  /** 规则本来就命中——勾不掉，摘手动也还在这个分类里 */
+  ruleHit: boolean;
+}
+
+/**
+ * 编辑一本书时要列出的全部分类：每个分类标出「手动加入 / 规则命中」。
+ * 分类数很少（用户自建），逐个跑一次规则判定；空规则不命中任何书
+ * （空规则 + 手动成员才是它的全部成员）。
+ */
+export function shelvesForBook(db: DatabaseSync, bookId: number): BookShelfMembership[] {
+  const shelves = listShelves(db);
+  const manual = new Set(manualShelfIdsForBook(db, bookId));
+  return shelves.map((s) => {
+    let ruleHit = false;
+    if (Object.keys(s.filter).length > 0) {
+      const { sql, params } = buildFilter(s.filter);
+      const row = db
+        .prepare(`select 1 ${BOOK_JOIN} where ${sql} and b.id = ?`)
+        .get(...params, bookId) as { 1: number } | undefined;
+      ruleHit = !!row;
+    }
+    return { id: s.id, name: s.name, manual: manual.has(s.id), ruleHit };
+  });
+}
+
+/**
+ * 批量「加入分类」的预览：筛选结果里有多少本**还不是手动成员**，
+ * 附前 N 本当样本。和 `planTagByFilter` 一个形状——预览与执行必须同口径。
+ */
+export function planShelfByFilter(
+  db: DatabaseSync,
+  shelfId: number,
+  filter: Filter,
+  sampleSize = 20,
+): { sample: Array<{ bookId: number; title: string }>; total: number; already: number } {
+  assertShelfExists(db, shelfId);
+  const { sql, params } = buildFilter(filter);
+  const books = db
+    .prepare(
+      `select b.id, b.title,
+        exists(select 1 from shelf_member sm where sm.shelf_id = ? and sm.book_id = b.id) as is_member
+       ${BOOK_JOIN} where ${sql} order by b.title collate nocase, b.id`,
+    )
+    .all(shelfId, ...params) as unknown as Array<{ id: number; title: string; is_member: number }>;
+  const sample: Array<{ bookId: number; title: string }> = [];
+  let total = 0;
+  let already = 0;
+  for (const b of books) {
+    if (b.is_member) { already++; continue; }
+    total++;
+    if (sample.length < sampleSize) sample.push({ bookId: b.id, title: b.title });
+  }
+  return { sample, total, already };
+}
+
+/** 执行批量加入。返回实际新增成员的书 id——撤销只摘这些，别把人家原来就在的摘掉 */
+export function addShelfBooksByFilter(
+  db: DatabaseSync,
+  shelfId: number,
+  filter: Filter,
+): { bookIds: number[] } {
+  assertShelfExists(db, shelfId);
+  const { sql, params } = buildFilter(filter);
+  const ids = (
+    db
+      .prepare(`select b.id ${BOOK_JOIN} where ${sql}`)
+      .all(...params) as unknown as Array<{ id: number }>
+  ).map((r) => r.id);
+  // 一条事务、prepare 一次——同 tagBooksByFilter 那条「几千本时 404ms→1ms」
+  const link = db.prepare('insert or ignore into shelf_member(shelf_id, book_id) values(?, ?)');
+  const changed: number[] = [];
+  db.exec('begin');
+  try {
+    for (const id of ids) {
+      if (link.run(shelfId, id).changes > 0) changed.push(id);
+    }
+    db.exec('commit');
+  } catch (e) {
+    db.exec('rollback');
+    throw e;
+  }
+  return { bookIds: changed };
+}
+
 
 export interface ShelfCounts {
   /**
@@ -1130,7 +1301,14 @@ export function shelfCounts(db: DatabaseSync, scope: Filter = {}): ShelfCounts {
   }
 
   return {
-    all: count({}),
+    /*
+     * 「全部」书架默认不含弃坑书（弃坑有它自己的专栏）。
+     * 若 scope 显式指定了 readingStatus，则按其显式指定为准，不额外附加排除；
+     * 否则排除 dropped 状态。
+     */
+    all: scope.readingStatus?.length
+      ? count({})
+      : count({ excludeReadingStatus: [...new Set([...(scope.excludeReadingStatus ?? []), 'dropped'])] }),
     /*
      * ⚠️ **绕开 `count()`，因为那个闭包会把 `scope` 拌进去。**
      * 这一条要的正是「不看当前筛选，整个库有多少本」——写成 `count({})` 就又

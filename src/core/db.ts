@@ -616,6 +616,29 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
       delete from app_setting where key = 'convert.book.' || old.id;
     end;
   `),
+
+  /*
+   * 27：**智能书架的手动成员**（shelf_member）。
+   *
+   * 原来的分类只有「规则自动命中」一条路（smart_shelf.filter_json 存规则、
+   * 不存结果）。手动成员补上另一条路：一个分类的成员 = 规则命中 ∪ 手动加入。
+   * 规则可以留空，那时它就是个纯手动分类。
+   *
+   * ⚠️ **铁律 3**：这是用户不可再生输入。备份恢复、删书清单（deletion.ts）、
+   * 合并书搬运（versions.ts，照 book_tag 那份 insert or ignore … select）
+   * 当场跟上。两个外键都 on delete cascade——删分类/删书自动清，同 book_tag。
+   * 不新做一套分类表：category 表那套界面零入口，再开一系只会重复
+   * 「两套分类别弄混」的事故（AGENTS.md 专门钉着）。
+   */
+  (db) => db.exec(`
+    create table if not exists shelf_member(
+      shelf_id integer not null references smart_shelf(id) on delete cascade,
+      book_id integer not null references book(id) on delete cascade,
+      added_at text not null default (datetime('now')),
+      primary key (shelf_id, book_id)
+    );
+    create index if not exists idx_shelf_member_book on shelf_member(book_id);
+  `),
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

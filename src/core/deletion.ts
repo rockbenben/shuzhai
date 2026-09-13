@@ -350,6 +350,9 @@ async function guardEmptyBook(
            (select count(*) from reading_state where book_id = ?
              and (rating is not null or comment is not null or drop_reason is not null)) as review,
            (select count(*) from book_tag where book_id = ?) as tags,
+           -- 手动加入的分类成员（shelf_member，迁移 27）：规则命中重扫能再算出来，
+           -- 手动加入的那一行不能，同标签，删最后一个文件前要先拦下
+           (select count(*) from shelf_member where book_id = ?) as shelves,
            -- ⚠️ 键在 JS 里拼好整串再传，**别写 'viewer.' || ?**：
            -- node:sqlite 把 JS 数字绑成 REAL，那条拼出来是 'viewer.7.0'，永远匹配不上，
            -- 而且不报错——这条判据会静默失效。（列拼串没这个问题，见 library.ts 那处。）
@@ -358,10 +361,10 @@ async function guardEmptyBook(
            -- 上面那几个 count 一个都看不见它
            (select count(*) from app_setting where key = ?) as outline`,
       )
-      .get(f.book_id, f.book_id, f.book_id, f.book_id, f.book_id,
+      .get(f.book_id, f.book_id, f.book_id, f.book_id, f.book_id, f.book_id,
         `viewer.${f.book_id}`, `outline.${f.book_id}`) as
       { marks: number; notes: number; progress: number; review: number; tags: number;
-        viewerPos: number; outline: number };
+        shelves: number; viewerPos: number; outline: number };
 
     /*
      * ⚠ **弃坑原因和标签原来不在这张清单里。**
@@ -378,6 +381,7 @@ async function guardEmptyBook(
     const has: string[] = [];
     if (p.review) has.push('你写的评分、短评或弃坑原因');
     if (p.tags) has.push('你打的标签');
+    if (p.shelves) has.push('手动加入的分类');
     if (p.progress) has.push('阅读进度');
     if (p.marks) has.push('书签');
     if (p.notes) has.push('划线');

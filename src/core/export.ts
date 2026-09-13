@@ -197,7 +197,7 @@ function csvCell(v: unknown): string {
 }
 
 const META_COLUMNS = [
-  'id', 'title', 'author', 'aliases', 'serial_status', 'category', 'tags',
+  'id', 'title', 'author', 'aliases', 'serial_status', 'category', 'tags', 'shelves',
   'word_count', 'chapter_count', 'chapter_count_override', 'encoding', 'path', 'file_status',
   // `rated_at` 跟着 rating / comment 一起走：拿出去分析「我 2025 年读了什么、
   // 给什么打了高分」要的就是这个日期，而它重扫恢复不了，只在这里和备份里有出口
@@ -217,6 +217,12 @@ function metaRows(db: DatabaseSync): Array<Record<string, unknown>> {
               -- Excel 和任何 CSV 解析器都认得。同本文件「同一件事只能有一个说法」。
               (select group_concat(t.name, ',') from book_tag bt join tag t on t.id = bt.tag_id
                 where bt.book_id = b.id) as tags,
+              -- **手动加入的智能书架**（shelf_member，迁移 27）：只导手动成员，
+              -- 规则命中的那些随时能由规则重新算出来；同备份导出那一份的口径。
+              -- 表头叫「书架分类」——左边 legacy 的 category 已经占着「分类」。
+              (select group_concat(s.name, ',') from shelf_member sm
+                join smart_shelf s on s.id = sm.shelf_id
+                where sm.book_id = b.id order by s.id) as shelves,
               f.word_count, f.chapter_count, b.chapter_count_override,
               f.encoding, f.path, f.status as file_status,
               r.status as reading_status, r.percent, r.rating, r.comment, r.rated_at,

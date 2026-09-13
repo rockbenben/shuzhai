@@ -96,6 +96,7 @@ export const META_LABELS: Record<string, string> = {
   serial_status: '连载状态',
   category: '分类',
   tags: '标签',
+  shelves: '书架分类',
   word_count: '字数',
   chapter_count: '章数',
   chapter_count_override: '手填章数',
