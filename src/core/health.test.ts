@@ -21,7 +21,7 @@ function seed(db: ReturnType<typeof openDb>, title: string, chapters: Array<[str
   return bookId;
 }
 
-test('大半的章只有几十字节 → 报「切碎了」', () => {
+test('大半的章只有几十字节 → 报「切碎了」', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'health-'));
   const db = openDb(join(dir, 'l.db'));
   // 8 章里 6 章是碎的：正文里的选项行被当成了标题
@@ -32,7 +32,7 @@ test('大半的章只有几十字节 → 报「切碎了」', () => {
   // 控制组：正常的书一本都不该被报出来
   seed(db, '正常的', Array.from({ length: 20 }, (_, i) => [`第${i + 1}章`, 6000] as [string, number]));
 
-  const bad = suspiciousSplits(db);
+  const bad = await suspiciousSplits(db);
   assert.equal(bad.length, 1, '正常的书不该被报出来');
   assert.equal(bad[0].title, '被切碎的');
   assert.equal(bad[0].kind, 'tiny');
@@ -41,7 +41,7 @@ test('大半的章只有几十字节 → 报「切碎了」', () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('标题行写了两遍 → 报「重复」，而且不和「切碎」重复报', () => {
+test('标题行写了两遍 → 报「重复」，而且不和「切碎」重复报', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'health-'));
   const db = openDb(join(dir, 'l.db'));
   try {
@@ -49,14 +49,14 @@ test('标题行写了两遍 → 报「重复」，而且不和「切碎」重复
     const rows: Array<[string, number]> = [];
     for (let i = 1; i <= 5; i++) { rows.push([`第${i}章`, 40]); rows.push([`第${i}章`, 7000]); }
     seed(db, '标题两遍的', rows);
-    const bad = suspiciousSplits(db);
+    const bad = await suspiciousSplits(db);
     assert.equal(bad.length, 1);
     assert.equal(bad[0].kind, 'repeated');
     assert.match(bad[0].detail, /5 处标题重复/);
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('两类都中的书只报一条——重新解析一次就都处理了', () => {
+test('两类都中的书只报一条——重新解析一次就都处理了', async () => {
   // **上一版这条测试是假的**：夹具只中了「重复」那一类，`tiny` 是空的、
   // `seen` 也是空的，于是把去重那一行整个删掉测试照样绿。
   // 要真走到去重，夹具必须**两条判据都中**。
@@ -67,25 +67,25 @@ test('两类都中的书只报一条——重新解析一次就都处理了', ()
     // 6 组「空壳 + 空壳」：12 章全部短于 200（中 tiny），且 6 处同名紧邻（中 repeated）
     for (let i = 1; i <= 6; i++) { rows.push([`第${i}章`, 40]); rows.push([`第${i}章`, 60]); }
     seed(db, '两类都中的', rows);
-    const bad = suspiciousSplits(db);
+    const bad = await suspiciousSplits(db);
     assert.equal(bad.length, 1, '同一本书不该报两条——那会让人以为有两个问题');
     assert.equal(bad[0].kind, 'tiny', '两类都中时报更严重的那一类');
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('同名但隔着一整章正文的不算重复', () => {
+test('同名但隔着一整章正文的不算重复', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'health-'));
   const db = openDb(join(dir, 'l.db'));
   try {
     seed(db, '真有同名章', [['楔子', 5000], ['楔子', 5000], ['楔子', 5000], ['楔子', 5000]]);
-    assert.deepEqual(suspiciousSplits(db), [], '前一章有五千字节，不是空壳');
+    assert.deepEqual(await suspiciousSplits(db), [], '前一章有五千字节，不是空壳');
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('屏蔽掉的、文件已经不在的，都不报', () => {
+test('屏蔽掉的、文件已经不在的，都不报', async () => {
   // 屏蔽的书在书架上根本看不到，报出来等于让人去修一本不存在的书；
   // 文件缺失的书重解析会把 `missing` 改写成 `parse_failed`，
-  // 而「需要处理」那一档和 `library.repair` 正是靠 missing 认出它们的
+  // 「需要处理」那一档和 `library.repair` 正是靠 missing 认出它们的
   const dir = mkdtempSync(join(tmpdir(), 'health-'));
   const db = openDb(join(dir, 'l.db'));
   try {
@@ -94,11 +94,11 @@ test('屏蔽掉的、文件已经不在的，都不报', () => {
     const b = seed(db, '文件没了的', tiny);
     db.prepare('update book_file set excluded = 1 where book_id = ?').run(a);
     db.prepare("update book_file set status = 'missing' where book_id = ?").run(b);
-    assert.deepEqual(suspiciousSplits(db), []);
+    assert.deepEqual(await suspiciousSplits(db), []);
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('章数用真实行数算，不信 chapter_count 那一列', () => {
+test('章数用真实行数算，不信 chapter_count 那一列', async () => {
   // 那一列是去规范化的，两边对不上时这个比例会悄悄失效——
   // 实测把它写成 100 而实际 10 章，整本书从报告里消失
   const dir = mkdtempSync(join(tmpdir(), 'health-'));
@@ -106,6 +106,32 @@ test('章数用真实行数算，不信 chapter_count 那一列', () => {
   try {
     const id = seed(db, '列写歪了的', Array.from({ length: 10 }, (_, i) => [`第${i}章`, 30] as [string, number]));
     db.prepare('update book_file set chapter_count = 100 where book_id = ?').run(id);
-    assert.equal(suspiciousSplits(db).length, 1, 'chapter_count 不可信，要按真实行数算');
+    assert.equal((await suspiciousSplits(db)).length, 1, 'chapter_count 不可信，要按真实行数算');
+  } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('分块只切执行方式：chunkSize=1 时结果一致，而且每块之间真的让出事件循环', async () => {
+  // 体检曾经是一条 4–5 秒的同步大查询，堵死主进程：扫描通知刚弹出时点「去处理」
+  // 像死机。分块之后块间必须有一次让出，前台 RPC 才能插进来。
+  const dir = mkdtempSync(join(tmpdir(), 'health-'));
+  const db = openDb(join(dir, 'l.db'));
+  try {
+    // 3 本候选：tiny / repeated / 干净 各一，且三类的书 id 落在不同块
+    seed(db, '被切碎的', Array.from({ length: 8 }, (_, i) => [`【${i + 1}】`, 30] as [string, number]));
+    const repRows: Array<[string, number]> = [];
+    for (let i = 1; i <= 5; i++) { repRows.push([`第${i}章`, 40]); repRows.push([`第${i}章`, 7000]); }
+    seed(db, '标题两遍的', repRows);
+    seed(db, '正常的', Array.from({ length: 20 }, (_, i) => [`第${i + 1}章`, 6000] as [string, number]));
+
+    const whole = await suspiciousSplits(db);
+    let yields = 0;
+    const chunked = await suspiciousSplits(db, { chunkSize: 1, yield: () => { yields++; } });
+    assert.deepEqual(
+      chunked.map((x) => [x.bookId, x.kind]).sort(),
+      whole.map((x) => [x.bookId, x.kind]).sort(),
+      '分块和整条查询的命中必须一致',
+    );
+    assert.equal(chunked.length, 2);
+    assert.ok(yields >= 2, `3 本候选按 1 本一块至少让两次，实际 ${yields} 次`);
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
 });

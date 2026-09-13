@@ -584,6 +584,10 @@ export function createRpc(
      *
      * 内置的章节规则会随着版本改好，而库里的书还是当初扫描时算出来的结果。
      * 重新解析这个动作一直有（`book.reparse`），缺的是**知道该对哪几本用**。
+     *
+     * ⚠️ **异步、分块、块间让出事件循环**：它曾经是一条 5 秒的同步查询，
+     * 扫描一完就在主进程上堵着，通知上的「去处理」点下去像死机。判据见
+     * `health.ts` 文件头——别退回一条全表 group by。
      */
     'library.badSplits': () => suspiciousSplits(db),
 
