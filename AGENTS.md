@@ -75,7 +75,7 @@ sed -n '1234,1300p' docs/lessons.md   # 读那一段
 
 `npm test` **全绿**（条数以当场输出为准，别在这儿记一个会过期的数），
 `npm run typecheck` 干净，`npm run lint:ui` 干净，
-（两个 workflow 都真跑过：`ci.yml` 第一次就抓到两条跨环境问题；`release.yml` 已出过 v1.0.0 / v1.0.1 / v1.1.0，见后文。）
+（两个 workflow 都真跑过：`ci.yml` 第一次就抓到两条跨环境问题；`release.yml` 已出过 v1.0.0 / v1.0.1 / v1.1.0 / v1.1.1，见后文。）
 `npm run dist` 能出安装包。**CI 跑的是前三条加 `npm run build`**
 （`.github/workflows/ci.yml`，windows-latest × node 24）——**`npm run dist` 不在里面**，
 那个 workflow 里专门有一节写着为什么不跑它。**别把「CI 绿了」当成「包打得出来」。**
@@ -734,7 +734,7 @@ node scripts/ui-check/notes.mjs      # 端到端：做笔记那条线（划线�
 
 **这一节原来记的两条 2026-09 都已落地，留作记录；每次发版仍然成立的规矩写在第 1 条里。**
 
-1. ✅ **`release.yml` 已经跑过四次**（v1.0.0 / v1.0.1 / v1.1.0 三次 tag，
+1. ✅ **`release.yml` 已经跑过五次**（v1.0.0 / v1.0.1 / v1.1.0 / v1.1.1 四次 tag，
    加 2026-09-04 一次 `workflow_dispatch` 预检，全绿）。两个 workflow 的分工不变：
    `ci.yml`（push main / PR 跑四道闸门）守「代码编得过」，`release.yml`
    （`v*` tag 触发：下 Electron 运行时、electron-builder 打包、签来源证明、
