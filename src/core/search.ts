@@ -169,7 +169,7 @@ export function searchMeta(db: DatabaseSync, query: string): unknown[] {
               -- **评分和短评要跟着结果走。** 这个应用的正事是「下次不用再想这本
               -- 我看过没」，而用户最常走的就是在这儿搜书名——卡片上兑现了那句
               -- 「烂尾了别看」，搜索结果里却看不到，等于在最该回答的地方不答。
-              r.rating, r.comment,
+              r.rating, coalesce(r.comment, r.drop_reason) as comment,
               (select group_concat(t.name, ',') from book_tag bt
                  join tag t on t.id = bt.tag_id where bt.book_id = b.id) as tags,
               -- **这本有没有可搜的正文。** 搜索面板拿它决定能不能给这本书建索引：

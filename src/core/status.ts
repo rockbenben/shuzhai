@@ -423,6 +423,10 @@ export function setStatus(db: DatabaseSync, bookId: number, patch: StatusPatch):
     const v = patch2[key];
     if (typeof v === 'string') patch2[key] = v.trim() || null;
   }
+  // 1星、2星都是弃坑。打 1~2 星时若未显式指定状态，自动联动为 dropped
+  if (patch2.rating != null && patch2.rating > 0 && patch2.rating <= 2 && patch2.status === undefined) {
+    patch2.status = 'dropped';
+  }
   patch = patch2;
 
   const sets: string[] = [];

@@ -194,7 +194,7 @@ const SHELVES: Array<{
    */
   view?: ViewKind;
 }> = [
-  { id: 'all', name: '全部', filter: {} },
+  { id: 'all', name: '全部', filter: { excludeReadingStatus: ['dropped'] } },
   /*
    * **「在读」也有它天然的排法**：最近读的在最前——这一档存在的理由就是
    * 「接着读哪本」。默认排序（`ORDER.time`）对这一档恰好等价于「最后阅读时间倒序」，
@@ -2424,11 +2424,10 @@ export function App() {
                       const 进度交代 = b.serial_status === 'ongoing' && 章数
                         ? `本地到第${章数}章${到手 ? ` · ${到手} 到手` : ''}`
                         : null;
-                      return [
-                        进度交代,
-                        b.drop_reason && `弃坑原因：${b.drop_reason}`,
-                        b.comment && `${b.rating != null ? `★${b.rating}　` : ''}${b.comment}`,
-                      ].filter(Boolean).join('\n') || undefined;
+                      const 评价交代 = (b.comment || b.drop_reason)
+                        ? `${b.rating != null ? `★${b.rating}　` : ''}${b.comment || b.drop_reason}`
+                        : null;
+                      return [进度交代, 评价交代].filter(Boolean).join('\n') || undefined;
                     })()
                   }
                   onClick={() => open(b)}
@@ -2613,16 +2612,16 @@ export function App() {
                   「写崩了，主角人设一直在变」，回到书架只剩一个「弃坑」状态标，
                   * 那句话等于没写。
                   */}
-                {(b.drop_reason || b.comment) && (
+                {(b.comment || b.drop_reason) && (
                   <div
                     className="book-note"
-                    title={[b.drop_reason && `弃坑原因：${b.drop_reason}`, b.comment].filter(Boolean).join('\n')}
+                    title={b.comment || b.drop_reason || undefined}
                   >
                     {/* **不加「弃坑：」前缀**——状态标已经说过一遍了，
                         而这一行是全卡片唯一被截断压着的：实测 1280 下只印得下
                         11 个字，前缀要吃掉 3 个（真正的原因少 37%）。
                         两样都写过的话完整版在封面的 title 里，分了标签 */}
-                    {b.drop_reason || b.comment}
+                    {b.comment || b.drop_reason}
                   </div>
                 )}
                 {/*

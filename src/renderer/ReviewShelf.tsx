@@ -76,16 +76,7 @@ export function ReviewShelf({ books, byRatedTime, onOpen, editing, onEdit, onCha
                 )}
               </div>
               <div className="rv-body">
-                {b.comment && <p className="rv-say">{b.comment}</p>}
-                {/* 弃坑原因答的是另一个问题（「我当初为什么弃了它」），
-                    所以带个前缀单独成行，不和短评混成一段。
-                    封面墙那边不加前缀是因为一行只印得下 11 个字，这里不缺那三个字 */}
-                {b.drop_reason && (
-                  <p className="rv-why">
-                    <span className="rv-label">弃坑</span>
-                    {b.drop_reason}
-                  </p>
-                )}
+                {(b.comment || b.drop_reason) && <p className="rv-say">{b.comment || b.drop_reason}</p>}
                 <div className="rv-foot">
                   <button
                     type="button"

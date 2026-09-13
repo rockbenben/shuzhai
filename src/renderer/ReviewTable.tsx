@@ -159,25 +159,22 @@ export function ReviewTable({ books, sort, onSort, onOpen, editing, onEdit, onCh
                   * 表格视图在那儿的全部意义就是一行行补下去。
                   */}
                 <td className="col-say">
-                  <button
-                    type="button"
-                    // ⚠️ `cell-blank` 不是 `empty`——后者是空书架那句提示的类名，撞了会把整格撑塌
-                    className={`cell-say${b.comment ? '' : ' cell-blank'}`}
-                    onClick={() => onEdit(b)}
-                    title={b.comment ?? undefined}
-                    aria-label={`改《${b.title}》的评价`}
-                  >
-                    {/* 夹两行的那层 span 不能省——理由在 shell.css 的 `.cell-say > span` 上 */}
-                    <span>{b.comment || '＋ 评价'}</span>
-                  </button>
-                  {/* 弃坑原因单独一行。它答的是另一个问题（「我当初为什么弃了它」），
-                      混进短评里读起来像同一句话的后半截 */}
-                  {b.drop_reason && (
-                    <div className="cell-why" title={b.drop_reason}>
-                      <span className="rv-label">弃坑</span>
-                      {b.drop_reason}
-                    </div>
-                  )}
+                  {(() => {
+                    const mainText = b.comment || b.drop_reason;
+                    return (
+                      <button
+                        type="button"
+                        // ⚠️ `cell-blank` 不是 `empty`——后者是空书架那句提示的类名，撞了会把整格撑塌
+                        className={`cell-say${mainText ? '' : ' cell-blank'}`}
+                        onClick={() => onEdit(b)}
+                        title={mainText ?? undefined}
+                        aria-label={`改《${b.title}》的评价`}
+                      >
+                        {/* 夹两行的那层 span 不能省——理由在 shell.css 的 `.cell-say > span` 上 */}
+                        <span>{mainText || '＋ 评价'}</span>
+                      </button>
+                    );
+                  })()}
                 </td>
                 <td className="muted col-status">{labelOf(READING_STATUS, b.reading_status)}</td>
                 {/*

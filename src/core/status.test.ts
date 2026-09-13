@@ -861,3 +861,38 @@ test('书签的笔记：写得进去、改得了，id 不存在要报错', () =>
   // 一句 update 影响 0 行照样是「成功」——那是 tag.delete 那次事故的形状
   assert.throws(() => setBookmarkNote(db, 999999, '随便'), /没有这条书签/);
 });
+
+test('1星、2星都是弃坑：打 1~2 星自动设为 dropped', () => {
+  const b1 = mkBook('一星的书', 'reading');
+  const b2 = mkBook('两星的书', 'none');
+  const b3 = mkBook('三星的书', 'reading');
+  const b4 = mkBook('显式保持状态的书', 'reading');
+
+  setStatus(db, b1, { rating: 1 });
+  assert.equal(
+    (db.prepare('select status from reading_state where book_id=?').get(b1) as { status: string }).status,
+    'dropped',
+    '打 1 星自动变更为 dropped',
+  );
+
+  setStatus(db, b2, { rating: 2 });
+  assert.equal(
+    (db.prepare('select status from reading_state where book_id=?').get(b2) as { status: string }).status,
+    'dropped',
+    '打 2 星自动变更为 dropped',
+  );
+
+  setStatus(db, b3, { rating: 3 });
+  assert.equal(
+    (db.prepare('select status from reading_state where book_id=?').get(b3) as { status: string }).status,
+    'reading',
+    '打 3 星不会自动变更为 dropped',
+  );
+
+  setStatus(db, b4, { rating: 1, status: 'reading' });
+  assert.equal(
+    (db.prepare('select status from reading_state where book_id=?').get(b4) as { status: string }).status,
+    'reading',
+    '显式指定 status 时以显式指定的为准',
+  );
+});

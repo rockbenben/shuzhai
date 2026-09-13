@@ -18,7 +18,7 @@ interface Props {
    * 滚到第 3000 本时点一颗星，就要重取 3000 本（实测 3840 本 = 64ms + 1.3MB）
    * 再整树重渲染。而新值这儿本来就有，直接给出去，书架改那一张卡就行。
    */
-  onChanged: (patch: { rating?: number | null; comment?: string | null; tags?: string }) => void;
+  onChanged: (patch: { rating?: number | null; comment?: string | null; tags?: string; reading_status?: string | null }) => void;
   onClose: () => void;
 }
 
@@ -148,7 +148,10 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
       try {
         await rpc('reading.setStatus', { bookId, ...patch });
         setError(null);
-        onChanged(patch);
+        onChanged({
+          ...patch,
+          ...(patch.status !== undefined ? { reading_status: patch.status as string } : {}),
+        });
       } catch (e) {
         setError((e as Error).message);
       }
@@ -156,10 +159,14 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
     [bookId, onChanged],
   );
 
-  /** 清零的判断在 StarRating 里做，这里只管存 */
+  /** 清零的判断在 StarRating 里做，这里只管存。1星、2星都是弃坑 */
   const setStar = (next: number | null) => {
     setStars(next);
-    void save({ rating: next });
+    const patch: Record<string, unknown> = { rating: next };
+    if (next != null && next > 0 && next <= 2) {
+      patch.status = 'dropped';
+    }
+    void save(patch);
   };
 
   const addTag = async (raw: string) => {

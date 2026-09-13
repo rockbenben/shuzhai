@@ -9,6 +9,7 @@ export interface Reviewing {
   /** 是不是「读完了」那次触发的——只影响措辞 */
   done: boolean;
   base: string;
+  baseRating?: number | null;
 }
 
 interface Detail {
@@ -46,7 +47,7 @@ export function useReview(bookId: number) {
       .then((d) => {
         // 已经打过分或写过短评的，不再打扰
         if (d.rating != null || (d.comment ?? '').trim()) return;
-        setReviewing({ rating: null, comment: '', done: true, base: '' });
+        setReviewing({ rating: null, comment: '', done: true, base: '', baseRating: null });
       })
       .catch(() => {});
   }, [asked, bookId]);
@@ -63,9 +64,9 @@ export function useReview(bookId: number) {
   const openReview = useCallback(() => {
     void rpc<Detail>('book.detail', { bookId })
       .then((d) => setReviewing({
-        rating: d.rating, comment: d.comment ?? '', done: false, base: d.comment ?? '',
+        rating: d.rating, comment: d.comment ?? '', done: false, base: d.comment ?? '', baseRating: d.rating,
       }))
-      .catch(() => setReviewing({ rating: null, comment: '', done: false, base: '' }));
+      .catch(() => setReviewing({ rating: null, comment: '', done: false, base: '', baseRating: null }));
   }, [bookId]);
 
   /**
@@ -77,8 +78,20 @@ export function useReview(bookId: number) {
    * 只在真的改动过时才写：没动过就别平白多一次写库。
    */
   const closeReview = useCallback(() => {
-    if (reviewing && reviewing.comment.trim() !== reviewing.base.trim()) {
-      void rpc('reading.setStatus', { bookId, comment: reviewing.comment.trim() || null });
+    if (reviewing) {
+      const commentChanged = reviewing.comment.trim() !== reviewing.base.trim();
+      const ratingChanged = reviewing.baseRating !== undefined && reviewing.rating !== reviewing.baseRating;
+      if (commentChanged || ratingChanged) {
+        const patch: Record<string, unknown> = {};
+        if (commentChanged) patch.comment = reviewing.comment.trim() || null;
+        if (ratingChanged) {
+          patch.rating = reviewing.rating;
+          if (reviewing.rating != null && reviewing.rating > 0 && reviewing.rating <= 2) {
+            patch.status = 'dropped';
+          }
+        }
+        void rpc('reading.setStatus', { bookId, ...patch });
+      }
     }
     setReviewing(null);
   }, [reviewing, bookId]);
@@ -161,10 +174,16 @@ export function ReviewCard({ bookId, bookTitle, value, onChange, onDone, boxRef,
                * 但手动打开是在**改**一条已有的评价：只发非空的话，
                * 把短评删干净再点「记下来」什么都不会发生。
                */
-              await rpc('reading.setStatus', {
-                bookId,
+              const patch: Record<string, unknown> = {
                 rating: value.rating,
                 comment: value.comment.trim() || null,
+              };
+              if (value.rating != null && value.rating > 0 && value.rating <= 2) {
+                patch.status = 'dropped';
+              }
+              await rpc('reading.setStatus', {
+                bookId,
+                ...patch,
               });
               onDone();
             })()}

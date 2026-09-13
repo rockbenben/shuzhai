@@ -305,8 +305,9 @@ test('全库搜索能按短评和弃坑原因找到书', () => {
   const byComment = (searchMeta(db, '烂尾') as Array<{ title: string }>).map((x) => x.title);
   assert.deepEqual(byComment, ['书名里没有那个词'], '按短评找不到——那句话正是最该找到的东西');
 
-  const byReason = (searchMeta(db, '主角太蠢') as Array<{ title: string }>).map((x) => x.title);
-  assert.deepEqual(byReason, ['另一本'], '弃坑原因同理');
+  const byReasonHits = searchMeta(db, '主角太蠢') as Array<{ title: string; comment: string | null }>;
+  assert.deepEqual(byReasonHits.map((x) => x.title), ['另一本'], '弃坑原因同理');
+  assert.equal(byReasonHits[0].comment, '主角太蠢', '弃坑原因作为短评回传供展示');
 
   // 顺带确认没有把书架那个框也改宽：批量操作靠的是它
   assert.equal(countBooks(db, { keyword: '烂尾' }), 0, 'buildFilter 不该按短评匹配');

@@ -136,15 +136,18 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
    * 用 `onInput` 而不是 `onChange` + state：这两个框是**非受控**的，
    * 本仓库明确记着别改成受控（改成受控那次「先点星、再打字、失焦」存进去的是空串）。
    */
-  const draft = useRef<{ comment?: string; drop?: string }>({});
-  const saved = useRef<{ comment: string; drop: string }>({ comment: '', drop: '' });
+  const draft = useRef<{ comment?: string }>({});
+  const saved = useRef<{ comment: string }>({ comment: '' });
   useEffect(() => () => {
     const patch: Record<string, unknown> = {};
-    const { comment: c, drop: dr } = draft.current;
-    if (c !== undefined && c !== saved.current.comment) patch.comment = c || null;
-    if (dr !== undefined && dr !== saved.current.drop) patch.dropReason = dr || null;
+    const { comment: c } = draft.current;
+    if (c !== undefined && c !== saved.current.comment) {
+      const val = c || null;
+      patch.comment = val;
+      if (d?.reading_status === 'dropped') patch.dropReason = val;
+    }
     if (Object.keys(patch).length > 0) void rpc('reading.setStatus', { bookId, ...patch });
-  }, [bookId]);
+  }, [bookId, d?.reading_status]);
 
   /** 阅读状态是**立即生效**的，不跟着「保存」走——改状态和改书名是两件事，
    *  用户点了「弃坑」却因为忘了按保存而没生效，是最气人的那类 bug */
@@ -597,32 +600,38 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
               * 旁边照旧写「4.5 星」，不点就不会写回去。要改刻度改那一个组件。
               */}
             <span className="muted" style={{ fontSize: '.85rem', marginLeft: '.5rem' }}>评分</span>
-            <StarRating value={reading.rating} onChange={(n) => saveStatus({ rating: n })} />
+            <StarRating
+              value={reading.rating}
+              onChange={(n) => {
+                if (n != null && n > 0 && n <= 2) {
+                  void saveStatus({ rating: n, status: 'dropped' });
+                } else {
+                  void saveStatus({ rating: n });
+                }
+              }}
+            />
             {d.reread_count > 0 && (
               <span className="muted" style={{ fontSize: '.82rem' }}>已重读 {d.reread_count} 次</span>
             )}
           </div>
 
           <input
-            // 和评价浮层、添书弹窗用同一句：同一个输入框不能有两个说法
-            ref={() => { saved.current.comment = reading.comment ?? ''; }}
+            // 评价与弃坑原因合一：同一件事只保留一个输入框，符合用户直觉习惯
+            key={reading.status === 'dropped' ? 'dropped' : 'normal'}
+            ref={() => { saved.current.comment = reading.comment ?? reading.drop_reason ?? ''; }}
             onInput={(e) => { draft.current.comment = (e.target as HTMLInputElement).value; }}
             placeholder="一句话评价，比如「烂尾了别看」"
-            defaultValue={reading.comment ?? ''}
-            onBlur={(e) => saveStatus({ comment: e.target.value || null })}
+            defaultValue={reading.comment ?? reading.drop_reason ?? ''}
+            onBlur={(e) => {
+              const val = e.target.value.trim() || null;
+              if (reading.status === 'dropped') {
+                void saveStatus({ comment: val, dropReason: val });
+              } else {
+                void saveStatus({ comment: val });
+              }
+            }}
             style={{ width: '100%', marginTop: '.4rem' }}
           />
-
-          {reading.status === 'dropped' && (
-            <input
-              ref={() => { saved.current.drop = reading.drop_reason ?? ''; }}
-              onInput={(e) => { draft.current.drop = (e.target as HTMLInputElement).value; }}
-              placeholder="弃坑原因（选填）"
-              defaultValue={reading.drop_reason ?? ''}
-              onBlur={(e) => saveStatus({ dropReason: e.target.value || null })}
-              style={{ width: '100%', marginTop: '.4rem' }}
-            />
-          )}
         </div>
 
         {/* **没文件（手工添的、或清理后只剩记录的书）就没有这张卡**——编码、章数、
