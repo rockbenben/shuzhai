@@ -14650,3 +14650,76 @@ audit 加跑 编辑一本书/改名 共 7 界面 × 两档仍 0 条，keyboard�
 tag 与 package.json 版本对不上 workflow 会当场停（产物名走 `${version}` 不带 v）。
 release.yml 至此跑过四次（v1.0.0 / v1.0.1 / v1.1.0 三次 tag + 一次 workflow_dispatch），
 AGENTS.md 里「零次运行」那段自 v1.0.0（09-03）起就是假的，这次一并订正。
+
+## 2026-09-10 封面抓取「已自动暂停」是粘住的状态：限流解除 5 小时后还挂着同一句话
+
+**现象**：设置里挂着「起点连着 5 次搜不到已知一定在的书，多半在限流，已自动暂停」，
+用户当场手动点一本书的「联网补全」却成功了——看起来应用在报假消息。
+
+**先查清楚再动手，两件事都不是假的**：
+1. 手动补的那本（book 7334）**存着主在线地址**，走的是 `enrichBook` 的①直链分支
+   （直接读详情页，不发搜索请求）；限流挡的是**搜索页**，详情页照开。直链成功
+   证明不了搜索是好的。
+2. 时间差 5 小时。按 `cover_fetch.tried_at` 还原时间线：起点搜索连续 26 分钟
+   0 候选、**同一时段书旗命中正常**（只有起点搜索被针对），之后短暂恢复命中一本、
+   再连错触发对照探针，hold 阶段每 60 秒探一次、五连败后 14:40 UTC 暂停；
+   手动成功是 20:12。随后直接调 `cover.checkSources` 实测：起点 ok / 10 候选。
+   即「暂停时真限流，查的时候真恢复了」。
+
+**根因是状态机少了一条边**：自动暂停调的是 `stop(false)`，只停循环、原因字符串
+原样留着（`pausedReason` 是**粘住的状态**，描述「上次为什么停」，用户读成的却是
+「现在还在限流」）。暂停之后同一会话里**没有任何东西再去探一次**，只有重启应用后的
+`resumeIfEnabled` 和手动再开两个出口。应用连着开几天，那句话就挂几天。
+
+**修法**（cover-fetcher.ts + pacing.ts）：
+- 三处暂停点（hold 五连败 / 连续空结果 / 连败）统一走 `autoPause(reason)`：
+  记 `pausedAt` 时刻，停循环后挂**慢探针复检**：2/4/8 分钟翻倍、封顶 10 分钟
+  （探针本身也是搜索请求，探太勤等于自己一直撞限流；节奏是纯函数 `recoveryDelay`
+  在 pacing.ts，有测试——同文件 import electron 测不了的老规矩）。
+- 探针说好了 → 恢复与否**复用 `launchStartDecision`**：没人看直接 `start()`，
+  人正看着就置 yielded 交给失焦 8 秒那条老路。别再抄一份「人在看就让路」。
+- **手动操作也是恢复证据**：`fetchOne` 成功走 `maybeRecover()`——但一律再问一次
+  探针才认，因为直链成功不算搜索恢复的证据；`fetchOne` 的 nomatch 探针说 healthy、
+  以及「检查三个源」起点 ok，同一证据顺手恢复。
+- `stop(true)`（用户关开关）把原因和时刻一起清掉，否则开关关了危险提示还挂着。
+- 界面：暂停文案带 `relTime(pausedAt)` 和「稍后自动重试，恢复后接着跑」，
+  另给一个「立即继续」按钮（不必等探针）。
+
+**边界（差点写漏的两条）**：`resumeAfterRecovery` 必须先看 `pausedReason != null`
+且 autofetch 仍开着——`start()` 会把 `cover.autofetch` 置 1，用户只点了一次单本补全
+（从没开过批量开关）时不能被顺手打开；复检 await 期间用户可能手动开跑或关开关，
+回来以当下状态为准。
+
+## 2026-09-13 「联网补全」永远转圈：executeJavaScript 没超时，共享窗口队列整条挂死
+
+**现象**：用户点「联网补全」按钮一直显示「正在补全…」，实际没动静；
+HTTP 实测 `cover.fetchOne` **180 秒一个字节都不返回**，按钮靠 `finally` 复位的
+设计失效（不是渲染层的问题，是主进程那个 Promise 不 settle）。
+
+**关键证据**：`cover.fetchStatus` 显示 running=true 但 29 分钟内 `done/nomatch`
+一条都没多、pending 不变——后台 tick 也冻死在一本书上；最后一条 `cover_fetch.tried_at`
+停在 19:48，即挂死前最后一次窗口操作附近。
+
+## 2026-09-13（续）doLoad 硬超时 + fetchOne 让路；同一种卡死机制要一并堵的点
+
+**根因**：`doLoad` 的 20 秒超时只裹住了 `loadURL`，没裹住
+`executeJavaScript('document.documentElement.outerHTML')`。起点反爬页会出现
+「did-finish-load 照发、渲染主世界却卡死」的形状——loadURL 是成功的，然后注入
+取 HTML 永远不回。它是**共享队列**（tick / fetchOne / recoveryProbe / checkSources
+共用一条 promise 链）链头那一条，它不 settle，后面所有窗口操作一起永远等待：
+后台 tick 冻在一本书上（`running` 还是 true）、每次手动补全排在它后面一起转，
+只有重启应用才好。链路上其余 await（getText/downloadCover/fetchIntroText）全有
+AbortSignal 时间盒，缺的就这一个。
+
+**修法**（cover-fetcher.ts）：
+- **整跳 doLoad 给一条 25 秒硬超时**，loadURL 成功后还可能被 teardown 毁掉：
+  then 回调里先 `isDestroyed()` 检查再碰 webContents，否则同步抛错变成
+  链上无人处理的拒绝、外层 Promise 照样不 settle（同一种「不 settle」的坑）。
+- 超时意味着这扇窗的渲染进程不可信——**拆窗重开**（`this.win=null; win.destroy()`），
+  但**不 bump 代数**：同一 fetchOne 链上排在后面的加载会开新窗继续，不用陪死。
+- **fetchOne 进场先让后台循环让路**（wasRunning→stop(false)，不动开关），
+  完事后按 `launchStartDecision(uiActive)` 恢复：没人看就立刻 start()，
+  人还在就 yielded=true 挂失焦 8 秒恢复——同 setUiActive 那份判据，不另写一份。
+- 注意 fetchOne catch 里 AbortedError 优先识别、finally 恢复时门控：
+  让路前没在跑不恢复；进行中用户关了开关（autofetch≠'1'）不重新打开——
+  不能因为点一次单本补全，把用户没开过的批量开关打开。

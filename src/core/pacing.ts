@@ -69,3 +69,22 @@ export function launchStartDecision(running: boolean, uiActive: boolean): Launch
   if (running) return 'nothing';
   return uiActive ? 'defer' : 'start';
 }
+
+/**
+ * 自动暂停后多久再探一次：2 分钟起步，翻倍，封顶 10 分钟。
+ *
+ * 暂停前的 hold 阶段已经每 60 秒快速探过 5 次（都失败才停），所以暂停后
+ * 放慢；而探针本身也是一次搜索请求，探太勤等于自己一直撞限流。
+ *
+ * ⚠️ **暂停后必须有人复检。** 原来暂停后同一会话里再也不探，限流 5 小时前
+ * 就解除了、界面上还挂着「已自动暂停」——那句原因是**粘住的状态**，
+ * 描述「上次为什么停」，用户却读成「现在还在限流」。
+ */
+const RECOVER_DELAYS_MS = [120_000, 240_000, 480_000] as const;
+const RECOVER_MAX_DELAY_MS = 600_000;
+
+export function recoveryDelay(attempt: number): number {
+  return attempt < RECOVER_DELAYS_MS.length
+    ? RECOVER_DELAYS_MS[attempt]
+    : RECOVER_MAX_DELAY_MS;
+}

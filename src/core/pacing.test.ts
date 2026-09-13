@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { launchStartDecision, makeProgressGate, uiYieldDecision } from './pacing.ts';
+import { launchStartDecision, makeProgressGate, recoveryDelay, uiYieldDecision } from './pacing.ts';
 
 /**
  * 这两组断言守的是**只在八千本的真实书库上才暴露**的两个问题。
@@ -66,4 +66,13 @@ test('启动延迟到点：没人看就开跑，人在用就挂起等失焦', ()
   // 已经在跑（手动开的）：什么都不做
   assert.equal(launchStartDecision(true, false), 'nothing');
   assert.equal(launchStartDecision(true, true), 'nothing');
+});
+
+test('暂停后的复检节奏：2/4/8 分钟翻倍，之后封顶 10 分钟', () => {
+  assert.equal(recoveryDelay(0), 120_000);
+  assert.equal(recoveryDelay(1), 240_000);
+  assert.equal(recoveryDelay(2), 480_000);
+  // 不能无限翻倍，否则限流持续一晚上就变成几小时才探一次
+  assert.equal(recoveryDelay(3), 600_000);
+  assert.equal(recoveryDelay(99), 600_000);
 });

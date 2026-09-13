@@ -17,7 +17,7 @@ import { decodeWebPage } from '../core/encoding.ts';
 import { applyCandidate, mergeCandidates, normalizeForMatch, type Candidate } from '../core/enrich.ts';
 import { getSetting, setSetting } from '../core/db.ts';
 // 「人在看的时候要不要让路」的判据。放 core 是因为**这个文件 import electron，测不了**
-import { launchStartDecision, uiYieldDecision } from '../core/pacing.ts';
+import { launchStartDecision, uiYieldDecision, recoveryDelay } from '../core/pacing.ts';
 import {
   nextPending, recordResult, fetchStats, resetMisses, resetFailed, dropResults,
   resetForInfoBackfill,
@@ -89,6 +89,14 @@ const SPEEDUP_AFTER = 100;
 /** fetchOne 用完窗口后，闲置这么久没有下一次请求就把窗口拆掉，别让它白白活着 */
 const IDLE_TEARDOWN_MS = 60_000;
 /**
+ * **整跳**窗口加载的硬超时：loadURL + executeJavaScript 共用这一条。
+ * 原来超时只裹 loadURL——实测起点反爬页会让 did-finish-load 照发、渲染主世界
+ * 却卡死，executeJavaScript 永远不回（而它没有超时）。链头那一条不 settle，
+ * queue 后面排着的所有任务（后台 tick、用户点的「联网补全」）就**一起永远转圈**，
+ * running 还是 true，重启才好（真挂了 29 分钟）。
+ */
+const LOAD_TIMEOUT_MS = 25_000;
+/**
  * 队列跑空后的**慢心跳**：开关开着就每隔这么久再看一眼。
  * 不看的话，同一次会话里扫描进来的新书要等下次启动 resumeIfEnabled 才会被抓
  * （tick 跑空后没有任何定时器、失焦恢复也只在 yielded=true 时才发 resume）。
@@ -131,6 +139,16 @@ export class CoverFetcher {
   /** 连续多少本没撞限流，见 SPEEDUP_AFTER */
   private cleanRun = 0;
   private pausedReason: string | null = null;
+  /** 自动暂停的时刻。原因文案是**粘住的状态**，不标时间用户会把「上次为什么停」读成「现在还在限流」 */
+  private pausedAt: number | null = null;
+  /**
+   * 自动暂停后慢探针复检的定时器。暂停后同一会话里不再探一次的话，
+   * 限流解除了也永远挂着那句「已自动暂停」（实测挂了 5 小时）。
+   * 用户关开关（stop(true)）要一起清掉；自动暂停的 stop(false) 在 arm 之前调。
+   */
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 已经连败多少次复检，决定下一跳等多久（recoveryDelay） */
+  private recoveryAttempts = 0;
   private db: DatabaseSync;
   private userDataDir: string;
   /** 闲置一段时间后拆窗口的定时器，见 IDLE_TEARDOWN_MS */
@@ -184,6 +202,7 @@ export class CoverFetcher {
       autofetch: getSetting(this.db, 'cover.autofetch') === '1',
       running: this.running,
       pausedReason: this.pausedReason,
+      pausedAt: this.pausedAt,
       gapMs: this.gapMs,
       ...fetchStats(this.db),
     };
@@ -200,6 +219,9 @@ export class CoverFetcher {
     this.throttleHold = false;
     this.badProbes = 0;
     this.pausedReason = null;
+    this.pausedAt = null;
+    this.recoveryAttempts = 0;
+    if (this.recoveryTimer) { clearTimeout(this.recoveryTimer); this.recoveryTimer = null; }
     // 老库一次性回填：有在线地址但没简介的书，旧 verdict 清掉让新链读一遍详情页。
     // 标记落库就不再来——处理完行会重新落回，见 resetForInfoBackfill 的注释
     if (getSetting(this.db, 'cover.infoBackfill') !== '1') {
@@ -220,6 +242,10 @@ export class CoverFetcher {
       // 不重置的话，先前让路停过、或启动延迟挂起（defer）置过它，
       // 用户关完开关一切走窗口就又自己开起来了（pacing 第 3 条判据靠这一行兑现）
       this.yielded = false;
+      // 开关都关了，那句「已自动暂停」没有意义了——不清的话它会一直挂在界面上
+      this.pausedReason = null;
+      this.pausedAt = null;
+      this.recoveryAttempts = 0;
     }
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
@@ -227,7 +253,103 @@ export class CoverFetcher {
     this.resumeTimer = null;
     if (this.launchTimer) clearTimeout(this.launchTimer);
     this.launchTimer = null;
+    // 自动暂停那条路 stop(false) 之后会重新 arm，在这儿清不影响；
+    // 用户关开关（true）必须清，否则探针到点自己把队列又开起来
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = null;
     this.teardownWindow();
+  }
+
+  /**
+   * 三处自动暂停共用这一条路：记下**原因和时刻**、停循环让路，然后挂慢探针。
+   *
+   * 原来三处各自写 `pausedReason=…; stop(false)`，而暂停之后同一会话里**再也没有
+   * 任何东西去复检**——限流 5 小时前就解除了，那句「已自动暂停」还挂在界面上，
+   * 它说的是「上次为什么停」，用户读成的却是「现在还在限流」。
+   */
+  private autoPause(reason: string): void {
+    this.pausedAt = Date.now();
+    this.pausedReason = reason;
+    this.stop(false); // 不动用户那个开关
+    this.recoveryAttempts = 0;
+    this.armRecovery();
+  }
+
+  /** 挂上一跳慢探针复检。开关已被用户关掉就别挂 */
+  private armRecovery(): void {
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+    if (getSetting(this.db, 'cover.autofetch') !== '1') return;
+    this.recoveryTimer = setTimeout(() => void this.recoveryProbe(), recoveryDelay(this.recoveryAttempts));
+  }
+
+  /**
+   * 暂停后的复检：再搜一次那本已知一定在的书。
+   * 好了就恢复，没好按退避序列再挂一跳（2/4/8 分钟，封顶 10 分钟，见 pacing.ts）。
+   */
+  private async recoveryProbe(): Promise<void> {
+    this.recoveryTimer = null;
+    if (this.running || !this.pausedReason) return; // 已经被手动恢复
+    if (getSetting(this.db, 'cover.autofetch') !== '1') return;
+    let healthy = false;
+    try {
+      healthy = await this.probeHealthy();
+    } catch (e) {
+      if (e instanceof AbortedError) {
+        // 窗口被别的操作拆了（如手动补全的闲置拆除）：重挂一跳，别就此停摆。
+        // 开关若已被关掉，armRecovery 自己会不挂。
+        this.armRecovery();
+        return;
+      }
+      healthy = false;
+    }
+    // await 期间用户可能手动开跑或关了开关——以当下状态为准，别拿着旧结论恢复
+    if (this.running || !this.pausedReason) return;
+    if (getSetting(this.db, 'cover.autofetch') !== '1') return;
+    if (!healthy) {
+      this.recoveryAttempts++;
+      this.armRecovery();
+      return;
+    }
+    this.resumeAfterRecovery();
+  }
+
+  /**
+   * 证据表明站点恢复了（定时探针、手动补全、手动「检查三个源」）：清掉暂停状态。
+   * 人正看着窗口就不立刻开跑——复用开机那份判据（`launchStartDecision`）：
+   * 交给失焦 8 秒恢复那条路，别在这儿再抄一份「人在看就让路」。
+   */
+  private resumeAfterRecovery(): void {
+    // 没在暂停（普通在跑、或队列跑空）就什么都别做：start() 会把 autofetch 置 1，
+    // 不能因为用户点了一次单本补全，就把他没开过的批量开关打开
+    if (!this.pausedReason) return;
+    const clearPause = () => {
+      this.pausedReason = null;
+      this.pausedAt = null;
+      this.recoveryAttempts = 0;
+    };
+    // 暂停之后用户自己关了开关：只把那句旧原因清掉，别重新打开
+    if (getSetting(this.db, 'cover.autofetch') !== '1') { clearPause(); return; }
+    const what = launchStartDecision(this.running, this.uiActive);
+    clearPause();
+    if (what === 'start') this.start();
+    else if (what === 'defer') this.yielded = true;
+  }
+
+  /**
+   * 手动操作成功时，如果队列正因疑似限流/连败挂着，别让它挂到下次重启。
+   * 详情页直链成功不算搜索恢复的证据（限流挡的是搜索页，详情页照开），
+   * 所以一律再问一次探针——只在暂停时多发这一次请求。
+   */
+  private async maybeRecover(): Promise<void> {
+    if (!this.pausedReason) return;
+    let healthy = false;
+    try {
+      healthy = await this.probeHealthy();
+    } catch (e) {
+      if (e instanceof AbortedError) return;
+      healthy = false;
+    }
+    if (healthy && this.pausedReason) this.resumeAfterRecovery();
   }
 
   retryMisses(): number {
@@ -299,6 +421,9 @@ export class CoverFetcher {
       }
       await new Promise((r) => setTimeout(r, 1500));
     }
+    // 用户亲手查的：起点说它好了，而队列正因疑似限流挂着，就顺手恢复——
+    // 这是和定时探针同一份证据，不必再探一次
+    if (out.some((r) => r.site === 'qidian' && r.ok)) this.resumeAfterRecovery();
     return out;
   }
 
@@ -366,6 +491,14 @@ export class CoverFetcher {
       .prepare('select id, title, author from book where id = ?')
       .get(bookId) as { id: number; title: string; author: string | null } | undefined;
     if (!book) throw new Error(`没有这本书：${bookId}`);
+    /**
+     * **用户亲手点的补全不能排在后台 tick 后面**——窗口队列只有一条，tick 那本
+     * 最坏要走「起点 → 书旗 → 自定义源 → 豆瓣」近两分钟，排在后面就是按钮一直转。
+     * 点这一下说明人正在窗口前等：让后台循环让路（不动用户开关，同 setUiActive
+     * 的手势），干完再按「人还在不在」决定接不接着跑。
+     */
+    const wasRunning = this.running;
+    if (wasRunning) this.stop(false);
     try {
       const r = await this.enrichBook(book);
       /**
@@ -384,14 +517,28 @@ export class CoverFetcher {
             note: '起点现在疑似在限流、搜不出结果——过会儿再试；这本书的详情页地址已经记下了',
           };
         }
+        // 探针刚证明站点是好的，这条 nomatch 才可信；队列若正因疑似限流挂着，
+        // 同一份证据顺手把它恢复，别让那句暂停挂到下次重启
+        recordResult(this.db, bookId, r.status, r.source);
+        this.resumeAfterRecovery();
+        return r;
       }
       recordResult(this.db, bookId, r.status, r.source);
+      await this.maybeRecover();
       return r;
     } catch (e) {
       if (e instanceof AbortedError) throw e; // 被 stop() 打断，不算一次真尝试，不落表
       const msg = e instanceof Error ? e.message : String(e);
       recordResult(this.db, bookId, 'failed', undefined, msg.slice(0, 200));
       throw e;
+    } finally {
+      // 让路前后台在跑、且开关还开着（没被用户顺手关掉）：按「人在不在」恢复。
+      // 人还在窗口前 → defer（yielded=true，失焦 8 秒那条路会接走）；
+      // 人已走开 → 立刻接着跑。maybeRecover 已经 start() 过的话不重复启动。
+      if (wasRunning && !this.running && getSetting(this.db, 'cover.autofetch') === '1') {
+        if (launchStartDecision(false, this.uiActive) === 'start') this.start();
+        else this.yielded = true;
+      }
     }
   }
 
@@ -521,8 +668,8 @@ export class CoverFetcher {
       if (!healthy) {
         this.badProbes++;
         if (this.badProbes >= MAX_BAD_PROBES) {
-          this.pausedReason = `起点连着 ${this.badProbes} 次搜不到已知一定在的书，多半在限流，已自动暂停`;
-          this.stop(false); // 不改开关：用户重启应用后 resumeIfEnabled 会再试
+          // 不改开关：autoPause 挂的慢探针会自动复检，重启后 resumeIfEnabled 也会再试
+          this.autoPause(`起点连着 ${this.badProbes} 次搜不到已知一定在的书，多半在限流，已自动暂停`);
           return;
         }
         this.schedule(MAX_GAP_MS);
@@ -613,8 +760,7 @@ export class CoverFetcher {
         // 起点连续一长串 0 候选：大概率是被限流而不是这些书真的都不存在，
         // 别用「没匹配上」这个假结论把剩下几千本也刷完
         this.slowDown();
-        this.pausedReason = `起点连续 ${this.emptyStreak} 次没有任何候选，可能被限流，已自动暂停（下次每本间隔 ${this.gapMs / 1000} 秒）`;
-        this.stop(false); // 不改开关：用户重启应用后 resumeIfEnabled 会再试
+        this.autoPause(`起点连续 ${this.emptyStreak} 次没有任何候选，可能被限流，已自动暂停（下次每本间隔 ${this.gapMs / 1000} 秒）`);
         return;
       }
       // 空结果连成串时**放慢**，给限流缓过来的机会。原来一直按 3 秒硬撞，
@@ -645,8 +791,7 @@ export class CoverFetcher {
       this.fails++;
       if (this.fails >= MAX_CONSECUTIVE_FAILS) {
         // 连败大概率是断网或被限流——**别默默地一直撞墙**，停下来把原因摆出来
-        this.pausedReason = `连续 ${this.fails} 次失败（最后一次：${msg.slice(0, 80)}），已自动暂停`;
-        this.stop(false); // 不改开关：用户重启应用后 resumeIfEnabled 会再试
+        this.autoPause(`连续 ${this.fails} 次失败（最后一次：${msg.slice(0, 80)}），已自动暂停`);
         return;
       }
       this.schedule(BACKOFF_MS[Math.min(this.fails - 1, BACKOFF_MS.length - 1)]);
@@ -815,23 +960,53 @@ export class CoverFetcher {
     const win = this.win;
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    let html: string;
     try {
-      await Promise.race([
-        win.loadURL(url),
-        new Promise((_, rej) => {
-          timeoutId = setTimeout(() => rej(new Error('搜索页加载超时（20 秒）')), 20_000);
-        }),
-      ]);
-    } finally {
+      html = await new Promise<string>((resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          reject(new Error('搜索页加载超时（25 秒）'));
+        }, LOAD_TIMEOUT_MS);
+        void win.loadURL(url).then(
+          () => {
+            // loadURL 已 resolve 后窗还可能被 stop()/闲置拆除销毁——
+            // 直接读 webContents 会同步抛「Object has been destroyed」，
+            // 那个 throw 落在 then 回调里会变成无人处理的拒绝，
+            // 而且外面的 Promise 永远不 settle（queue 就又挂了）
+            if (win.isDestroyed()) {
+              reject(new AbortedError('搜索窗口已被拆除'));
+              return;
+            }
+            void win.webContents.executeJavaScript(
+              'document.documentElement.outerHTML',
+            ).then((h) => resolve(h as string), reject);
+          },
+          reject,
+        );
+      });
+    } catch (e) {
       clearTimeout(timeoutId);
+      // stop()/teardown 已经把窗拆了（代数变了或窗已销毁）：按 aborted 报，
+      // tick/fetchOne 都认得它，不会把一次「让路」记成失败
+      if (gen !== this.generation || win.isDestroyed()) {
+        throw new AbortedError('搜索窗口已被拆除');
+      }
+      // 超时是这扇窗自己的渲染进程卡死——不能留着复用，下一条 doLoad 还会卡。
+      // 拆掉让排队中的下一条任务开新窗；**代数不动**，这样同一条 fetchOne 链上
+      // 排在后面的加载不用陪死（它们会在开新窗的路上）
+      if (timedOut && this.win === win) {
+        this.win = null;
+        if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
+        win.destroy();
+      }
+      throw e;
     }
+    clearTimeout(timeoutId);
 
     if (gen !== this.generation || win.isDestroyed()) throw new AbortedError('封面抓取已停止');
     // 第二个参数是 userGesture，这里不需要——传 true 等于白送页面一次用户激活
     // （下载、全屏这类操作平时靠它把关，不该被一次隐藏窗口的抓取动作绕过去）
-    const html = (await win.webContents.executeJavaScript(
-      'document.documentElement.outerHTML',
-    )) as string;
     // 拿到手就掐断：起点是 SPA，不停的话页面自己的脚本会一直跑到下次 loadURL
     if (!win.isDestroyed()) win.webContents.stop();
     // tick() 抽干队列时会自己调 teardownWindow，这里单独兜 fetchOne 的情况：

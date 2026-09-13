@@ -27,6 +27,7 @@ import { SERIAL_STATUS } from '../core/labels.ts';
 import type { RepairReport } from '../core/library.ts';
 import { rpc } from './rpc.ts';
 import { parseMinBytes, MIN_BYTES_KEY, MIN_BYTES_DEFAULT } from '../core/scan.ts';
+import { relTime } from '../core/format.ts';
 import { CoverSources } from './CoverSources.tsx';
 import { TtsEngines } from './TtsEngines.tsx';
 import {
@@ -78,6 +79,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
     autofetch: boolean;
     running: boolean;
     pausedReason: string | null;
+    /** 自动暂停的时刻；原因文案是粘住的状态，不标时间会被读成「现在还在限流」 */
+    pausedAt: number | null;
     gapMs: number;
     done: number;
     pending: number;
@@ -692,8 +695,19 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 {/* 速率是自适应的（撞限流翻倍、顺利跑一段减半）。不显示的话，
                     回填慢到一分钟一本时用户只会觉得「卡住了」，看不出是在自己让路 */}
                 {cover.gapMs > 3000 && ` · 每本间隔 ${cover.gapMs / 1000} 秒（撞过限流，会自己提回来）`}
-                {cover.pausedReason && <span className="danger">　{cover.pausedReason}</span>}
+                {/* 原因说的是「上次为什么停」，必须带上时间和「会自动重试」，
+                    不然限流早解除了，这句话还挂着像在报现在的故障 */}
+                {cover.pausedReason && (
+                  <span className="danger">
+                    　{cover.pausedReason}
+                    {cover.pausedAt && `（${relTime(cover.pausedAt)}暂停，稍后自动重试，恢复后接着跑）`}
+                  </span>
+                )}
               </p>
+            )}
+            {/* 挂着的时候给个人工出口；不等两分钟一次的探针 */}
+            {cover?.pausedReason && (
+              <button onClick={() => 封面操作('cover.fetchStart')}>立即继续</button>
             )}
             {/* 只提 nomatch：failed 已经由 `start()` 自动清回队列，不用人点。
                 按钮上的数字也得跟着，不然点完发现少了几本，看起来像没生效 */}
