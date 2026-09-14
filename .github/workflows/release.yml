@@ -4,10 +4,8 @@
 # 这就是那个 workflow。`ci.yml` 不出包也不该出包（那边专门有一节写为什么），
 # 两件事分开：**CI 守的是「代码还编得过」，这里守的是「包发得出去」**。
 #
-# ── 已经跑过五次：v1.0.0 / v1.0.1 / v1.1.0 / v1.1.1 四次 tag + 2026-09-04 一次 workflow_dispatch ──
-#
-# workflow_dispatch 的「第一次」预检在 v1.0.1 之前走过（7 分钟绿）。平时不用再手跑；
-# **改了这个文件或打包链之后**再手动跑一次——没有 tag 时上传那几步自己跳过，不会误发。
+# **改了这个文件或打包链之后**手动跑一次 `workflow_dispatch`——
+# 没有 tag 时上传那几步自己跳过，不会误发。
 #
 # 每次发版仍然成立的两条：
 #   1. 出来的 release 是**草稿**（`draft: true`）。草稿不出现在 releases/latest 上、
@@ -151,22 +149,20 @@ jobs:
       #
       # 钉大版本标签 `@v3` 是**有意的**（同 020 / 033）：v3 会随补丁漂移，
       # 修复不用任何人动手就能拿到。
+      #
+      # ⚠️ **body 只放固定的下载说明和校验方法。**
+      # 当次更新说明在 Publish 之前让 AI 总结两个版本间的变化，贴到 body 开头。
+      # `generate_release_notes` 自动追加 commit 列表，给开发者看。
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
-          # ⚠️ **名字写死，不用通配。** 同 020 那条：通配既可能看起来像漏了谁，
-          # 也可能因为重叠把同一个文件传两遍。`.blockmap` 因此天然不会混进来
-          # ——那是 electron-updater 做增量下载用的，这个应用没有自动更新。
           files: |
             release/shuzhai-${{ steps.ver.outputs.version }}-x64-setup.exe
             release/shuzhai-${{ steps.ver.outputs.version }}-x64.zip
             release/SHA256SUMS.txt
-          # ⚠️ **少一个文件就红**。不设它的话，产物名哪天变了会**静默发出一个少资产的
-          # release**——而那正是没人会去核对的东西。
           fail_on_unmatched_files: true
           draft: true
-          # GitHub 自己的 changelog 接在下面这段之后
           generate_release_notes: true
           body: |
             ## 下载
