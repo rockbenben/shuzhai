@@ -298,7 +298,7 @@ export default function CategoryDialog(
             </div>
             {空规则 ? (
               <p className="muted cat-hit-say">
-                一条规则都没设，这个分类会装下所有书。先挑一个文件夹、格式或者评分。
+                还没挑条件。存下来也行——以后往里手动加书就好。
               </p>
             ) : n === 0 ? (
               <p className="muted cat-hit-say">
@@ -371,7 +371,7 @@ export default function CategoryDialog(
               <button
                 className={onApply && !editing ? undefined : 'primary'}
                 onClick={() => void save()}
-                disabled={!name.trim() || 空规则}
+                disabled={!name.trim()}
                 title={!name.trim() ? '存成分类要先起个名字' : undefined}
               >
                 {editing ? '保存' : '存成分类'}
