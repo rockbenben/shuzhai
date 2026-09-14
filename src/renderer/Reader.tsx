@@ -2011,9 +2011,13 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
                  * 「正文里的图片」那条净化规则把它整个删掉。
                  * ponytail: 要支持混排就得让 `sliceByMarks` 认识「显示文本 vs 原文」
                  * 两套偏移，那是另一件事。
+                 *
+                 * ⚠️ 判据在 `splitImages().imageOnly`，别在这儿退回 `!text.trim()`：
+                 * 扒站工具会在标签前粘 `U+0002` 这类看不见的控制字符，trim 不掉，
+                 * 真踩过（判据旁注释记着是哪本书哪一章）。
                  */
                 const 图 = splitImages(para.text);
-                if (图.images.length > 0 && !图.text.trim()) {
+                if (图.imageOnly) {
                   return (
                     <p key={para.offset} data-offset={para.offset} className="para-img">
                       {图.images.map((src, i) => <BodyImage key={i} src={src} />)}

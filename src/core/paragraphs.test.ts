@@ -158,3 +158,22 @@ test('正文里的图：地址摘得出来，javascript: 一律当没有', () =>
   assert.equal(splitImages("<IMG SRC='https://a/b.png' alt=x>").images[0], 'https://a/b.png');
   assert.equal(splitImages('<img src=https://a/c.jpg >').images[0], 'https://a/c.jpg');
 });
+
+test('图前粘着不可见控制字符，整段仍算图', () => {
+  const 图 = '<img src="https://aigcc.yuewen.com/imgChapter/x/58450de_hd.webp">';
+  // 真实书库里的样子：全角缩进被净化剥掉后，剩两个 U+0002 贴在标签前。
+  // U+0002 不是空白，trim() 去不掉——原来就栽在这，整行标签被当正文印出来。
+  // ⚠️ 用转义，别写真控制字符——裸 0x02 会让文件从 grep 里消失（AGENTS.md 记过）
+  const r = splitImages('\u0002\u0002' + 图);
+  assert.equal(r.images.length, 1);
+  assert.equal(r.imageOnly, true, 'C0 控制字符不算「看得见的字」');
+  assert.equal(r.text, '\u0002\u0002', '残字原样留着，不替调用方改文本');
+
+  // 零宽、BOM 同一类
+  assert.equal(splitImages('\u200c\u200d\ufeff' + 图).imageOnly, true);
+
+  // 只要有一个真字，就是图文混排，不整段当图
+  assert.equal(splitImages('\u0002字' + 图).imageOnly, false);
+  // 没有可认的图片地址时也不成立
+  assert.equal(splitImages('\u0002<img src="javascript:alert(1)">').imageOnly, false);
+});

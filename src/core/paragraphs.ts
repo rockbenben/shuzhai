@@ -107,8 +107,15 @@ export function speakingParagraph(
  * **只认 http / https / data:image**。`javascript:` 这类一律当没有：
  * 这些 txt 是从别处拿来的，而渲染进程是 `file://` 加载的——同「绝不执行配置里的
  * JS」那条铁律，能从外部文件里进来的东西一律先问一句「它能让我干什么」。
+ *
+ * `imageOnly` 判定「这一段除了图还有没有看得见的东西」。⚠️ **不能只 `trim()`**：
+ * 真实书库踩到过扒站工具在标签前粘了两个 `U+0002`（`　　<img …>`），
+ * C0 控制字符不是空白，`trim()` 和「去行首尾空白」那条净化规则都去不掉它——
+ * 判定失败，整段标签被当成正文原样印在屏幕上（《求你了，快退役吧！》第 40 章，
+ * 全书 71 张图就这一张中招）。所以判之前把 `\p{C}`（控制字符、零宽、BOM 一类
+ * 看不见的东西）也一起拿掉；残字一个字都不改，混排时文字分支拿到的还是原文。
  */
-export function splitImages(text: string): { text: string; images: string[] } {
+export function splitImages(text: string): { text: string; images: string[]; imageOnly: boolean } {
   const images: string[] = [];
   const rest = text.replace(/<img\b[^>]*>/gi, (tag) => {
     const m = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(tag);
@@ -116,5 +123,6 @@ export function splitImages(text: string): { text: string; images: string[] } {
     if (/^(?:https?:\/\/|data:image\/)/i.test(src)) images.push(src);
     return '';
   });
-  return { text: rest, images };
+  const imageOnly = images.length > 0 && rest.replace(/\p{C}/gu, '').trim() === '';
+  return { text: rest, images, imageOnly };
 }
