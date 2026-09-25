@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderUrl, renderRequest, validEngine, splitForTts } from './tts.ts';
+import { renderRequest, validEngine, splitForTts } from './tts.ts';
 import type { TtsEngine } from './tts.ts';
 import { BUILTIN_TTS } from './builtin-tts.ts';
 
@@ -9,18 +9,26 @@ const engine = (over = {}) => ({
   contentType: 'audio/wav', ...over,
 });
 
+/*
+ * ⚠️ **这三条原来测的是 `renderUrl`——一个生产路径根本不调的函数。**
+ * 它被 `renderRequest` 内联取代（GET / POST 在那一处分叉），而测试还留在旧函数上，
+ * 于是「模板填值」这件事看起来有覆盖、实际上测的是另一份实现。
+ * `scripts/dead-exports.mjs` 把这个函数报了出来，顺手把测试指向真正跑的那条路。
+ */
+const 取地址 = (e: TtsEngine, text: string) => renderRequest(e, text).url;
+
 test('URL 模板只替换 {text}，正文做 URI 编码', () => {
-  assert.equal(renderUrl(engine(), '你好'), 'https://x.test/say?text=%E4%BD%A0%E5%A5%BD');
+  assert.equal(取地址(engine(), '你好'), 'https://x.test/say?text=%E4%BD%A0%E5%A5%BD');
 });
 
 test('双重编码的引擎真的编两次', () => {
   // 少编一层拿回来的是乱码，而且**不报错**——服务端照样返回音频，只是念的是乱码
   const once = encodeURIComponent('你好');
-  assert.equal(renderUrl(engine({ double: true }), '你好'), `https://x.test/say?text=${encodeURIComponent(once)}`);
+  assert.equal(取地址(engine({ double: true }), '你好'), `https://x.test/say?text=${encodeURIComponent(once)}`);
 });
 
 test('正文里的 & 和 = 不会把 URL 参数搞乱', () => {
-  const url = renderUrl(engine(), 'a&b=c');
+  const url = 取地址(engine(), 'a&b=c');
   assert.ok(url.endsWith('text=a%26b%3Dc'), url);
 });
 

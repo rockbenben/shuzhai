@@ -97,10 +97,19 @@ export function translateJavaRegex(pattern: string): TranslatedRegex {
   return { source: out, flags, notes };
 }
 
-/** 翻译完还得真能编译，不能编译的规则不该进库 */
-export function compileJavaRegex(pattern: string): { re: RegExp; notes: string[] } {
+/**
+ * 翻译一条 Java 正则，并**真编译一遍**——编译不过的规则不该进库。
+ * 编译不过就抛，调用方（`convertRules`）把它记进 `skipped`。
+ *
+ * ⚠️ 这个函数原来叫 `compileJavaRegex` 而且**是导出的**，而它全仓库
+ * **一个调用点都没有**：`convertRules` 里另有一份内联的同样两行，
+ * 真正跑的一直是那份。两处同义、一处死着——`scripts/dead-exports.mjs`
+ * 抓出来的第一类形状。现在只剩这一份，而且它只在自己文件里用，不必导出。
+ */
+function 翻译并校验(pattern: string): { source: string; flags: string; notes: string[] } {
   const t = translateJavaRegex(pattern);
-  return { re: new RegExp(t.source, t.flags), notes: t.notes };
+  new RegExp(t.source, t.flags); // 编译不过就抛
+  return t;
 }
 
 /**
@@ -187,8 +196,7 @@ export function convertRules(rules: LegadoRule[]): { rules: CleanRule[]; result:
     }
 
     try {
-      const t = translateJavaRegex(String(r.pattern));
-      new RegExp(t.source, t.flags); // 编译不过就别进库
+      const t = 翻译并校验(String(r.pattern));
       out.push({
         name,
         pattern: t.source,

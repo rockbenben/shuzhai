@@ -228,7 +228,7 @@ rpc 方法全部可用、opencc 繁简转换正常。
 | `npm run build` | 构建渲染进程到 `dist/` |
 | `npm test` | 跑测试（Node 自带的 `node:test`） |
 | `npm run typecheck` | `tsc --noEmit`，只查类型不产出文件 |
-| `npm run lint:ui` | 一组静态走查（**当场看 `package.json` 的 `lint:ui`，别在这儿记个数**——原来写「三个」，加了 `dup-decls.mjs` 之后它就成了假的）：`dead-fields.mjs`（算出来了没人读的字段）+ `dead-mounts.mjs`（挂不上的组件）+ `stale-refs.mjs`（注释里指向的文件/函数还在不在）+ `dup-decls.mjs`（同名的第二份声明）。**「漏进界面的 markdown 星号」不在这里**，它判据硬、结果二值，所以进了 `npm test`（`src/renderer/no-literal-markdown.test.ts`）。也**不含 `scripts/ui-check/` 那几个**——它们要一个跑着的应用，见后面「走查工具已经有了」那节 |
+| `npm run lint:ui` | 一组静态走查（**当场看 `package.json` 的 `lint:ui`，别在这儿记个数**——原来写「三个」，加了 `dup-decls.mjs` 之后它就成了假的）：`dead-fields.mjs`（算出来了没人读的字段）+ `dead-mounts.mjs`（挂不上的组件）+ `dead-exports.mjs`（core 导出了、但定义文件之外没有任何生产代码引用它——**「有单测不等于有入口」**，`shelf_member` 那次七天没接就是它抓的形状）+ `stale-refs.mjs`（注释里指向的文件/函数还在不在）+ `dup-decls.mjs`（同名的第二份声明）。**「漏进界面的 markdown 星号」不在这里**，它判据硬、结果二值，所以进了 `npm test`（`src/renderer/no-literal-markdown.test.ts`）。也**不含 `scripts/ui-check/` 那几个**——它们要一个跑着的应用，见后面「走查工具已经有了」那节 |
 | `npm run dist` | 出 NSIS 安装包 + 便携版 zip，产物在 `release/`。⚠️ **`npm ci` 之后第一次打包会失败**，见下 |
 | `npm run dist:dir` | 只打包不做安装器，用来快速验证打包后能不能跑 |
 
@@ -666,6 +666,7 @@ spec §12 定的，这里只列会咬人的几条：
 npm run lint:ui                      # = 下面这几个静态走查，CI 里也跑
 node scripts/dead-fields.mjs         # 算出来了没人读的字段
 node scripts/dead-mounts.mjs         # 挂不上的组件
+node scripts/dead-exports.mjs        # core 导出了、但没有任何入口包它（第四种「没接线」）
 node scripts/stale-refs.mjs          # 注释/文档指向的文件和函数还在不在
 node scripts/dup-decls.mjs           # 同名的第二份声明（渲染进程 vs core、core 内部、rpc 返回类型）
 

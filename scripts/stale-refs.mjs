@@ -17,6 +17,7 @@
 // 一个静默找不到任何东西的扫描器比没有更糟。
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join, basename, sep } from 'node:path';
 import { ROOT } from './repo-root.mjs';
 
@@ -33,6 +34,26 @@ const SKIP = new Set([
   // 没进版本库的：干跑脚本和各家工具的目录。不跳的话本地会报出 CI 复现不了的东西
   // `tmpcheck` 和 `scratchpad` 是同一类东西（抓回来的网页、解包的 release、一次性探针）的老目录名
   'scratchpad', 'tmpcheck', '.claude', '.superpowers',
+  // `docs/superpowers/`（技能的 design/plan 草稿，`.gitignore` 里排除了它）：
+  // **一份计划的定义就是「描述还没有的文件」**——它点名那些模块的时候
+  // 它们本来就该不存在，等任务做完又自然对上。实测：一份计划落地前
+  // `lint:ui` 为它红 25 处，报的全是「找不到这个文件」。
+  // 同上面那条是同一个理由，而且它没进版本库，
+  // 跳过之后**本地和干净检出仍然跑出同一个结果**（这是这一条的唯一硬判据）。
+  // ⚠️ 这句注释自己也别点名——上一轮就是在这儿被自己报了一次。
+  // **但这条豁免只给「没入库的草稿」**：这个目录下有几份设计稿是显式
+  // `git add -f` 进去的，它们归下面 `跟踪文件下()` 管，照查。
+  'superpowers',
+  // AI 工具在本机留的记忆目录（`.gitignore` 里也排除了它，理由同 `scratchpad/`）。
+  // 里面的工作日志是**散文**：会提到「跑完就扔」的一次性脚本、被删掉的文件、
+  // 别处的路径——而它们本来就该是不存在的。实测踩到：日志里写了一句
+  // 「那个临时探针已经删了」，本地 `lint:ui` 就红了，报的还是「找不到这个文件」。
+  // **这是这一条存在的全部理由**：跳过它，本地和干净检出才跑出同一个结果。
+  //
+  // ⚠️ 这条注释自己也踩过一次：第一版把那个探针的**路径**照抄了进来，
+  // 于是 `scratchpad/` 在 SKIP 里、路径查不到，脚本当场报了**自己**。
+  // 同上面 ALLOW 那段说的：「一句需要豁免才能存在的提醒，多半本来就不该那么写」。
+  '.workbuddy-ai',
 ]);
 
 /**
@@ -59,16 +80,47 @@ const ALLOW = new Map([
 /**
  * 递归列文件。**不用 `readdirSync(recursive: true)`**：那个没法中途剪枝，
  * 会把 `node_modules` 整个枚举一遍再让我们过滤，慢得没必要。
+ *
+ * ⚠️ **`SKIP` 只能跳「没进版本库的那些」，不能跳被跟踪着的文件。**
+ * 上面那个表按目录名剪枝，于是有个静默的第二重后果：跟踪着的文件一旦落在
+ * SKIP 目录下，它**连当「被别人指到的目标」都不算了**（`byName` 里没它），
+ * 于是「某个入库的 README 指着一份入库的设计稿」会被报成找不到那个文件。
+ * `docs/superpowers/` 正是这种：整目录 gitignore，但里面有几份设计稿是
+ * 显式 `git add -f` 进去的（`a1c2500` 那次「track … referenced by guides」）。
+ * 所以这里按 `git ls-files` 的结果放行：**入库的照查，草稿才免。**
+ * 本地和干净检出跑出同一个结果这条判据，靠的就是它只看跟踪状态。
  */
 function walk(d, out = []) {
   for (const e of readdirSync(d, { withFileTypes: true })) {
-    if (SKIP.has(e.name)) continue;
     const p = join(d, e.name);
+    const rel = p.slice(ROOT.length + 1).split(sep).join('/');
+    if (SKIP.has(e.name)) {
+      if (e.isDirectory() && 下有跟踪文件(rel)) {
+        // 跳目录，但把里面**跟踪着的**那些捞回来（草稿仍然不进 `all`）
+        for (const f of 跟踪文件下(rel)) out.push(f);
+      }
+      continue;
+    }
     if (e.isDirectory()) walk(p, out);
-    else out.push(p.slice(ROOT.length + 1).split(sep).join('/'));
+    else out.push(rel);
   }
   return out;
 }
+
+/** `git ls-files` 一次，后面都查这张表。git 不在 / 不是仓库时退回「什么都不放行」 */
+const 跟踪 = (() => {
+  try {
+    return new Set(
+      execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 })
+        .split(/\r?\n/).filter(Boolean),
+    );
+  } catch {
+    return new Set();
+  }
+})();
+const 前缀 = (dir) => dir + '/';
+const 下有跟踪文件 = (dir) => [...跟踪].some((f) => f.startsWith(前缀(dir)));
+const 跟踪文件下 = (dir) => [...跟踪].filter((f) => f.startsWith(前缀(dir)));
 
 const abs = (rel) => join(ROOT, rel);
 const all = walk(ROOT);

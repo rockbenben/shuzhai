@@ -17,17 +17,6 @@ import { hasReadable } from './format.ts';
 
 export type { TtsEngine };
 
-/**
- * 把正文填进 URL 模板。
- *
- * `double` 对应原配置里的 `java.encodeURI(java.encodeURI(speakText))`——
- * 那些服务真的要双重编码，少编一层拿回来的是乱码而不是报错。
- */
-export function renderUrl(engine: TtsEngine, text: string): string {
-  const once = encodeURIComponent(text);
-  return engine.url.replace('{text}', engine.double ? encodeURIComponent(once) : once);
-}
-
 /** XML 里要转义的那五个。**percent 编码在 SSML 里是错的**，它会把 %E4%BD%A0 念出来 */
 function xml转义(s: string): string {
   return s
@@ -41,6 +30,9 @@ function xml转义(s: string): string {
 /**
  * 这一次请求发什么。**GET 和 POST 只在这儿分叉一次**，调用方不用管。
  *
+ * `engine.double` 是原配置里的 `java.encodeURI(java.encodeURI(speakText))`——
+ * 那些服务真的要双重编码，**少编一层拿回来的是乱码而不是报错**。
+ *
  * POST 那条是给「阅读」里 `地址,{"method":"POST","body":"..."}` 那种引擎的
  * （百度就是），正文在 body 里而不是地址里。
  *
@@ -48,6 +40,10 @@ function xml转义(s: string): string {
  * 少一个是 401、少另一个是 400。`Content-Type` 只在配置没给时兜底成 form。
  * （原来这儿写着「不从配置里读 header」，那条理由经不起推敲；
  * 为什么翻过来，去 docs/lessons.md 搜 Azure。）
+ *
+ * ⚠️ 这里原来还有**第二个函数**（`renderUrl`）只做 GET 那一支，被内联取代之后
+ * 一直没人调、而 `tts.test.ts` 还在测它（`scripts/dead-exports.mjs` 报出来的）。
+ * 现在只有这一份；那三条测试也指向这儿了。
  */
 export function renderRequest(
   engine: TtsEngine,

@@ -11,7 +11,7 @@
   "scripts": {
     "test": "node --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "lint:ui": "node scripts/dead-fields.mjs && node scripts/dead-mounts.mjs && node scripts/stale-refs.mjs && node scripts/dup-decls.mjs",
+    "lint:ui": "node scripts/dead-fields.mjs && node scripts/dead-mounts.mjs && node scripts/dead-exports.mjs && node scripts/stale-refs.mjs && node scripts/dup-decls.mjs",
     "dev": "vite",
     "build": "vite build",
     "start": "electron .",
