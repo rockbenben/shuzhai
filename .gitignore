@@ -21,3 +21,7 @@ scratchpad/
 docs/reference/
 # superpowers 技能在本机生成的设计稿/计划草稿，是中间产物不是项目文档
 docs/superpowers/
+
+# AI 工具在本机留的记忆目录（工作日志 + 项目长期约定），同 scratchpad/ 一个理由：
+# 是这台机器上的中间产物，不是项目文档。换台机器重来一遍也不该靠它。
+.workbuddy-ai/

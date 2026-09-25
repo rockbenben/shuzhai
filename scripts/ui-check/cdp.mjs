@@ -53,6 +53,14 @@ export const API = 'http://127.0.0.1:' + (process.env.SHUZHAI_API_PORT || '30036
 let 把关过 = null;
 const 确认不是真实库 = () => (把关过 ??= guardTestLibrary());
 
+/**
+ * 闸门认两种给法：命令行 `--big`（人手工驱走查脚本时），或环境变量 `SHUZHAI_BIG=1`
+ * （测台在自己进程里连页面时——它不该去改写 `process.argv`）。
+ * **两种都只是「申请」，不是「放行」**：真放行要过 `connect()` 里那个封条检查。
+ */
+const 是大库测量 = () =>
+  process.argv.includes('--big') || process.env.SHUZHAI_BIG === '1';
+
 export async function guardTestLibrary(argv = process.argv) {
   const stats = await (await fetch(`${API}/api/stats`)).json();
   const big = argv.includes('--big');
@@ -407,7 +415,8 @@ export async function connect() {
   /*
    * ⚠️ **把关要问「我正在驱的这个实例」，不能问端口。**
    *
-   * `guardTestLibrary()` 走的是写死的 `http://127.0.0.1:30036`，而那个端口
+   * `guardTestLibrary()` 当年走的是写死的 30036（现在它和这里都读
+   * `SHUZHAI_API_PORT`，见文件顶部），而那个端口
    * 属于「谁先绑上谁就占着」。于是会同时出两种错：
    *   ① 用户自己的应用占着端口时，测试实例根本没有接口，
    *     而脚本里每一句 HTTP rpc **全打到真实库上**（实测往里面写进去过两条划线）；
@@ -417,14 +426,37 @@ export async function connect() {
    * CDP 连上的那个页面才是我要点的，就问它自己：`window.novel.rpc` 走的是 IPC，
    * 直通它自己的主进程，和端口无关。
    */
-  if (!process.argv.includes('--big')) {
+  if (!是大库测量()) {
     const n = await ev("window.novel.rpc('library.stats').then((s) => s.books).catch(() => -1)");
     if (Number(n) > 100) {
       console.error(
         `✗ 拒绝运行：CDP 连上的这个实例有 ${n} 本书，看着像真实书库。` + '\n'
         + '  这些脚本会点开书、翻章、改状态——那会写进 reading_state，重扫恢复不了。\n'
         + '  要在测试库上跑：用 --user-data-dir 开一个测试档案，并且连到那个实例的调试端口。\n'
-        + '  真要在大库上量性能：加 --big（并且自己确认那是个副本）。',
+        + '  真要在大库上量性能：加 --big（它现在要验测台封条，见下面那段）。',
+      );
+      process.exit(1);
+    }
+  } else {
+    /*
+     * `--big` 原来只到文案那句「并且自己确认那是个副本」为止——**那是这条防线上唯一的
+     * 开口，而它靠的是自觉。** 现在改成问那个页面自己有没有测台封条：
+     * `perf.snapshot` 是 `scripts/bench/snapshot.mjs` 趁库还关着写进**快照**的那行来源指纹，
+     * 真实库里不会有它（`node scripts/bench.mjs guard-check` 两头都验）。
+     *
+     * 还是走 IPC 不走端口——上面那段注释记着「把关的对象和驱的对象不是同一个」
+     * 是这个函数的第二个错根，这里不能又退回问端口。
+     */
+    const 封条 = await ev(
+      "window.novel.rpc('setting.get', { key: 'perf.snapshot' }).catch(() => null)",
+    );
+    // 认真是「一句 JSON」而不是「任何真值」：`ev` 失败回的是 `'ERR …'` 字符串，
+    // 那种东西不能当放行凭证（同 `make等待` 里那条）。
+    if (typeof 封条 !== 'string' || !封条.trim().startsWith('{')) {
+      console.error(
+        '✗ 拒绝运行：加了 --big，但连上的这个库里没有测台封条 perf.snapshot。' + '\n'
+        + '  也就是说这是**用户自己的库**——大库测量要的是它的快照，不是它本身。' + '\n'
+        + '  先跑：node scripts/bench.mjs snapshot && node scripts/bench.mjs launch',
       );
       process.exit(1);
     }
@@ -501,3 +533,33 @@ export const setInput = (getterExpr, text) => `(() => {
   el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
   return el.value;
 })()`;
+
+/**
+ * 等一个表达式成立，**等不到就抛**——这是 `scripts/bench` 用的那一版。
+ *
+ * 走查那四个脚本（`walk` / `notes` / `review` / `keyboard`）各自有一份五行的
+ * `until`，返回 true/false。那对走查是对的：一步一断言，失败当场列出来。
+ * 性能测台不能照抄第五份：**「界面根本没出来」和「出来了但很慢」在表里会长得一样**，
+ * 而后者是一个要记进表的数、前者必须是一个 `– 失败`。所以这一版把超时抛出去，
+ * 并且把「在等什么」原样带上——不写清这一句，下一个人只会看到一个孤零零的 timeout。
+ *
+ * 返回的是**等到的那一瞬间**过了多少毫秒（不是布尔），格子用它算总时长。
+ */
+export const make等待 = (ev, wait) => async (expr, 名字, ms = 30000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const v = await ev(expr);
+    /*
+     * `'ERR …'` 是上面 `ev` 的失败约定，它是个**字符串**，直接拿去判真值为真。
+     * 不挡掉的话：表达式抛了（写错选择器、页面还没挂上、顶层写了 await）
+     * 会被当成「等到了」，格子于是记下一个看着正常的数。
+     * 这一条不是假想——`seed` 第一版就是这么静默灌进 0 条划线的。
+     */
+    if (typeof v === 'string' && v.startsWith('ERR ')) {
+      throw new Error(`「${名字}」这句判断本身报错了：${v}`);
+    }
+    if (v) return Date.now() - t0;
+    await wait(120);
+  }
+  throw new Error(`等不到「${名字}」（${Math.round(ms / 1000)} 秒）：${expr}`);
+};

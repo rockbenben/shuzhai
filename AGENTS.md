@@ -687,6 +687,8 @@ node scripts/ui-check/audit.mjs      # 分辨率 × 界面的客观体检
 node scripts/ui-check/keyboard.mjs   # Tab 焦点
 node scripts/ui-check/walk.mjs <库>  # 端到端：第一次打开 → 读完一本 → 回来找到它
 node scripts/ui-check/review.mjs     # 端到端：把一批书归置好（评价体系那一批）
+node scripts/bench.mjs                # 大库性能：造快照、量计时格（尺子不是守卫：退出码不判性能）
+
 node scripts/ui-check/notes.mjs      # 端到端：做笔记那条线（划线→写→筛→跨书回看→漂了修回来→导出），
                                      # **txt / PDF 文字划线 / PDF 框选** 各走一遍。
                                      # ⚠️ txt 和框选那两段用的是**真鼠标**（`cdp.mjs` 的 `拖选` /
@@ -695,9 +697,11 @@ node scripts/ui-check/notes.mjs      # 端到端：做笔记那条线（划线�
                                      # 合成事件不带 click，所以走查一路绿而**手一碰就是坏的**
 ```
 
-顺带一条 walk 的坑：**跑第二遍会在「读完时问了要不要记一句」那步失败**，
-那不是回归——「已经评过的不问」是设计，而档案目录里上一遍已经评过了。
-换一个全新 `--user-data-dir` 再跑。（同 README 里「探针会骗人」那条。）
+顺带一条 walk 的坑：**`walk.mjs` 要一个全新的档案目录**——它那步依赖「这本书还没被评过」，
+跑第二遍必然红（「已经评过的不问」是设计）。**别在这儿记它红在哪一步、也别在这儿列症状清单**：
+症状会飘，而清单抄两份就变成两份不重合的半份（这条今晚真的又犯了一次，已收回去）。
+判据只有一个：它自己打印的 `加书库目录 收进来 0 本`。见过的症状清单在
+`scripts/ui-check/README.md` 那一条，那儿是正本。
 
 ## 打包基线：只记「结构对不对」，不记体积
 

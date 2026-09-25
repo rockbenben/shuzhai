@@ -1,7 +1,8 @@
 # 界面体检
 
 这里的走查脚本都要**一个跑着的应用**（CDP），所以既不在 `npm run lint:ui` 里、也进不了 CI。
-`lint:ui` 跑的是另外那组纯静态的（`dead-fields` / `dead-mounts` / `stale-refs` / `dup-decls`）。
+`lint:ui` 跑的是另外那组纯静态的（`dead-fields` / `dead-mounts` / `dead-exports` /
+`stale-refs` / `dup-decls`）。
 
 ⚠️ **这两处都不记个数。** 原来写的是「这三个脚本」和「lint:ui 跑的是另外三个」——
 两个数后来都错了（走查涨到五个、`lint:ui` 添了 `dup-decls.mjs`），而这种错不报错。
@@ -34,6 +35,23 @@ $env:SHUZHAI_API_PORT = '30037'; node scripts/ui-check/notes.mjs
 ```powershell
 (Invoke-RestMethod http://127.0.0.1:9876/json/list)[0].url
 ```
+
+上面这几个量的是**版面**。量时间的是隔壁那个，不在本目录（它要一个跑着的实例 + 真实库的快照）：
+
+```powershell
+node scripts/bench.mjs          # 分段：snapshot → seed → run → kill → teardown
+                                # （kill 不是可选的：teardown 不肯在有实例活着时删快照）
+```
+
+它跑在**真实库的快照**上（只拷 `library.db` 三个文件，40 GB 正文原地只读），
+而 `--big` 那道闸门现在验的就是那份快照里的封条——所以「顺手对着用户自己的库量一轮」
+现在跑不起来，这是有意的。每段各干什么、为什么 `run` 不自起实例，见 `scripts/bench.mjs` 顶部。
+**它的退出码不表达性能结论**（慢到多少只印在表上）：和 `scripts/counts.mjs` 同类，是尺子不是守卫。
+要判「有没有漂」加 `--passes 3`——单趟的数不支持比较，而极差具体多少**别在这儿抄一份**，
+正本在 `docs/lessons.md`「散布到底多大」那一节（那节自己就改过一次：先写错的归因、后撤回）。
+它的纯函数部分有测试，跑 `npm run test:bench` —— **别把那条命令简化成
+`node --test scripts/bench/`**：给一个目录时 Node 会把它当模块加载，
+Windows 上当场报 `Cannot find module ...\scripts\bench`，要的是那个 glob 形式。
 
 ## 三步跑起来
 
@@ -92,8 +110,12 @@ node scripts\ui-check\notes.mjs
   看起来像应用整个坏了，其实只是两个走查在抢同一个页面。
 - **`walk.mjs` 要全新的档案目录。** 它那步「读完时问了要不要记一句」依赖
   「这本书还没被评过」——跑第二遍必然红，而且**症状会飘到别的步骤上**
-  （实测报的是「我的书评里找不到它」和「排序没变」，跟步骤名对不上）。
+  （实测见过的三种：报「我的书评里找不到它」、报「排序没变」、
+  以及点开一本书那步取到 `《null》`——因为上一遍给某本低分、**低分联动弃坑**，
+  那本就不在「全部」这一屏上了，而脚本是按 id 找卡片的）。
   判断依据：`加书库目录 收进来 0 本` 就说明这个档案不是新的。
+  ⚠️ 上面这份清单**只在这里维护**——AGENTS.md 那边只留「收进来 0 本」那一条判据，
+  症状清单抄两份就会变成两份不重合的半份（这条今晚真的又犯了一次）。
 - **`audit.mjs` 放最后。** 它见标签少于 20 个就补种（`seedReviewData`），
   跑完库里多出 28 个标签——不影响正确性，但会让前面几个脚本的数字对不上你手算的。
 

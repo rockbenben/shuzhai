@@ -24,18 +24,29 @@
  * 稳妥的重启还要等 electron 进程一个都不剩，见 README 那节。
  */
 import { createServer } from 'node:net';
+import { pathToFileURL } from 'node:url';
 
-const port = Number(process.argv[2]);
-const bindable = () => new Promise((r) => {
+/** 能不能绑上这个口。**绑得上才是真空了**，理由见文件顶注两层踩坑史 */
+const bindable = (port) => new Promise((r) => {
   const s = createServer();
   s.once('error', () => r(false));
   s.once('listening', () => s.close(() => r(true)));
   s.listen(port, '127.0.0.1');
 });
 
-for (let i = 0; i < 60; i++) {
-  if (await bindable()) { console.log('空了'); process.exit(0); }
-  await new Promise((r) => setTimeout(r, 500));
+/** 等到某个端口真的能绑上。`bench.mjs` 起停实例用的就是这个，不再抄第二份判据 */
+export async function waitPortFree(port, { tries = 60, stepMs = 500 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    if (await bindable(port)) return true;
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+  return false;
 }
-console.log('等了 30 秒还绑不上');
-process.exit(1);
+
+// 只有被当命令跑时才自己等端口（被 import 走上面那两个函数）
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const port = Number(process.argv[2]);
+  if (await waitPortFree(port)) { console.log('空了'); process.exit(0); }
+  console.log('等了 30 秒还绑不上');
+  process.exit(1);
+}

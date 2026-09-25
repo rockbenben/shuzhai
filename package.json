@@ -16,7 +16,8 @@
     "build": "vite build",
     "start": "electron .",
     "dist": "vite build && electron-builder",
-    "dist:dir": "vite build && electron-builder --dir"
+    "dist:dir": "vite build && electron-builder --dir",
+    "test:bench": "node --test \"scripts/bench/*.test.mjs\""
   },
   "dependencies": {
     "opencc-js": "^1.4.1"
