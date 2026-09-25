@@ -6,6 +6,7 @@ import { rpc } from './rpc.ts';
 import { Reader } from './Reader.tsx';
 import { RuleEditor } from './RuleEditor.tsx';
 import { BookEditor, type Detail } from './BookEditor.tsx';
+import { 拆标签 } from './TagPicker.tsx';
 import { ExtractDialog } from './ExtractDialog.tsx';
 import CategoryDialog from './CategoryDialog.tsx';
 import { RenameDialog } from './RenameDialog.tsx';
@@ -1214,6 +1215,12 @@ export function App() {
           onChapters={(title) => { setEditing(null); setRuleFor({ id: editing, title }); }}
           onRename={() => { const id = editing; setEditing(null); setRenaming([id]); }}
           onExport={(title) => { setEditing(null); setExporting({ id: editing, title }); }}
+          /*
+           * 在编辑弹窗里就地新建了分类：**侧栏那排分类页签和计数得跟着刷新**。
+           * 不刷的话，用户此刻正站在「我刚建的那个分类」旁边，而侧栏里没有它——
+           * 他会以为没建成，然后再建一个。
+           */
+          onCatsChanged={() => { void loadCounts().catch(() => {}); }}
         />
       )}
       {ruleFor && (
@@ -2663,8 +2670,9 @@ export function App() {
                   * 两个正好落回不用压缩的区间。完整那份在这一行的 title 里
                   *（表格那一列也是两个，书评册那边宽，摆六个）。
                   */}
-                {/* split 只做一次。书架不做虚拟滚动，滚到三千本时这一段
-                    每次重渲染都要跑一遍——算四次纯属浪费 */}
+                {/* split 只做一次，而且走 `拆标签` 那一份（表格、书评册、编辑弹窗
+                    也是它）。书架不做虚拟滚动，滚到三千本时这一段每次重渲染都要跑
+                    一遍——在这儿现场 `.split(',')` 三回纯属浪费 */}
                 {b.tags && ((tags) => (
                   <div className="book-tags" title={tags.join('、')}>
                     {tags.slice(0, 2).map((t) => (
@@ -2672,7 +2680,7 @@ export function App() {
                     ))}
                     {tags.length > 2 && <span className="muted">+{tags.length - 2}</span>}
                   </div>
-                ))(b.tags.split(','))}
+                ))(拆标签(b.tags))}
               </div>
               );
             })}

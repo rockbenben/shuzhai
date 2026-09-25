@@ -286,6 +286,22 @@ test('移除还有书的书库文件夹要 confirmed；空文件夹不用', asyn
   assert.equal(
     (db.prepare('select count(*) n from library_root where id = ?').get(rootId) as { n: number }).n, 0,
   );
+  assert.equal(
+    (db.prepare('select root_id from book_file where book_id = 1').get() as { root_id: null }).root_id,
+    null,
+    '记录留着，登记没了',
+  );
+  // 移完立刻从书架上消失：excluded 位当场翻，不等下一次扫描
+  assert.equal(
+    (db.prepare('select excluded from book_file where book_id = 1').get() as { excluded: number }).excluded,
+    1,
+    '不移的话这批书会在书架上多留到下次改屏蔽规则或重新扫描',
+  );
+  assert.equal(
+    (db.prepare('select count(*) n from book where id = 1').get() as { n: number }).n,
+    1,
+    '书和阅读进度一个都不许删',
+  );
 
   // 空文件夹不用确认
   const empty = Number(
@@ -429,6 +445,11 @@ test('数组参数缺了或者不是数组，要报人话不是 JS 内部错', a
     ['highlight.untag', 'ids'],
     ['tag.add', 'bookIds'],
     ['tag.remove', 'bookIds'],
+    // 归类那两个和 tag.remove 同一个形状（成员表、按 bookIds 批量）。
+    // ⚠️ 它们的校验顺序**必须和这儿一致**：先 bookIds 再 shelfId。
+    // 反过来的话 `{}` 会先报 shelfId，而这条断言要的是「报错里提到哪个参数」
+    ['shelf.addBooks', 'bookIds'],
+    ['shelf.removeBooks', 'bookIds'],
     ['book.batchUpdate', 'bookIds'],
     ['version.merge', 'bookIds'],
   ] as Array<[string, string]>) {
@@ -447,4 +468,42 @@ test('数组参数缺了或者不是数组，要报人话不是 JS 内部错', a
       );
     }
   }
+});
+
+/*
+ * **归类那三个 rpc 是「补上的界面入口」。**
+ *
+ * 数据层（`shelf_member`，迁移 27）从 2026-09-14 就在，而 rpc 和界面一直没接：
+ * 那条 commit 的说明最后一句写着「此提交只有数据层和测试，界面入口后续补上」，
+ * 而全仓库 grep 过，`addShelfBooks` / `removeShelfBooks` / `shelvesForBook`
+ * 六个 core 函数当时只出现在自己的定义处。
+ *
+ * 这条钉的是**接线本身**——三个 rpc 真的存在、真的读写同一张表、
+ * `shelf.forBook` 把「手动 / 规则命中」两个标分得开。
+ * 光验 core 是不够的（`library.test.ts` 那一组已经验了）：
+ * 本文件头那条「端到端验过如果走的是 core，只证明 core 是好的，
+ * 不证明界面上够得到」说的就是这件事——`LinksDialog` 悬空一年多就是这么来的。
+ */
+test('归类：shelf.forBook / addBooks / removeBooks 三个 rpc 都接上了', async () => {
+  const { id } = (await rpc['shelf.save']!({ name: '想看的', filter: {} })) as { id: number };
+  type 归属 = { id: number; name: string; manual: boolean; ruleHit: boolean };
+  const 找 = async () =>
+    ((await rpc['shelf.forBook']!({ bookId: 1 })) as 归属[]).find((s) => s.id === id);
+
+  assert.deepEqual(await 找(), { id, name: '想看的', manual: false, ruleHit: false }, '还没归进去');
+
+  assert.deepEqual(await rpc['shelf.addBooks']!({ shelfId: id, bookIds: [1] }), { added: 1 });
+  assert.equal((await 找())?.manual, true, '勾上了');
+
+  // 再加一次不该翻倍（`insert or ignore`），返回 0 而不是报错
+  assert.deepEqual(await rpc['shelf.addBooks']!({ shelfId: id, bookIds: [1] }), { added: 0 });
+
+  assert.deepEqual(await rpc['shelf.removeBooks']!({ shelfId: id, bookIds: [1] }), { removed: 1 });
+  assert.equal((await 找())?.manual, false, '摘掉了');
+
+  await rpc['shelf.remove']!({ id });
+});
+
+test('shelf.forBook 缺 bookId 要抛，不能拿 NaN 去查库', async () => {
+  await assert.rejects(async () => rpc['shelf.forBook']!({}), /bookId/);
 });

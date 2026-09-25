@@ -17,6 +17,9 @@ import {
   listBooks,
   saveShelf,
   listShelves,
+  addShelfBooks,
+  removeShelfBooks,
+  shelvesForBook,
   repairLibrary,
   cleanupMissing,
   listDirs,
@@ -198,6 +201,168 @@ test('改一个分类是改它，不是又建一个；id 写错了要抛，不�
    */
   assert.throws(() => saveShelf(db, '不存在的', { minRating: 1 }, 999999), /没有 id 为 999999 的分类/);
   assert.equal(listShelves(db).length, 1, '抛完之后不许多出一条');
+});
+
+/*
+ * ── 分类的手动成员（`shelf_member`，迁移 27）────────────────────────
+ *
+ * ⚠️ **这一组原来一条测试都没有。** 迁移 27 那个 commit 的说明写着
+ * 「此提交只有数据层和测试」，而它在 `library.test.ts` 里加的 24 行其实是
+ * 「弃坑原因也算评价过」那条，和书架无关——`addShelfBooks` /
+ * `removeShelfBooks` / `shelvesForBook` 六个函数从落地到接上界面，中间
+ * 一段覆盖都没有（AGENTS.md 那条「声明了但没接线」的又一个实例）。
+ *
+ * 最要紧的是下面第三条：**规则命中的那个勾摘不掉**。界面上「归类」那一排
+ * 就是按 `shelvesForBook` 的两个标画出来的，标错了就会摆出一个点了没反应的勾。
+ */
+
+test('手动加入分类：勾上就进、摘掉就出，重复加不翻倍', () => {
+  const a = addBook('甲书');
+  const b = addBook('乙书');
+  const { id } = saveShelf(db, '想看的', {});
+
+  assert.equal(addShelfBooks(db, id, [a]), 1, '新增一条');
+  assert.equal(addShelfBooks(db, id, [a]), 0, '已经在里面了，不重复加');
+  assert.deepEqual(titles(listBooks(db, { shelf: { id, rule: {} } })), ['甲书']);
+
+  addShelfBooks(db, id, [b]);
+  assert.deepEqual(titles(listBooks(db, { shelf: { id, rule: {} } })), ['乙书', '甲书']);
+
+  assert.equal(removeShelfBooks(db, id, [a]), 1);
+  assert.deepEqual(titles(listBooks(db, { shelf: { id, rule: {} } })), ['乙书']);
+});
+
+test('分类的成员是并集：规则圈中的 ∪ 手动加进去的', () => {
+  const 五星 = addBook('五星');
+  addBook('两星');
+  const 没评价 = addBook('没评价');
+  setStatus(db, 五星, { rating: 5 });
+
+  const rule = { minRating: 4 };
+  const { id } = saveShelf(db, '四星以上', rule);
+  addShelfBooks(db, id, [没评价]);
+
+  assert.deepEqual(
+    titles(listBooks(db, { shelf: { id, rule } })),
+    ['五星', '没评价'],
+    '规则圈中的加上手动的那本，两路都要在',
+  );
+});
+
+test('规则命中的摘不掉：两个标要分开，removeShelfBooks 只动手动那一半', () => {
+  const 五星 = addBook('五星');
+  const rule = { minRating: 4 };
+  const { id } = saveShelf(db, '四星以上', rule);
+  setStatus(db, 五星, { rating: 5 });
+
+  // 既命中规则、又被手动加了一遍——界面上这一枚是「亮着但不可点」
+  addShelfBooks(db, id, [五星]);
+  const 两条路 = shelvesForBook(db, 五星).find((s) => s.id === id)!;
+  assert.deepEqual(
+    { manual: 两条路.manual, ruleHit: 两条路.ruleHit },
+    { manual: true, ruleHit: true },
+    '两条路都成立时两个标都要亮',
+  );
+
+  // 摘掉手动那一笔
+  assert.equal(removeShelfBooks(db, id, [五星]), 1);
+  const 只剩规则 = shelvesForBook(db, 五星).find((s) => s.id === id)!;
+  assert.deepEqual(
+    { manual: 只剩规则.manual, ruleHit: 只剩规则.ruleHit },
+    { manual: false, ruleHit: true },
+    '手动摘掉了、规则还在——界面必须知道这个勾摘不掉，否则就是个点了没反应的按钮',
+  );
+  assert.deepEqual(
+    titles(listBooks(db, { shelf: { id, rule } })),
+    ['五星'],
+    '摘完这本书还在分类里：规则那半是现算的，不存快照',
+  );
+});
+
+test('空规则 + 没手动成员：shelvesForBook 里那个分类两个标都是假的', () => {
+  const a = addBook('甲书');
+  const { id } = saveShelf(db, '空分类', {});
+  assert.deepEqual(
+    shelvesForBook(db, a).find((s) => s.id === id),
+    { id, name: '空分类', manual: false, ruleHit: false },
+  );
+});
+
+test('往不存在的分类里加书要抛，不许静默什么都不做', () => {
+  const a = addBook('甲书');
+  // 同 `saveShelf` 那条：无条件返回成功是 `tag.delete` 那次事故的形状
+  assert.throws(() => addShelfBooks(db, 999999, [a]), /没有 id 为 999999 的分类/);
+});
+
+test('空规则（纯手动分类）只圈手动成员，不许圈中整个书库', () => {
+  const a = addBook('甲书');
+  addBook('乙书');
+  addBook('丙书');
+  const { id } = saveShelf(db, '纯手动', {});
+  addShelfBooks(db, id, [a]);
+
+  /*
+   * ⚠️ **这条钉的是一个真出过的 bug，而且是我加界面时才撞出来的。**
+   *
+   * `buildFilter` 起手那两段（`1=1` + 默认挡掉被屏蔽的）是**无条件**加的，
+   * 而 `shelf` 那一支原来拿字面量 `'1=1'` 去认「空规则」——那个比较
+   * **永远不成立**。于是空规则被当成有规则，拼成 `(1=1 and excluded=0 or 成员)`，
+   * 括号里前半截对所有没被屏蔽的书都成立。
+   *
+   * 症状：**一个纯手动分类圈中整个书库**（真实库上 8000 多本），
+   * 界面上只显示「圈中 8000 本」，没有任何地方报错。
+   * 而「空规则 + 手动成员」正是分类编辑器里那句
+   * 「还没挑条件。存下来也行——以后往里手动加书就好」承诺的那一档。
+   *
+   * 两条断言都要：`listBooks` 管书架，`countBooks` 管侧栏那个数——
+   * 它们走的是同一个 `buildFilter`，但**数错了是另一处症状**
+   * （卡片一本没有、侧栏写着 8000）。
+   */
+  assert.deepEqual(
+    titles(listBooks(db, { shelf: { id, rule: {} } })),
+    ['甲书'],
+    '只该有手动加的那一本',
+  );
+  assert.equal(countBooks(db, { shelf: { id, rule: {} } }), 1, '侧栏那个数也要对');
+});
+
+test('判「规则是不是空的」两处必须是同一个判据：{ keyword: "  " } 也是空规则', () => {
+  const a = addBook('甲书');
+  addBook('乙书');
+  /*
+   * ⚠️ **这是 `空规则的SQL` 那个 bug 的双胞胎**，同一轮里翻出来的。
+   *
+   * `buildFilter` 认的是**翻译结果**（`keyword?.trim()` 过不去 → 这条规则翻出来
+   * 就是空规则），而 `shelvesForBook` 原来认的是**形状**
+   * （`Object.keys(filter).length > 0`）。`{ keyword: '  ' }` 键数是 1、
+   * 翻出来是空规则——两个判据就在这儿分叉。
+   *
+   * 症状：这个分类在侧栏里走「纯手动」那一支（只圈手动成员），
+   * 而编辑弹窗给**每一本书**都报 `ruleHit: true`，把那枚 chip 画成
+   * 「规则命中、摘不掉」——于是这本书既不在分类里、又摘不掉，
+   * 用户没有任何办法把它弄出去。
+   *
+   * 这个形状界面暂时造不出来（`CategoryDialog` 空字段一律不写进 filter），
+   * 但 `/api/rpc` 是对外开的（AGENTS.md §13），一条 `shelf.save` 就存进去了。
+   */
+  const { id } = saveShelf(db, '空格关键词', { keyword: '  ' });
+  assert.deepEqual(
+    shelvesForBook(db, a).find((s) => s.id === id),
+    { id, name: '空格关键词', manual: false, ruleHit: false },
+    '规则翻出来是空的，就不许报「规则命中」',
+  );
+  assert.deepEqual(
+    titles(listBooks(db, { shelf: { id, rule: { keyword: '  ' } } })),
+    [],
+    '侧栏那边也不圈任何书——两处说的必须是同一件事',
+  );
+
+  // 手动加进去之后，亮的该是「手动」那一个标，不是「规则」
+  addShelfBooks(db, id, [a]);
+  assert.deepEqual(
+    shelvesForBook(db, a).find((s) => s.id === id),
+    { id, name: '空格关键词', manual: true, ruleHit: false },
+  );
 });
 
 

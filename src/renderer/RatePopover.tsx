@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { 滚动方式 } from './settings.ts';
 import { rpc } from './rpc.ts';
-import type { Tag } from '../core/library.ts';
 import { StarRating } from './StarRating.tsx';
+import { TagPicker } from './TagPicker.tsx';
 
 interface Props {
   bookId: number;
@@ -22,9 +22,6 @@ interface Props {
   onClose: () => void;
 }
 
-/** 最多列几个「用过的标签」。再多一排就放不下，也就失去了「点一下就上」的意义 */
-const QUICK_TAGS = 12;
-
 /**
  * 单本评价（个人评价体系，见 specs/2026-08-14-personal-reviews-design.md）。
  *
@@ -32,6 +29,10 @@ const QUICK_TAGS = 12;
  * 所以它是贴着卡片的小浮层而不是全屏对话框，而且**没有保存按钮**——
  * 星级点了就存、短评失焦或回车就存、标签点了就存。
  * 多一次「还得点保存」，这事就不会真的发生。
+ *
+ * ⚠️ **标签那一段不在这个文件里了**（`TagPicker.tsx`）：编辑弹窗也要
+ * 就地打标签，而两处各写一份必然分叉。这里只剩「宿主」那部分——
+ * 短评、星级，以及给标签区腾出高度的那次重新量尺寸。
  */
 export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChanged, onClose }: Props) {
   const [stars, setStars] = useState<number | null>(rating);
@@ -44,11 +45,6 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
    * 「先点星、再打字、失焦」存进去的是**空串**。受控之后这条路是死的。
    */
   const [text, setText] = useState(comment ?? '');
-  const [mine, setMine] = useState<string[]>(() =>
-    (tags ?? '').split(',').map((t) => t.trim()).filter(Boolean),
-  );
-  const [all, setAll] = useState<Tag[]>([]);
-  const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
 
@@ -74,10 +70,6 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
     if (t !== (c ?? '')) void rpc('reading.setStatus', { bookId, comment: t || null });
   }, [bookId]);
 
-  useEffect(() => {
-    void rpc<Tag[]>('tag.list').then(setAll).catch(() => {});
-  }, []);
-
   /*
    * **开出来就得看得见。** 浮层是 `top: 100%` 挂在卡片下面的，卡片靠近视口下沿时
    * 它整个开在折叠线以下——760×520 上量到顶边 y=551，而视口只有 520 高。
@@ -86,8 +78,14 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
    * 用 `block: 'nearest'` 让浏览器自己算要不要滚、滚多少：够得着就一动不动，
    * 够不着才把它带进来。自己算翻转/夹取是在重写一遍浏览器已经有的东西。
    * 滚动方式走那处统一判断——系统开了「减少动态效果」就直接跳过去。
+   *
+   * ⚠️ **抽成 `量一次` 是为了让标签区能叫得动它。**
+   * 原来这是一个 `useEffect(..., [all])`，靠「用过的标签」那个数组当依赖——
+   * 标签是异步来的、还会随增删变，它们会把浮层撑高，**只在挂载那一刻量
+   * 等于按空浮层做决定**。而标签那一块现在搬进 `TagPicker` 了，宿主手上
+   * 没有那个数组，所以改由它内容一变就报一声（`onGrow`）。
    */
-  useEffect(() => {
+  const 量一次 = useCallback(() => {
     const el = box.current;
     if (!el) return;
     /*
@@ -128,7 +126,10 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
       if (空 > 0) el.style.maxHeight = `min(70vh, ${Math.round(空)}px)`;
     }
     el.scrollIntoView({ block: 'nearest', behavior: 滚动方式() });
-  }, [all]);
+  }, []);
+
+  // 挂载时先量一次（那时浮层里已经有星星和短评框了），之后标签区一变再量
+  useEffect(() => { 量一次(); }, [量一次]);
 
   // 点外面就关掉。**捕获阶段监听**——卡片本身也有点击处理（点封面会开阅读器），
   // 冒泡阶段会先被它吃掉。
@@ -169,47 +170,6 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
     void save(patch);
   };
 
-  const addTag = async (raw: string) => {
-    const name = raw.trim();
-    if (!name || mine.includes(name)) { setDraft(''); return; }
-    setMine((m) => [...m, name]);
-    setDraft('');
-    try {
-      await rpc('tag.add', { bookIds: [bookId], names: [name] });
-      setAll(await rpc<Tag[]>('tag.list'));
-      onChanged({ tags: [...mine, name].join(',') });
-    } catch (e) {
-      setMine((m) => m.filter((x) => x !== name)); // 失败就退回去，别让界面撒谎
-      setError((e as Error).message);
-    }
-  };
-
-  const dropTag = async (name: string) => {
-    const t = all.find((x) => x.name === name);
-    setMine((m) => m.filter((x) => x !== name));
-    if (!t) return;
-    try {
-      await rpc('tag.remove', { bookIds: [bookId], tagId: t.id });
-      onChanged({ tags: mine.filter((x) => x !== name).join(',') });
-    } catch (e) {
-      setMine((m) => [...m, name]);
-      setError((e as Error).message);
-    }
-  };
-
-  /** 用过的标签里，这本还没打上的那些。打过的已经在上面显示成可点掉的小块了 */
-  const quick = useMemo(
-    () => all.filter((t) => !mine.includes(t.name)).slice(0, QUICK_TAGS),
-    [all, mine],
-  );
-  /** 边打边补全。空输入时不显示——那时候上面那排「用过的」本来就在 */
-  const matches = useMemo(() => {
-    const q = draft.trim();
-    if (!q) return [];
-    return all.filter((t) => !mine.includes(t.name) && t.name.includes(q)).slice(0, 8);
-  }, [all, mine, draft]);
-
-
   return (
     <div className="rate-pop" ref={box} onClick={(e) => e.stopPropagation()}>
       <div className="rate-title" title={bookTitle}>{bookTitle}</div>
@@ -225,34 +185,16 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
       />
 
-      {mine.length > 0 && (
-        <div className="rate-tags">
-          {mine.map((t) => (
-            <button key={t} className="chip on" onClick={() => void dropTag(t)} title="点掉">
-              {t} ×
-            </button>
-          ))}
-        </div>
-      )}
-
-      <input
-        className="rate-tag-input"
-        value={draft}
-        placeholder="加标签，回车新建"
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') void addTag(draft); }}
+      {/* 打标签 / 摘标签和编辑弹窗里是**同一份**（`TagPicker.tsx`）。
+          两个界面各写一份的话，「失败就退回去」「点掉要拿 tagId」这些判据
+          迟早分叉——同 `NoteCard` / `ReaderChrome` 那两次的理由。 */}
+      <TagPicker
+        bookId={bookId}
+        tags={tags}
+        onChange={(t) => onChanged({ tags: t })}
+        onError={setError}
+        onGrow={量一次}
       />
-
-      {(matches.length > 0 ? matches : quick).length > 0 && (
-        <div className="rate-tags">
-          {(matches.length > 0 ? matches : quick).map((t) => (
-            <button key={t.id} className="chip" onClick={() => void addTag(t.name)}>
-              {t.name}
-              <span className="muted"> {t.count}</span>
-            </button>
-          ))}
-        </div>
-      )}
 
       {error && <p className="danger" style={{ margin: '.4rem 0 0', fontSize: '.82rem' }}>{error}</p>}
     </div>

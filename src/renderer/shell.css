@@ -1413,6 +1413,25 @@
   border-color: var(--accent);
   opacity: 1;
 }
+/*
+ * **禁用的 chip 不能长得像个能点的。**
+ *
+ * 归类那一排里，「规则命中」的分类是不可点的——它的成员资格来自规则现算，
+ * 摘掉手动那一笔它还在里面。光写 `disabled` 不够：`.chip` 自己定了
+ * `cursor: pointer`，而 `.chip:hover` 对**禁用按钮照常命中**（浏览器不会替我们
+ * 跳过），于是悬停时边框还是会亮起来——正好是最容易让人误以为能点的那种反馈。
+ *
+ * ⚠️ **不用 `opacity` 压暗**：`.chip[aria-pressed='true']` 那对配色是按
+ * accent/panel = 4.53 卡的（`app-palette.test.ts` 钉着），压一层透明度就掉到
+ * AA 以下，而那正是这个仓库最在意的一条。区分靠 chip 里那个「规则」小字。
+ * 这一排里禁用的一定是选中态，所以悬停时保持选中态那条边框即可。
+ */
+.chip:disabled {
+  cursor: default;
+}
+.chip:disabled:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--panel));
+}
 
 .chip-n {
   font-size: 0.72rem;

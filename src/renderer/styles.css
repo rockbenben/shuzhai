@@ -587,11 +587,18 @@ tbody tr:hover {
   font-size: 0.78rem;
 }
 .rate-comment,
-.rate-tag-input {
+.tag-picker-input {
   width: 100%;
   margin-bottom: 0.4rem;
 }
-.rate-tags {
+/*
+ * 一排可换行的 chip。**名字原来是 `.rate-tags`，中间改过一次叫 `.tag-picker`，
+ * 两次都是名字跟不上用途：**它早就不只属于评价浮层（`BatchTagDialog` 一直在用），
+ * 后来又多了编辑弹窗的「归类」那一排分类 chip——那时候叫 `.tag-picker` 就成了
+ * 一句假话，下一个要用它的人得先怀疑一遍「我是不是不该在这儿用它」。
+ * 它管的就是「一排会换行的 chip」，叫这个。
+ */
+.chip-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem;

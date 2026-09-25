@@ -1,5 +1,6 @@
 import type { Book } from './App.tsx';
 import { RatePopover } from './RatePopover.tsx';
+import { 拆标签 } from './TagPicker.tsx';
 import { whenAgo, wan, displayChapters } from '../core/format.ts';
 import { labelOf, READING_STATUS } from '../core/labels.ts';
 import type { SortBy } from '../core/library.ts';
@@ -95,7 +96,7 @@ export function ReviewTable({ books, sort, onSort, onOpen, editing, onEdit, onCh
           {books.map((b) => {
             const 读完 = whenAgo(b.finished_at);
             const 上次 = whenAgo(b.last_read_at);
-            const tags = (b.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+            const tags = 拆标签(b.tags);
             // 手填章数盖过自动识别，判据和封面卡同一份（format.ts 的 displayChapters）
             const 章数 = displayChapters(b.chapter_count_override, b.chapter_count);
             return (

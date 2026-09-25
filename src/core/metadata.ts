@@ -267,7 +267,14 @@ export function bookDetail(db: DatabaseSync, id: number): unknown {
     .prepare(
       `select b.*, f.path, f.encoding, f.encoding_locked, f.size, f.word_count, f.chapter_count,
               f.status as file_status, f.parsed_at,
-              r.status as reading_status, r.percent, r.rating, r.comment, r.drop_reason
+              r.status as reading_status, r.percent, r.rating, r.comment, r.drop_reason,
+              -- 标签。编辑弹窗要就地打标签，而在这之前标签只有一个入口：
+              -- 卡片上那个评价浮层（RatePopover）。于是「我要编辑这本书」
+              -- 点进来是找不到标签的。取法和 book.list 那份逐字相同——
+              -- group_concat 出来就是逗号分隔，两个界面读的是同一种形状。
+              -- ⚠️ 这几行在模板字符串里，**别写反引号**，会当场把 SQL 截断
+              (select group_concat(t.name, ',') from book_tag bt
+                 join tag t on t.id = bt.tag_id where bt.book_id = b.id) as tags
          from book b
          left join book_file f on f.book_id = b.id and f.is_primary = 1
          left join reading_state r on r.book_id = b.id

@@ -41,6 +41,9 @@ import {
   saveShelf,
   listShelves,
   removeShelf,
+  shelvesForBook,
+  addShelfBooks,
+  removeShelfBooks,
   type Filter,
   formatCounts,
   finishedYears,
@@ -1356,6 +1359,47 @@ export function createRpc(
     'shelf.remove': (params) => {
       removeShelf(db, num(params, 'id'));
       return { ok: true };
+    },
+
+    /*
+     * ── 分类的手动成员（`shelf_member`，迁移 27）─────────────────────
+     *
+     * ⚠️ **这三个是补上的界面入口，数据层从迁移 27 起就在了。**
+     * 那条 commit（e8b045f）的说明最后一句写着「此提交只有数据层和测试，
+     * 界面入口后续补上」——而 `shelvesForBook` 的注释更直白，写着
+     * 「**编辑一本书时要列出的全部分类**」。所以不是新做功能，是把已经
+     * 写好的那一半接上：全仓库 grep 过，`addShelfBooks` / `removeShelfBooks` /
+     * `shelvesForBook` 当时只出现在自己的定义处，一处都没被调用。
+     */
+
+    /**
+     * 只读。**编辑一本书时要列出的全部分类**，每个标出「手动加入 / 规则命中」。
+     *
+     * 两个布尔都要给：分类的成员＝规则命中 ∪ 手动加入，界面上得把这两条路
+     * 分开画——**规则命中的那个勾摘不掉**，摘了下次算规则它还在，
+     * 摆一个点了没反应的勾比不摆更糟。
+     */
+    'shelf.forBook': (params) => shelvesForBook(db, num(params, 'bookId')),
+
+    /** **写库**：把一批书手动加进一个分类。已经在的跳过，返回实际新增条数 */
+    'shelf.addBooks': (params) => {
+      // 先取 bookIds 再取 shelfId——同 `tag.remove`：数组那个参数是外部调用方
+      // 最容易漏的（`rpc.test.ts` 有一张表逐个方法验它的报错），
+      // 校验顺序不一致的话那张表就得为每个方法单开一条
+      const bookIds = nums(params, 'bookIds');
+      return { added: addShelfBooks(db, num(params, 'shelfId'), bookIds) };
+    },
+
+    /**
+     * **写库**：从手动成员里摘掉一批书。返回实际摘掉条数。
+     *
+     * ⚠️ **规则本来就命中的书摘不掉**——这里只管手动那一半，
+     * 规则那半永远是 `buildFilter` 现算的（`library.test.ts` 钉着「不存快照」）。
+     * 摘完那本书可能还在这个分类里，界面按 `shelf.forBook` 重画一次就知道。
+     */
+    'shelf.removeBooks': (params) => {
+      const bookIds = nums(params, 'bookIds');
+      return { removed: removeShelfBooks(db, num(params, 'shelfId'), bookIds) };
     },
 
     // ── 阅读状态 / 书签 / 会话（spec §5）───────────────────────────

@@ -4,9 +4,13 @@ import { formatOf } from '../core/book-format.ts';
 import { SERIAL_STATUS, READING_STATUS, FILE_STATUS, labelOf, SITE_LABELS } from '../core/labels.ts';
 // 只引类型：cover-source 运行时带着 node:sqlite，渲染包不能碰
 import type { FetchOneResult } from '../core/cover-source.ts';
+// 同上，只引类型。`BookShelfMembership` 是 core 给「编辑一本书时要列出的
+// 全部分类」定的形状（`shelvesForBook`），别在这儿手抄一份——加字段会漏改
+import type { BookShelfMembership } from '../core/library.ts';
 import { rpc } from './rpc.ts';
 import { StarRating } from './StarRating.tsx';
 import { Cover } from './Cover.tsx';
+import { TagPicker } from './TagPicker.tsx';
 
 export interface Detail {
   id: number;
@@ -20,6 +24,8 @@ export interface Detail {
   primary_url: string | null;
   primary_site: string | null;
   note: string | null;
+  /** 逗号分隔。`bookDetail` 从 `book_tag` 带出来的，形状和 `book.list` 那份一样 */
+  tags: string | null;
   path: string | null;
   encoding: string | null;
   /** 这个编码是用户自己指定的（`book_file.encoding_locked`），扫描时别再探测 */
@@ -75,9 +81,17 @@ interface Props {
   onChapters: (bookTitle: string) => void;
   onRename: () => void;
   onExport: (bookTitle: string) => void;
+  /**
+   * 分类那排动了（在这儿就地新建了一个）——侧栏的分类页签和计数要跟着刷新。
+   *
+   * 侧栏是**另一个组件**，这个弹窗够不着它那份 `cats`。不报这一声的话，
+   * 刚建的分类要等下一次 `loadCounts`（关掉弹窗、改筛选、重扫）才出现，
+   * 而用户此刻正站在「我刚建的那个分类」旁边，看不见它。
+   */
+  onCatsChanged: () => void;
 }
 
-export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onExport }: Props) {
+export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onExport, onCatsChanged }: Props) {
   const [d, setD] = useState<Detail | null>(null);
   const [form, setForm] = useState<Partial<Detail>>({});
   const [busy, setBusy] = useState(false);
@@ -102,6 +116,17 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
    * null = 详情还没到；'' = 用户清空了（回到自动）
    */
   const [overrideText, setOverrideText] = useState<string | null>(null);
+  /**
+   * 这本书在**每个分类**里的归属（`shelf.forBook`）。null = 还没取回来。
+   *
+   * 一次全取回来，不在前端自己算规则：分类的成员＝规则命中 ∪ 手动加入，
+   * 而规则那一半是 `buildFilter` 在主进程里现算的（`library.test.ts` 钉着
+   * 「不存快照」）。前端自己判一遍就是第二份判据，两边迟早对不上。
+   * 分类数很少（用户自建），逐个跑一次规则判定是 `shelvesForBook` 干的事。
+   */
+  const [shelves, setShelves] = useState<BookShelfMembership[] | null>(null);
+  /** 「＋ 新建分类」那个小表单开着时的名字。null = 没开 */
+  const [newCat, setNewCat] = useState<string | null>(null);
 
   useEffect(() => {
     rpc<Detail>('book.detail', { bookId })
@@ -111,9 +136,68 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
         setOverrideText(x.chapter_count_override != null ? String(x.chapter_count_override) : '');
       })
       .catch((e: Error) => setError(e.message));
+    // 换了一本书就重取分类；同一个弹窗里改完由各个操作自己重取（见 `归类`）
+    rpc<BookShelfMembership[]>('shelf.forBook', { bookId })
+      .then(setShelves)
+      .catch((e: Error) => setError(e.message));
   }, [bookId]);
 
   const set = (k: keyof Detail, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  /** 重取这本书的分类归属。勾完一个分类之后要重画——规则命中的那些摘不掉，
+   *  只有重算一遍才知道「现在这个勾还在不在」 */
+  const 重取分类 = async () => setShelves(await rpc<BookShelfMembership[]>('shelf.forBook', { bookId }));
+
+  /**
+   * 勾上 / 摘掉一个分类（只动**手动**那一半）。
+   *
+   * ⚠️ **规则命中的分类点了没反应，这是有意的。** 成员＝规则命中 ∪ 手动加入，
+   * 而规则那一半是现算的：摘掉手动那一笔，这本书照样在里面——勾还是亮的。
+   * 「点了没反应」和「本来就该亮着」在屏幕上长得一模一样，所以那种情况
+   * 干脆不给点（`disabled` + 标一个「规则」），而不是让它点了白点。
+   */
+  const 归类 = async (s: BookShelfMembership) => {
+    setError(null);
+    try {
+      if (s.manual) await rpc('shelf.removeBooks', { shelfId: s.id, bookIds: [bookId] });
+      else await rpc('shelf.addBooks', { shelfId: s.id, bookIds: [bookId] });
+      await 重取分类();
+      setChanged(true);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  /**
+   * 就地新建一个分类，并**立刻把这本书归进去**。
+   *
+   * 建的是**空规则**的分类——也就是纯手动分类。core 明确支持这一档
+   * （`Filter.shelf` 那条注释写着「空规则 + 手动成员 = 纯手动分类」），
+   * 而它正是「归类这本书时发现没有想要的分类」最常见的答案：你要的是一个筐，
+   * 不是一条规则。
+   *
+   * ⚠️ **不在这儿复用 `CategoryDialog`**（那个带实时预览的规则编辑器）：
+   * 它是**另一个 `.modal`**，而这个弹窗开着的时候再叠一层，焦点陷阱会认错
+   * 最上面那一层——本文件顶上那条注释记着这个坑（`onLinks` / `onChapters` /
+   * `onRename` / `onExport` 四个入口都因此先关掉自己再开子弹窗）。
+   * 而在这儿关掉自己 = 用户刚打的那些书名简介全丢，代价比省一次点击大得多。
+   * 要按规则自动收书的那种分类，去侧栏的分类编辑器建——那儿有实时预览。
+   */
+  const 建分类 = async () => {
+    const name = (newCat ?? '').trim();
+    if (!name) return;
+    setError(null);
+    try {
+      const { id } = await rpc<{ id: number }>('shelf.save', { name, filter: {} });
+      await rpc('shelf.addBooks', { shelfId: id, bookIds: [bookId] });
+      await 重取分类();
+      setNewCat(null);
+      setChanged(true);
+      onCatsChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   /*
    * **短评和弃坑原因：收摊之前把没存的存了。**
@@ -632,6 +716,113 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             }}
             style={{ width: '100%', marginTop: '.4rem' }}
           />
+        </div>
+
+        {/*
+          * ── 标签 ────────────────────────────────────────────
+          *
+          * 这一块原来**只有一个入口**：卡片上那个评价浮层（`RatePopover`）。
+          * 于是「编辑这本书」点进来找不到标签——而标签和书名作者一样，
+          * 是这本书自己的属性，不在详情页里说不过去。
+          *
+          * 打 / 摘的判据（乐观更新、失败回滚、点掉要拿 `tagId`）和浮层里
+          * 是**同一份**，在 `TagPicker.tsx`；这儿只给它一个位置。
+          */}
+        <div className="card" style={{ marginBottom: '.6rem' }}>
+          <div className="muted" style={{ fontSize: '.85rem' }}>标签</div>
+          <p className="muted" style={{ fontSize: '.8rem', margin: '.15rem 0 .4rem' }}>
+            点下面「用过的」直接打上，或者在框里打字回车新建。改了就生效，不跟着「保存」走。
+          </p>
+          <TagPicker
+            bookId={bookId}
+            tags={d.tags ?? null}
+            /*
+             * 值这一块自己存着（`TagPicker` 里那份 `mine`），所以这儿不接新值——
+             * 接了也没有第二个读者。但**要报一声 `changed`**：关掉弹窗时书架
+             * 得重取一次，否则侧栏那排标签开关上的数字还是旧的。
+             */
+            onChange={() => setChanged(true)}
+            onError={setError}
+          />
+        </div>
+
+        {/*
+          * ── 归类 ────────────────────────────────────────────
+          *
+          * 数据层从迁移 27 就在（`shelf_member`：一个分类的成员＝规则命中 ∪
+          * 手动加入），而**界面入口一直没补**——那条 commit 的说明最后一句是
+          * 「此提交只有数据层和测试，界面入口后续补上」，而 `shelvesForBook`
+          * 的注释更直白，写着「编辑一本书时要列出的全部分类」。
+          * 这一块就是补上的那另一半。
+          */}
+        <div className="card" style={{ marginBottom: '.6rem' }}>
+          <div className="row" style={{ alignItems: 'baseline' }}>
+            <span className="muted" style={{ fontSize: '.85rem' }}>归类</span>
+            <button
+              type="button"
+              className="mini"
+              onClick={() => setNewCat(newCat === null ? '' : null)}
+              title="建一个纯手动分类，建完直接把这本书放进去"
+            >
+              ＋ 新建分类
+            </button>
+          </div>
+          <p className="muted" style={{ fontSize: '.8rem', margin: '.15rem 0 .4rem' }}>
+            分类平时是一条规则，符合的书自己就进去；这里勾的是额外把它放进去。
+            标着「规则」的那些本来就命中，摘不掉——要去掉得改那条规则。
+          </p>
+
+          {shelves === null ? (
+            <span className="muted" style={{ fontSize: '.82rem' }}>正在读取…</span>
+          ) : shelves.length === 0 ? (
+            <span className="muted" style={{ fontSize: '.82rem' }}>
+              还没有分类。点上面的「＋ 新建分类」建一个；要建按规则自动收书的那种，
+              去侧栏的「＋ 新建分类」，那儿能一边改规则一边看圈中了谁。
+            </span>
+          ) : (
+            <div className="chip-row">
+              {shelves.map((s) => (
+                <button
+                  key={s.id}
+                  className="chip"
+                  aria-pressed={s.manual || s.ruleHit}
+                  /* 规则命中的不可点，理由见 `归类` 那段注释 */
+                  disabled={s.ruleHit}
+                  onClick={() => void 归类(s)}
+                  title={
+                    s.ruleHit
+                      ? '这条分类的规则本来就命中它——摘不掉，要去掉得改那条规则'
+                      : s.manual ? '点一下从这条分类里摘掉' : '点一下加进这条分类'
+                  }
+                >
+                  {s.name}
+                  {s.ruleHit && <span className="chip-n">规则</span>}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {newCat !== null && (
+            <div className="row" style={{ marginTop: '.5rem', gap: '.4rem', flexWrap: 'wrap' }}>
+              <input
+                autoFocus
+                value={newCat}
+                placeholder="新分类的名字"
+                onChange={(e) => setNewCat(e.target.value)}
+                onKeyDown={(e) => {
+                  // 回车就建。**Esc 在这儿只收起这个小表单**，别让它冒到遮罩上
+                  // ——遮罩那条管的是「关整个弹窗」，而用户此刻想关的是这一行
+                  if (e.key === 'Enter') void 建分类();
+                  if (e.key === 'Escape') { e.stopPropagation(); setNewCat(null); }
+                }}
+                style={{ flex: 1, minWidth: '8rem' }}
+              />
+              <button className="primary" disabled={!newCat.trim()} onClick={() => void 建分类()}>
+                建好并归类
+              </button>
+              <button onClick={() => setNewCat(null)}>取消</button>
+            </div>
+          )}
         </div>
 
         {/* **没文件（手工添的、或清理后只剩记录的书）就没有这张卡**——编码、章数、

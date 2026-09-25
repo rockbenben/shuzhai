@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import type { Book } from './App.tsx';
 import { RatePopover } from './RatePopover.tsx';
+import { 拆标签 } from './TagPicker.tsx';
 import { sqlTime, whenAgo } from '../core/format.ts';
 
 /**
@@ -61,7 +62,7 @@ export function ReviewShelf({ books, byRatedTime, onOpen, editing, onEdit, onCha
         const 换栏 = 栏 !== null && 栏 !== 上一栏;
         if (栏 !== null) 上一栏 = 栏;
         const 时 = whenAgo(b.rated_at);
-        const tags = (b.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+        const tags = 拆标签(b.tags);
         return (
           <Fragment key={b.id}>
             {换栏 && <h2 className="rv-era">{栏}</h2>}

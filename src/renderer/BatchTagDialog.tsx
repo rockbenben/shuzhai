@@ -138,7 +138,7 @@ export function BatchTagDialog({ filter, initialNames, onClose }: Props) {
         ) : (
           <>
             {names.length > 0 && (
-              <div className="rate-tags">
+              <div className="chip-row">
                 {names.map((n) => (
                   <button key={n} className="chip on" onClick={() => setNames((x) => x.filter((y) => y !== n))}>
                     {n} ×
@@ -156,7 +156,7 @@ export function BatchTagDialog({ filter, initialNames, onClose }: Props) {
             />
 
             {matches.length > 0 && (
-              <div className="rate-tags">
+              <div className="chip-row">
                 {matches.map((t) => (
                   <button key={t.id} className="chip" onClick={() => add(t.name)}>
                     {t.name}

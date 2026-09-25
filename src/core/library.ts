@@ -719,15 +719,22 @@ export function buildFilter(f: Filter): { sql: string; params: Array<string | nu
   }
 
   // 智能书架 = 规则命中 ∪ 手动成员。规则的解释递归走自己这一份（同口径），
-  // 空规则（sql 就一个起手的 1=1）时只剩手动成员那一档
+  // 空规则（纯手动分类）时只剩手动成员那一档
   if (f.shelf) {
     // 规则里不许再嵌书架——自己嵌自己就是无限递归（规则来自外部 rpc，
     // FILTER_KEYS 只会把 `shelf` 当合法键放进来，得在这儿明挡）
     if (f.shelf.rule.shelf) throw new Error('分类规则里不能再套分类');
-    // 递归走自己：空规则翻译出来就是起手的 '1=1'，那时只剩手动成员那一档
+    /*
+     * 递归走自己：**空规则认的是 `空规则的SQL`，不是字面量 `'1=1'`**。
+     *
+     * ⚠️ 这里原来写的是 `rule.sql === '1=1'`，而 `buildFilter` 起手那两段
+     * 是无条件加的，那个比较**永远不成立**——于是纯手动分类被当成「有规则」，
+     * 拼出 `(1=1 and excluded=0 or 成员)`，前半截对所有书成立，
+     * **一个手动分类圈中整个书库**。整段理由写在 `空规则的SQL` 上。
+     */
     const rule = buildFilter(f.shelf.rule);
     const member = 'b.id in (select sm.book_id from shelf_member sm where sm.shelf_id = ?)';
-    if (rule.sql === '1=1') parts.push(member);
+    if (rule.sql === 空规则的SQL) parts.push(member);
     else parts.push(`(${rule.sql} or ${member})`);
     params.push(...rule.params, f.shelf.id);
   }
@@ -779,6 +786,27 @@ export function buildFilter(f: Filter): { sql: string; params: Array<string | nu
 
   return { sql: parts.join(' and '), params };
 }
+
+/**
+ * **一条空规则翻译出来的 SQL。**
+ *
+ * ⚠️ **认「这条分类是不是纯手动」要用它，不能写字面量 `'1=1'`。**
+ *
+ * `buildFilter` 起手那两段（`1=1`、以及默认把被屏蔽的书挡在外面的
+ * `ifnull(fl.excluded, 0) = 0`）是**无条件**加的，所以空规则实际是
+ * `1=1 and ifnull(fl.excluded, 0) = 0`，永远不等于 `'1=1'`。
+ *
+ * 原来 `shelf` 那一支写的正是 `rule.sql === '1=1'`，于是那一支**从来没走到过**：
+ * 空规则被当成「有规则」，拼出来是 `(1=1 and excluded=0 or 成员)`——
+ * 括号里前半截对所有没被屏蔽的书都成立，**一个纯手动分类会圈中整个书库**
+ * （真实库上就是 8000 多本），而界面上只显示「圈中 8000 本」，
+ * 没有任何地方报错。`library.test.ts` 那条「手动加入分类」当场撞到它。
+ *
+ * 拿这个常量比而不是拿 `Object.keys(rule).length === 0` 比，是因为
+ * `{ keyword: '  ' }` 这种规则翻译出来也是空规则（`keyword?.trim()` 过不去），
+ * 而它的键数不是 0。判据要认的是**翻译结果**，不是形状。
+ */
+const 空规则的SQL = buildFilter({}).sql;
 
 export type SortBy = 'time' | 'lastread' | 'title' | 'words' | 'rated' | 'rating' | 'finished' | 'stale';
 
@@ -1040,8 +1068,20 @@ export function shelvesForBook(db: DatabaseSync, bookId: number): BookShelfMembe
   const manual = new Set(manualShelfIdsForBook(db, bookId));
   return shelves.map((s) => {
     let ruleHit = false;
-    if (Object.keys(s.filter).length > 0) {
-      const { sql, params } = buildFilter(s.filter);
+    /*
+     * 「这条规则是不是空的」**必须和 `buildFilter` 的 `Filter.shelf` 那一支
+     * 用同一个判据**（`空规则的SQL`）。
+     *
+     * 原来这儿写的是 `Object.keys(s.filter).length > 0`，看着等价，其实不是：
+     * `{ keyword: '  ' }` 键数是 1，而 `buildFilter` 里 `keyword?.trim()` 过不去，
+     * 翻译出来正是空规则。于是**同一个分类，两边说法相反**——
+     * 侧栏按它筛时走的是「纯手动」那一支（只圈手动成员），
+     * 而这个函数会给每一本书都报 `ruleHit: true`，编辑弹窗于是把那枚 chip
+     * 画成「规则命中、摘不掉」，而这本书**压根不是被规则圈进来的**。
+     * 判据要认的是翻译结果，不是形状（同 `空规则的SQL` 上面那段）。
+     */
+    const { sql, params } = buildFilter(s.filter);
+    if (sql !== 空规则的SQL) {
       const row = db
         .prepare(`select 1 ${BOOK_JOIN} where ${sql} and b.id = ?`)
         .get(...params, bookId) as { 1: number } | undefined;
