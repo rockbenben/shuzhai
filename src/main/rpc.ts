@@ -1057,9 +1057,14 @@ export function createRpc(
     /**
      * **写库**：把一个书库文件夹的登记移掉。书和阅读进度都留着（`root_id` 置空）。
      *
-     * **但那些记录从此谁也管不到**：扫描遍历不到它们，连「文件缺失」都标不上，
-     * 于是它们在书架上装作一切正常，点开才报 ENOENT
-     * （本文件「`root.remove` 会留下谁也管不到的孤儿记录」那节记的就是这个）。
+     * 移完之后那批书**立刻从书架上消失**：`root_id` 一置空，`excluded` 位就跟着翻
+     * （见 `ignore.ts` 的 `applyIgnoreToLibrary`，`root_id IS NULL` 那一支）。
+     * 藏起来不是删掉——书和阅读进度都在，「已屏蔽」那一档找得回来，
+     * 把文件夹加回来重新扫描就原样回来（`runScan` 末尾会重算那一位）。
+     *
+     * **但记录本身从此谁也管不到**：扫描只在根下面走（`scan.ts` 那条
+     * `where root_id = ?`），遍历不到它们，连「文件缺失」都标不上——文件真没了
+     * 也只有 `library.repair` 能清掉（它专有一条 rootless 分支）。
      * 这个库里那个文件夹装着 8172 本——一次误点就是整个书库进入这种状态。
      *
      * 所以：**这个文件夹底下还有书的时候，必须显式确认过**。
@@ -1072,15 +1077,19 @@ export function createRpc(
       const n = (db.prepare('select count(*) n from book_file where root_id = ?').get(id) as { n: number }).n;
       if (n > 0 && confirmed !== true) {
         throw new Error(
-          `这个文件夹底下有 ${n} 个文件。移掉登记之后它们谁也管不到——`
-          + '扫描遍历不到，文件没了也标不上，点开才报错。'
-          + '（书和阅读进度都还在，把文件夹加回来重新扫描就能认领回去。）'
+          `这个文件夹底下有 ${n} 个文件。移掉登记之后它们会从书架上消失`
+          + '（扫描遍历不到，文件没了也标不上，「已屏蔽」那一档还找得回来）。'
+          + '书和阅读进度都还在，把文件夹加回来重新扫描就能认领回去。'
           + '确认要移的话，带上 confirmed: true 再发一次。',
         );
       }
       db.prepare('update book_file set root_id = null where root_id = ?').run(id);
       db.prepare('delete from library_root where id = ?').run(id);
-      return { ok: true, orphaned: n };
+      // 立刻翻 excluded 位，别等下一次扫描才生效。
+      // 扫描只在根下面走，已经没人管的记录它碰不到——不在这儿算的话
+      // 这批书会在书架上多留到下次改屏蔽规则或重新扫描。
+      const applied = applyIgnoreToLibrary(db);
+      return { ok: true, orphaned: n, hidden: applied.excluded };
     },
 
     /**

@@ -169,11 +169,56 @@ test('停用整个目录 = 它下面的书都不显示', () => {
   assert.equal((db.prepare('select count(*) n from book').get() as { n: number }).n, 4, '仍然一本没删');
 });
 
-test('目录登记被移除时不算屏蔽——换个目录管理不该让书全消失', () => {
-  seed();
+test('目录登记被移除后那批书就藏起来，但不删；把文件夹加回来就原样回来', () => {
+  const rootId = seed();
+  db.prepare('update book_file set root_id = null').run();
+  const r = applyIgnoreToLibrary(db);
+
+  assert.equal(r.excluded, 4);
+  assert.equal(listBooks(db).length, 0, '书架上不该再显示');
+  assert.equal(
+    (db.prepare('select count(*) n from book').get() as { n: number }).n,
+    4,
+    '一本都不能删',
+  );
+  assert.equal(
+    (db.prepare('select count(*) n from book_file where excluded = 1').get() as { n: number }).n,
+    4,
+    '是落到 excluded 位上，不是别的状态',
+  );
+  assert.equal(listBooks(db, { excluded: 'only' }).length, 4, '「已屏蔽」那一档还找得回来');
+  assert.equal(listBooks(db, { excluded: 'all' }).length, 4, '全量那档一个不少');
+  assert.equal(
+    (db.prepare('select percent from reading_state where book_id = 2').get() as { percent: number })
+      .percent,
+    42,
+    '进度一个字都不能动',
+  );
+
+  // 把文件夹加回来（root_id 重新认领）+ 重算，书就回来了
+  db.prepare('update book_file set root_id = ?').run(rootId);
+  const back = applyIgnoreToLibrary(db);
+  assert.equal(back.restored, 4);
+  assert.equal(listBooks(db).length, 4, '书一直都在，只是之前不显示');
+});
+
+test('没有文件的手工书不受影响——移出书库文件夹只动有文件的记录', () => {
+  const rootId = seed();
+  // 手工添的「读过但本地没文件」的书：压根没有 book_file 行
+  db.prepare("insert into book(title) values('只留记录的那本')").run();
+  db.prepare("insert into reading_state(book_id, status, percent) values(5, 'finished', 100)").run();
+
   db.prepare('update book_file set root_id = null').run();
   applyIgnoreToLibrary(db);
-  assert.equal(listBooks(db).length, 4);
+
+  assert.equal(listBooks(db).length, 1, '只剩那本手工书');
+  assert.equal(
+    (db.prepare("select count(*) n from book where title = '只留记录的那本'").get() as { n: number }).n,
+    1,
+  );
+  db.prepare('update book_file set root_id = ?').run(rootId);
+  applyIgnoreToLibrary(db);
+  assert.equal(listBooks(db).length, 5, '手工书始终在');
 });
 
 test('侧栏计数把被屏蔽的排除掉，否则数字和列表对不上', () => {

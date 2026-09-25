@@ -27,6 +27,7 @@ import { bundledFonts, listFonts } from '../core/fonts.ts';
 // 「什么时候该发进度」的判据。放 core 是因为**这个文件 import electron，测不了**
 import { makeProgressGate } from '../core/pacing.ts';
 import { closeOpenSessions } from '../core/status.ts';
+import { applyIgnoreToLibrary } from '../core/ignore.ts';
 
 /**
  * **断管道时一句日志都不许崩主进程。** 应用从终端或后台启动器里拉起来、而那个
@@ -233,6 +234,13 @@ app.whenReady().then(async () => {
    * 进度保守地当作没推进——判据和理由在 `core/status.ts` 的 `closeOpenSessions`。
    */
   closeOpenSessions(db, 'crash');
+
+  // `excluded` 是**派生**出来的一位：屏蔽规则 + 目录启停 + 目录登记被移除。
+  // 开机对账一次——判据变了而库里的旧值还留着的话，书架会显示错的。
+  // 最典型的是移掉一个书库文件夹：那批书此刻该从书架上消失，
+  // 而扫描只在根下面走（`scan.ts` 那条 `where root_id = ?`），
+  // 已经没人管的记录它碰不到，等下一次扫描才修就是白等。
+  applyIgnoreToLibrary(db);
 
   /*
    * `book://f/<bookId>` 的处理器。查的是**主文件**，和 `book.list` 的 `path`

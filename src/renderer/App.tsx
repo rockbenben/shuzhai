@@ -630,7 +630,9 @@ export function App() {
         </>
       );
     }
-    if (shelf === 'excluded') return <>没有屏蔽任何书。要屏蔽的话，去左下角「书库文件夹」。</>;
+    if (shelf === 'excluded') return (
+      <>书架上没有藏起来的书。设一条屏蔽规则、或者移掉一个书库文件夹，被藏起来的书会到这里。</>
+    );
     if (shelf === 'updates') return (
       <>
         还没有标「连载中」的书。在书的信息里能改连载状态，
@@ -2009,7 +2011,8 @@ export function App() {
         {shelf === 'excluded' && books.length > 0 && (
           <p className="muted" style={{ fontSize: '.85rem', marginTop: 0 }}>
             这些书<strong>没有被删除</strong>，只是不在书架上显示、扫描时也跳过。
-            把对应的屏蔽规则去掉，它们连同阅读进度会原样回来。
+            来由有两种：被屏蔽规则挡到，或者它所在的书库文件夹被移除了。
+            去掉那条规则、或者把文件夹加回来重新扫描，它们连着阅读进度会原样回来。
           </p>
         )}
 
