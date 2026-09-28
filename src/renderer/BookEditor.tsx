@@ -372,7 +372,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
 
   const field = (label: string, key: keyof Detail, placeholder = '') => (
     <label style={{ display: 'block', marginBottom: '.6rem' }}>
-      <span className="muted" style={{ fontSize: '.85rem' }}>{label}</span>
+      <span className="muted" style={{ fontSize: '0.85rem' }}>{label}</span>
       <input
         value={(form[key] as string) ?? ''}
         onChange={(e) => set(key, e.target.value)}
@@ -395,7 +395,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
       }}
     >
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2 style={{ margin: '0 0 .8rem', fontSize: '1.1rem' }}>编辑《{d.title}》</h2>
+        <h2 style={{ margin: '0 0 0.8rem', fontSize: '1.1rem' }}>编辑《{d.title}》</h2>
 
         <div
           className="row"
@@ -428,8 +428,8 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
         >
           <Cover bookId={bookId} title={d.title} version={coverVer} width={92} />
           <div>
-            <div className="muted" style={{ fontSize: '.85rem' }}>封面</div>
-            <p className="muted" style={{ fontSize: '.8rem', margin: '.2rem 0 .4rem' }}>
+            <div className="muted" style={{ fontSize: '0.85rem' }}>封面</div>
+            <p className="muted" style={{ fontSize: '0.8rem', margin: '0.2rem 0 0.4rem' }}>
               把图片拖到这里，或者点下面的按钮。没有封面时用书名画一件素色书衣顶上。
             </p>
             <div className="row">
@@ -485,7 +485,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
               </button>
             </div>
             {fetchMsg && (
-              <p className="muted" style={{ fontSize: '.8rem', margin: '.35rem 0 0' }}>{fetchMsg}</p>
+              <p className="muted" style={{ fontSize: '0.8rem', margin: '0.35rem 0 0' }}>{fetchMsg}</p>
             )}
           </div>
         </div>
@@ -501,9 +501,9 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
           * 这儿只读显示；没地址时「联网补全」命中也会自动带上。
           */}
         <label style={{ display: 'block', marginBottom: '.6rem' }}>
-          <span className="muted" style={{ fontSize: '.85rem' }}>来源站点</span>
+          <span className="muted" style={{ fontSize: '0.85rem' }}>来源站点</span>
           {d.primary_url ? (
-            <div style={{ marginTop: '.15rem', fontSize: '.82rem', overflowWrap: 'anywhere' }}>
+            <div style={{ marginTop: '.15rem', fontSize: '0.82rem', overflowWrap: 'anywhere' }}>
               <a
                 href={d.primary_url}
                 onClick={(e) => {
@@ -516,7 +516,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
               </a>
             </div>
           ) : (
-            <div className="muted" style={{ marginTop: '.15rem', fontSize: '.82rem' }}>
+            <div className="muted" style={{ marginTop: '.15rem', fontSize: '0.82rem' }}>
               未记录——在下面「在线地址…」里添加，或点「联网补全」命中后自动带上
             </div>
           )}
@@ -524,10 +524,10 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
         {/* 书名从这儿传出去：这个弹窗手里就有 `d.title`，而 App 那头只能去
             当前那一页（最多 120 本）里 find 一遍，翻页之后的书会找不到、
             标题落成空串 */}
-        <p style={{ margin: '-.3rem 0 .7rem' }}>
+        <p style={{ margin: '-.3rem 0 0.7rem' }}>
           <button type="button" className="mini" onClick={() => onLinks(d.title)}>在线地址…</button>
-          <span className="muted" style={{ fontSize: '.8rem' }}>
-            　存多条网址、标主站、探活、粘网址一键补全封面/信息
+          <span className="muted" style={{ fontSize: '0.8rem' }}>
+            　存多条网址、标主站、查打不打得开、粘网址一键补全封面/信息
           </span>
         </p>
 
@@ -547,7 +547,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
           * 改文件名照旧留着——给一个 PDF 改文件名完全成立。
           */}
         {d.path && (
-          <p style={{ margin: '-.3rem 0 .9rem', display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          <p style={{ margin: '-.3rem 0 0.9rem', display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
             {formatOf(d.path) !== 'catalog' && (
               <button type="button" className="mini" title="这本书的章节怎么切——切得不对时可以换一条规则，先试算再决定"
                 onClick={() => onChapters(d.title)}>章节怎么切…</button>
@@ -562,7 +562,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
         )}
 
         <label style={{ display: 'block', marginBottom: '.6rem' }}>
-          <span className="muted" style={{ fontSize: '.85rem' }}>连载状态</span>
+          <span className="muted" style={{ fontSize: '0.85rem' }}>连载状态</span>
           <select
             value={form.serial_status ?? 'unknown'}
             onChange={(e) => set('serial_status', e.target.value)}
@@ -585,7 +585,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
           * 他自己决定要不要清空——别悄悄替他改。
           */}
         <label style={{ display: 'block', marginBottom: '.6rem' }}>
-          <span className="muted" style={{ fontSize: '.85rem' }}>本地章数（切错了手填，留空用自动）</span>
+          <span className="muted" style={{ fontSize: '0.85rem' }}>本地章数（切错了手填，留空用自动）</span>
           <input
             type="number"
             min={1}
@@ -596,14 +596,14 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             style={{ width: '100%', marginTop: '.15rem' }}
           />
           {overrideText && overrideText.trim() && (
-            <span className="muted" style={{ fontSize: '.8rem' }}>
+            <span className="muted" style={{ fontSize: '0.8rem' }}>
               自动识别为 {d.chapter_count ?? 0} 章；手填值只改书架显示，重新解析不会清掉它
             </span>
           )}
         </label>
 
         <label style={{ display: 'block', marginBottom: '.6rem' }}>
-          <span className="muted" style={{ fontSize: '.85rem' }}>简介</span>
+          <span className="muted" style={{ fontSize: '0.85rem' }}>简介</span>
           <textarea
             value={form.intro ?? ''}
             onChange={(e) => set('intro', e.target.value)}
@@ -616,7 +616,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
 
         <div className="card" style={{ marginBottom: '.6rem' }}>
           <div className="row">
-            <span className="muted" style={{ fontSize: '.85rem' }}>阅读状态</span>
+            <span className="muted" style={{ fontSize: '0.85rem' }}>阅读状态</span>
             <select
               value={reading.status}
               onChange={(e) => {
@@ -683,7 +683,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
               * **已有的半星不会被弄丢**：`StarRating` 亮的是向下取整的颗数，
               * 旁边照旧写「4.5 星」，不点就不会写回去。要改刻度改那一个组件。
               */}
-            <span className="muted" style={{ fontSize: '.85rem', marginLeft: '.5rem' }}>评分</span>
+            <span className="muted" style={{ fontSize: '0.85rem', marginLeft: '.5rem' }}>评分</span>
             <StarRating
               value={reading.rating}
               onChange={(n) => {
@@ -695,7 +695,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
               }}
             />
             {d.reread_count > 0 && (
-              <span className="muted" style={{ fontSize: '.82rem' }}>已重读 {d.reread_count} 次</span>
+              <span className="muted" style={{ fontSize: '0.82rem' }}>已重读 {d.reread_count} 次</span>
             )}
           </div>
 
@@ -729,8 +729,8 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
           * 是**同一份**，在 `TagPicker.tsx`；这儿只给它一个位置。
           */}
         <div className="card" style={{ marginBottom: '.6rem' }}>
-          <div className="muted" style={{ fontSize: '.85rem' }}>标签</div>
-          <p className="muted" style={{ fontSize: '.8rem', margin: '.15rem 0 .4rem' }}>
+          <div className="muted" style={{ fontSize: '0.85rem' }}>标签</div>
+          <p className="muted" style={{ fontSize: '0.8rem', margin: '0.15rem 0 0.4rem' }}>
             点下面「用过的」直接打上，或者在框里打字回车新建。改了就生效，不跟着「保存」走。
           </p>
           <TagPicker
@@ -757,7 +757,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
           */}
         <div className="card" style={{ marginBottom: '.6rem' }}>
           <div className="row" style={{ alignItems: 'baseline' }}>
-            <span className="muted" style={{ fontSize: '.85rem' }}>归类</span>
+            <span className="muted" style={{ fontSize: '0.85rem' }}>归类</span>
             <button
               type="button"
               className="mini"
@@ -767,15 +767,15 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
               ＋ 新建分类
             </button>
           </div>
-          <p className="muted" style={{ fontSize: '.8rem', margin: '.15rem 0 .4rem' }}>
+          <p className="muted" style={{ fontSize: '0.8rem', margin: '0.15rem 0 0.4rem' }}>
             分类平时是一条规则，符合的书自己就进去；这里勾的是额外把它放进去。
             标着「规则」的那些本来就命中，摘不掉——要去掉得改那条规则。
           </p>
 
           {shelves === null ? (
-            <span className="muted" style={{ fontSize: '.82rem' }}>正在读取…</span>
+            <span className="muted" style={{ fontSize: '0.82rem' }}>正在读取…</span>
           ) : shelves.length === 0 ? (
-            <span className="muted" style={{ fontSize: '.82rem' }}>
+            <span className="muted" style={{ fontSize: '0.82rem' }}>
               还没有分类。点上面的「＋ 新建分类」建一个；要建按规则自动收书的那种，
               去侧栏的「＋ 新建分类」，那儿能一边改规则一边看圈中了谁。
             </span>
@@ -834,11 +834,11 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
            * 而自己删掉的唯一文件整理数据库也清不掉，它只能挂一辈子「文件不见了」。
            * 两段式确认同 confirmClose：这一下会删记录（你的评价进度都留着，变「只有记录」）。
            */
-          <div className="card" style={{ fontSize: '.85rem', borderColor: 'var(--danger)' }}>
+          <div className="card" style={{ fontSize: '0.85rem', borderColor: 'var(--danger)' }}>
             <div className="danger" style={{ fontWeight: 600 }}>文件已经不在原位置了</div>
             <div className="muted" style={{ overflowWrap: 'anywhere', marginTop: '.2rem' }}>{d.path}</div>
             <div style={{ marginTop: '.4rem' }}>
-              你可能在应用外删了它、或挪走了文件夹。清理会删掉这条失效指针：你写过评价、进度、标签的，
+              你可能在应用外删了它、或挪走了文件夹。清理会删掉这条记录：你写过评价、进度、标签的，
               书留着变成「只有记录」；一样没写过的，连书一起移走。
             </div>
             {confirmCleanup ? (
@@ -853,7 +853,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             )}
           </div>
         ) : d.path ? (
-          <div className="card" style={{ fontSize: '.85rem' }}>
+          <div className="card" style={{ fontSize: '0.85rem' }}>
             <div className="muted" style={{ overflowWrap: 'anywhere' }}>{d.path}</div>
             <div style={{ marginTop: '.3rem' }}>
               {/* **锁住了要显示出来。** 不说的话，「我选的编码怎么又变了」和
@@ -908,7 +908,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
           */}
         {confirmClose && (
           <div className="card" style={{ marginBottom: '.6rem', borderColor: 'var(--danger)' }}>
-            <div style={{ fontSize: '.9rem' }}>
+            <div style={{ fontSize: '0.9rem' }}>
               书名、作者、简介这些改动还没保存，关掉就丢了。要怎么办？
             </div>
             <div className="row" style={{ gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>

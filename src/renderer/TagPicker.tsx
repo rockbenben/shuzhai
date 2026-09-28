@@ -144,7 +144,7 @@ export function TagPicker({ bookId, tags, onChange, onError, onGrow }: Props) {
       {mine.length > 0 && (
         <div className="chip-row">
           {mine.map((t) => (
-            <button key={t} className="chip on" onClick={() => void dropTag(t)} title="点掉">
+            <button key={t} className="chip on" onClick={() => void dropTag(t)} title="摘掉这个标签">
               {t} ×
             </button>
           ))}

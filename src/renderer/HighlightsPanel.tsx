@@ -576,7 +576,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
             </button>
             {改用途 && (
               <div className="card" style={{ marginTop: '.4rem', display: 'grid', gap: '.4rem' }}>
-                <p className="muted" style={{ fontSize: '.78rem', margin: 0 }}>
+                <p className="muted" style={{ fontSize: '0.78rem', margin: 0 }}>
                   写上它代表什么——比如黄＝好句、蓝＝待查、绿＝人物关系。
                   写完之后划线时那排色块、上面的筛选、导出的笔记都用这个名字。留空就还叫原来的。
                 </p>
@@ -628,7 +628,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
             而一本书里的笔记按时间看没有意义（读到哪儿记到哪儿，时间序≈章序） */}
         {tab === 'all' && all.length > 1 && (
           <div className="row" style={{ gap: '.3rem', marginBottom: '.5rem', alignItems: 'center' }}>
-            <span className="muted" style={{ fontSize: '.78rem' }}>归组</span>
+            <span className="muted" style={{ fontSize: '0.78rem' }}>归组</span>
             {(['按书', '按颜色', '按标签', '最近'] as const).map((k) => (
               <button
                 key={k}
@@ -677,7 +677,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                * 那条报警就读数而言是假的（实际合成出来几乎是白的），但**让它变真比让它闭嘴容易**：
                * 用应用真有的实心底色，量到的就是眼睛看到的。
                */
-              padding: '.35rem .5rem', borderRadius: '.4rem',
+              padding: '0.35rem 0.5rem', borderRadius: '.4rem',
               background: 'var(--panel)', border: '1px solid var(--line)',
               /*
                * ⚠️ **加了底色就得把字色一起定。**
@@ -688,7 +688,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
               color: 'var(--fg)',
             }}
           >
-            <span style={{ fontSize: '.8rem', color: 'var(--fg)' }}>已选 {会改的.length} 条</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--fg)' }}>已选 {会改的.length} 条</span>
             <button
               className="mini"
               onClick={() => set选中(new Set(显示的全库.slice(0, 铺).map((n) => n.kind + ':' + String(n.id))))}
@@ -697,7 +697,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
             </button>
             <button className="mini" onClick={() => set选中(new Set())} disabled={选中.size === 0}>清空</button>
             <span style={{ flex: 1 }} />
-            {忙 && <span className="muted" style={{ fontSize: '.78rem' }}>{忙}</span>}
+            {忙 && <span className="muted" style={{ fontSize: '0.78rem' }}>{忙}</span>}
             {/* **改色只对划线成立。** 书签没有颜色这一列，
                 选中里混着书签时把数写出来，别让人以为改了全部 */}
             <button
@@ -725,7 +725,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
         )}
         {tab === 'all' && 批量 && 标签草稿 !== null && (
           <div className="row" style={{ gap: '.3rem', marginBottom: '.5rem', alignItems: 'center' }}>
-            <span className="muted" style={{ fontSize: '.78rem' }}>打上</span>
+            <span className="muted" style={{ fontSize: '0.78rem' }}>打上</span>
             <input
               autoFocus
               value={标签草稿}
@@ -740,7 +740,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
         )}
         {tab === 'all' && 批量 && 批量调色 && (
           <div className="row" style={{ gap: '.3rem', marginBottom: '.5rem', alignItems: 'center' }}>
-            <span className="muted" style={{ fontSize: '.78rem' }}>改成</span>
+            <span className="muted" style={{ fontSize: '0.78rem' }}>改成</span>
             {COLORS.map((c) => (
               <button
                 key={c}
@@ -773,7 +773,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
           if (用过的.length < 2) return null;
           return (
             <div className="row" style={{ gap: '.3rem', marginBottom: '.5rem', alignItems: 'center' }}>
-              <span className="muted" style={{ fontSize: '.78rem' }}>只看</span>
+              <span className="muted" style={{ fontSize: '0.78rem' }}>只看</span>
               <button className="chip" aria-pressed={只看 === null} onClick={() => set只看(null)}>全部</button>
               {/* **筛选按钮上要写颜色的名字，不能只有一个点。** 光四个圆点
                   就是四个没法称呼的按钮，对读屏更是——而这一排恰恰是
@@ -809,7 +809,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
             </p>
           ) : (
             显示的划线.map((r) => (
-              <div key={r.id} className="card" style={{ marginBottom: '.45rem', padding: '.5rem .7rem' }}>
+              <div key={r.id} className="card" style={{ marginBottom: '.45rem', padding: '0.5rem 0.7rem' }}>
                 <div className="row" style={{ alignItems: 'flex-start' }}>
                   {/* **点它就能换颜色。** 这个点原来只是个色标——而颜色是划线唯一的
                       分类手段（黄=好句、蓝=待查……），划的时候点错了就再也改不回来。
@@ -846,7 +846,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                     {editing?.类 === '划线' && editing.id === r.id ? (
                       笔记框('划线', r.id)
                     ) : r.note ? (
-                      <div className="muted" style={{ fontSize: '.8rem', marginTop: '.15rem' }}>{r.note}</div>
+                      <div className="muted" style={{ fontSize: '0.8rem', marginTop: '.15rem' }}>{r.note}</div>
                     ) : null}
                     <div className="muted" style={{ fontSize: '0.75rem', marginTop: '.2rem' }}>
                       {titleOf(r.chapter_idx)}
@@ -875,10 +875,18 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
           )
         ) : tab === 'marks' ? (
           显示的书签.length === 0 ? (
-            <p className="muted">{词 ? '没有匹配的书签。' : '这本书还没有书签。阅读时按 B 加一个。'}</p>
+            /*
+             * 原来写「阅读时按 B 加一个」——两处都不对：
+             * **B 是可以改绑的**（`settings.ts` 的 `DEFAULT_KEYS.bookmark`），
+             * 而**这一档在这里够不着**：这个面板挂在三处（阅读器 / 查看器 / 书架侧栏
+             * 的「我的笔记」），书架上按 B 什么都不发生。
+             * 键名交给界面自己说（阅读器那颗键的 tooltip 用的是 `键('bookmark')`），
+             * 这里只说「在哪儿能加」。
+             */
+            <p className="muted">{词 ? '没有匹配的书签。' : '这本书还没有书签。打开阅读器，右轨那颗「书签」加一个。'}</p>
           ) : (
             显示的书签.map((m) => (
-              <div key={m.id} className="card" style={{ marginBottom: '.45rem', padding: '.5rem .7rem' }}>
+              <div key={m.id} className="card" style={{ marginBottom: '.45rem', padding: '0.5rem 0.7rem' }}>
                 <div className="row" style={{ alignItems: 'flex-start' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '0.85rem' }}>{m.excerpt ?? '（没有摘录）'}</div>
@@ -890,7 +898,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                       * **不猜也不删**，只照实说，并且说清还能干什么。
                       */}
                     {m.intact === false && (
-                      <div className="danger" style={{ fontSize: '.78rem', marginTop: '.15rem' }}>
+                      <div className="danger" style={{ fontSize: '0.78rem', marginTop: '.15rem' }}>
                         正文变过，这条书签对不上原文了——跳过去多半不是原来那个位置。
                         上面这段摘录还是当初存下来的，可以拿它去「书内搜索」。
                       </div>
@@ -901,7 +909,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                     {editing?.类 === '书签' && editing.id === m.id ? (
                       笔记框('书签', m.id)
                     ) : m.note ? (
-                      <div className="muted" style={{ fontSize: '.8rem', marginTop: '.15rem' }}>{m.note}</div>
+                      <div className="muted" style={{ fontSize: '0.8rem', marginTop: '.15rem' }}>{m.note}</div>
                     ) : null}
                     <div className="muted" style={{ fontSize: '0.75rem', marginTop: '.2rem' }}>
                       {titleOf(m.chapter_idx)}
@@ -990,13 +998,13 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                   下标对不上，书名表头会插错地方（同下面那条老注释说的病，
                   当初是拿没过滤的数组比出的错） */}
               {排序 !== '最近' && (i === 0 || 分组名(这一屏[i - 1]) !== 分组名(n)) && (
-                <h3 style={{ fontSize: '.9rem', margin: '.7rem 0 .3rem' }}>
+                <h3 style={{ fontSize: '0.9rem', margin: '0.7rem 0 0.3rem' }}>
                   {分组名(n)}
                   {/* **组里几条要写出来。** 归组的用处就是「蓝的那堆一共几条」，
                       不写数字的话得自己数——而且铺到一半时数不对，所以数的是
                       `显示的全库`（筛过但没截断那份），不是这一屏 */}
                   {' '}
-                  <span className="muted" style={{ fontWeight: 'normal', marginLeft: '.4rem', fontSize: '.8rem' }}>
+                  <span className="muted" style={{ fontWeight: 'normal', marginLeft: '.4rem', fontSize: '0.8rem' }}>
                     {显示的全库.filter((x) => 分组名(x) === 分组名(n)).length} 条
                   </span>
                 </h3>
@@ -1016,7 +1024,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
               <div
                 className="card"
                 style={{
-                  marginBottom: '.4rem', padding: '.45rem .7rem',
+                  marginBottom: '.4rem', padding: '0.45rem 0.7rem',
                   display: 'flex', gap: '.5rem', alignItems: 'flex-start',
                 }}
               >
@@ -1075,15 +1083,15 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                     * 颜色只负责认、不负责「看不看得清」。这一行没有那个控件，
                     * 一个纯展示的色块就只剩填充那一条路，而那条路走不通。
                     */}
-                  <div style={{ fontSize: '.85rem' }}>
+                  <div style={{ fontSize: '0.85rem' }}>
                     {n.kind === 'bookmark' && <span aria-hidden style={{ marginRight: '.3rem' }}>🔖</span>}
                     {n.rect && 框选记号}
-                    <span style={n.color ? { background: 底色(n.color), borderRadius: '2px', padding: '0 .15rem' } : undefined}>
+                    <span style={n.color ? { background: 底色(n.color), borderRadius: '2px', padding: '0 0.15rem' } : undefined}>
                       {n.excerpt?.trim() || (n.kind === 'bookmark' ? '书签' : '')}
                     </span>
                   </div>
                   {!(editing?.类 === (n.kind === 'bookmark' ? '书签' : '划线') && editing.id === n.id) && (
-                    <div className="muted" style={{ fontSize: '.8rem', marginTop: '.15rem' }}>{n.note}</div>
+                    <div className="muted" style={{ fontSize: '0.8rem', marginTop: '.15rem' }}>{n.note}</div>
                   )}
                   {/* **别把 `createdAt` 直接印出来**：它是 sqlite 的 UTC 文本，
                       照搬会比本地时间早八个钟头，看起来像时钟坏了。
@@ -1226,7 +1234,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
             </button>
           )}
           {导出到 && (
-            <span className="muted" style={{ fontSize: '.78rem', marginRight: 'auto' }}>{导出到}</span>
+            <span className="muted" style={{ fontSize: '0.78rem', marginRight: 'auto' }}>{导出到}</span>
           )}
           <button className="primary" onClick={onClose}>关闭</button>
         </div>

@@ -27,7 +27,7 @@ import { SERIAL_STATUS } from '../core/labels.ts';
 import type { RepairReport } from '../core/library.ts';
 import { rpc } from './rpc.ts';
 import { parseMinBytes, MIN_BYTES_KEY, MIN_BYTES_DEFAULT } from '../core/scan.ts';
-import { relTime } from '../core/format.ts';
+import { etaWords, relTime } from '../core/format.ts';
 import { CoverSources } from './CoverSources.tsx';
 import { TtsEngines } from './TtsEngines.tsx';
 import {
@@ -224,7 +224,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <button aria-current={tab === 'library'} onClick={() => setTab('library')}>书库</button>
           </div>
           <span style={{ flex: 1 }} />
-          <span className="muted" style={{ fontSize: '.78rem' }}>改动即时生效</span>
+          <span className="muted" style={{ fontSize: '0.78rem' }}>改动即时生效</span>
         </div>
 
         <div className="settings-body">
@@ -251,7 +251,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   </button>
                 ))}
               </div>
-              <span className="muted" style={{ fontSize: '.78rem' }}>书架、侧栏、对话框</span>
+              <span className="muted" style={{ fontSize: '0.78rem' }}>书架、侧栏、对话框</span>
             </div>
 
             {/* 阅读器里调的东西在这儿只指路、不放控件：在书架上调字号，屏幕上
@@ -306,12 +306,12 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </div>
             {/* 说明压到两行。原来五行——一屏设置里最长的一段，而它讲的是
                 「选哪个字体」这种看一次就够的事 */}
-            <p className="muted" style={{ fontSize: '.78rem', margin: '0 0 .6rem' }}>
+            <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.6rem' }}>
               支持 ttf / otf / woff / woff2，会复制进书斋自己的文件夹，原文件删了也不影响。
               <br />
               长时间读<strong>黑体比楷体稳</strong>：笔画粗细均匀，屏幕上不发虚。
             </p>
-            {fontMsg && <p className="danger" style={{ fontSize: '.8rem', margin: '0 0 .5rem' }}>{fontMsg}</p>}
+            {fontMsg && <p className="danger" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>{fontMsg}</p>}
 
             {/* 朗读引擎。**管理在这儿，挑用在阅读器的设置浮层里**——同字体那一段：
                 「装哪些」看一次就够，「用哪个」要一边听一边换。
@@ -363,12 +363,12 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 </button>
               ))}
             </div>
-            <p className="muted" style={{ fontSize: '.78rem', margin: '0 0 .6rem' }}>
+            <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.6rem' }}>
               能导入 legado「阅读」导出的主题文件——<strong>随应用发布的 10 张里有 6 张就是这么转的</strong>。
               <br />
               导入的纸色和你在阅读器里调过的颜色<strong>都跟着备份走</strong>，换台机器恢复一下就回来。
             </p>
-            {paperMsg && <p className="muted" style={{ fontSize: '.8rem', margin: '0 0 .5rem' }}>{paperMsg}</p>}
+            {paperMsg && <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>{paperMsg}</p>}
 
             <h3>朗读引擎</h3>
             <TtsEngines read={read} applyRead={applyRead} />
@@ -378,8 +378,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <tbody>
                 {(Object.keys(ACTION_NAMES) as Action[]).map((a) => (
                   <tr key={a}>
-                    <td style={{ fontSize: '.85rem' }}>{ACTION_NAMES[a]}</td>
-                    <td style={{ fontSize: '.82rem' }}>
+                    <td style={{ fontSize: '0.85rem' }}>{ACTION_NAMES[a]}</td>
+                    <td style={{ fontSize: '0.82rem' }}>
                       <code>{keys[a].map(keyLabel).join(' / ')}</code>
                     </td>
                     <td style={{ width: '7rem' }}>
@@ -391,6 +391,9 @@ export function Settings({ onClose }: { onClose: () => void }) {
                       </button>
                       <button
                         className="mini"
+                        // 「改」和「还原」原来边贴边（缝 4px、键只有 24px 高），
+                        // 而这两个动作的后果完全相反：一个是开始录键，一个是立刻改掉绑定
+                        style={{ marginLeft: '.35rem' }}
                         onClick={() => {
                           const next = { ...keys, [a]: DEFAULT_KEYS[a] };
                           setKeys(next);
@@ -452,10 +455,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
                     put(MIN_BYTES_KEY, String(字节));
                   }}
                 />
-                <span className="muted" style={{ fontSize: '.82rem' }}>KB 以下不收</span>
+                <span className="muted" style={{ fontSize: '0.82rem' }}>KB 以下不收</span>
               </span>
             </div>
-            <p className="muted" style={{ fontSize: '.8rem', margin: '.1rem 0 .5rem' }}>
+            <p className="muted" style={{ fontSize: '0.8rem', margin: '0.1rem 0 0.5rem' }}>
               小说目录里常有「说明.txt」「广告.txt」这类零碎，默认 10 KB 把它们挡在外面。
               装的是短文合集就调小，<strong>填 0 是全都收</strong>。
               改完要<strong>重新扫描一次</strong>才会把之前跳过的收进来。
@@ -464,6 +467,9 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <div className="field">
               <span className="muted">定期扫描</span>
               <select
+                // 这一排的标题是 `<span className="muted">`，不是 <label>——
+                // 读屏念得出选项，念不出「这是在问什么」。同 `RenameDialog` 那处
+                aria-label="定期扫描怎么排"
                 value={mode}
                 onChange={(e) => {
                   setMode(e.target.value);
@@ -477,6 +483,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 <>
                   <input
                     type="number" min={1} value={hours}
+                    aria-label="每隔多少小时扫一次"
                     onChange={(e) => {
                       setHours(e.target.value);
                       put('scan.intervalHours', e.target.value);
@@ -490,6 +497,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               {mode === 'daily' && (
                 <input
                   type="time" value={time}
+                  aria-label="每天几点扫"
                   onChange={(e) => {
                     setTime(e.target.value);
                     put('scan.dailyTime', e.target.value);
@@ -499,7 +507,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               )}
             </div>
 
-            <label className="row" style={{ gap: '.4rem', fontSize: '.87rem', marginTop: '.5rem' }}>
+            <label className="row" style={{ gap: '.4rem', fontSize: '0.87rem', marginTop: '.5rem' }}>
               <input
                 type="checkbox" checked={watchOn}
                 onChange={(e) => { setWatchOn(e.target.checked); put('scan.watch', e.target.checked ? '1' : '0'); }}
@@ -510,7 +518,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </label>
 
             <h3>评价</h3>
-            <label className="row" style={{ gap: '.4rem', fontSize: '.87rem' }}>
+            <label className="row" style={{ gap: '.4rem', fontSize: '0.87rem' }}>
               <input
                 type="checkbox" checked={showRating}
                 onChange={(e) => { setShowRating(e.target.checked); saveShowRating(e.target.checked); }}
@@ -530,13 +538,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
               * 也顺手收短了：四处枚举读起来像文档。用户在这一刻只需要知道两件事——
               * 星星会不见，分不会丢。后半句是必须的：一个看起来会毁数据的开关，用户不敢点。
               */}
-            <p className="muted" style={{ fontSize: '.8rem', marginTop: '.2rem' }}>
+            <p className="muted" style={{ fontSize: '0.8rem', marginTop: '.2rem' }}>
               关掉后书架上不显示 ★：封面角标、搜索结果里的那一列都会收起来。
               点「评价」时五颗星照旧在，<strong>已经打过的分一个都不会丢</strong>。
             </p>
 
             <h3>改动磁盘文件</h3>
-            <label className="row" style={{ gap: '.4rem', fontSize: '.87rem' }}>
+            <label className="row" style={{ gap: '.4rem', fontSize: '0.87rem' }}>
               <input
                 type="checkbox" checked={renameOn}
                 onChange={(e) => { setRenameOn(e.target.checked); put('rename.enabled', e.target.checked ? '1' : '0'); }}
@@ -546,7 +554,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             {/* 这段必须留全文——它说明的是「程序在什么情况下会动你的磁盘」，
                 是这个应用唯一会造成不可逆后果的地方 */}
             <p className="warn-line">
-              关掉之后两者被<strong>彻底禁用</strong>，不只是界面上藏起来，外部接口调用也会被拒绝。
+              关掉之后两者被<strong>彻底禁用</strong>，不只是界面上看不见，别的程序也调不动它。
               删除<strong>一律移入系统回收站</strong>，而且只删「磁盘上确实还有这本书的另一个文件」的那些。
               除此之外程序不会删除或移动你的任何文件。
             </p>
@@ -554,13 +562,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <CoverSources />
 
             <h3>按文件夹设连载状态</h3>
-            <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 .4rem' }}>
+            <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 0.4rem' }}>
               书库本来就按状态分文件夹放，这里把那个信息接进来：以后扫描到的新书
               自动按这套规则补状态，<strong>但不覆盖你手动改过的书</strong>。
               <br />
               <strong>文件夹名你自己定</strong>——没在下面点过的走「其余文件夹」那一档。
             </p>
-            <label className="row" style={{ gap: '.4rem', fontSize: '.87rem', marginBottom: '.3rem' }}>
+            <label className="row" style={{ gap: '.4rem', fontSize: '0.87rem', marginBottom: '.3rem' }}>
               <span style={{ minWidth: '7rem' }}>其余文件夹</span>
               <select
                 value={serialFallback}
@@ -571,7 +579,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               </select>
             </label>
             {dirs.filter((d) => d.depth === 1).map((d) => (
-              <label key={d.dir} className="row" style={{ gap: '.4rem', fontSize: '.87rem', marginBottom: '.3rem' }}>
+              <label key={d.dir} className="row" style={{ gap: '.4rem', fontSize: '0.87rem', marginBottom: '.3rem' }}>
                 <span style={{ minWidth: '7rem' }}>{d.dir} <span className="muted">{d.total}</span></span>
                 <select
                   value={serialRules.find((r) => r.dir === d.dir)?.status ?? ''}
@@ -617,14 +625,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   确认应用
                 </button>
               )}
-              {serialPreview && <span style={{ color: 'var(--accent)', fontSize: '.85rem' }}>{serialPreview}</span>}
-              {serialMsg && <span style={{ color: 'var(--accent)', fontSize: '.85rem' }}>{serialMsg}</span>}
+              {serialPreview && <span style={{ color: 'var(--accent)', fontSize: '0.85rem' }}>{serialPreview}</span>}
+              {serialMsg && <span style={{ color: 'var(--accent)', fontSize: '0.85rem' }}>{serialMsg}</span>}
             </div>
 
             <h3>整理数据库</h3>
-            <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 .4rem' }}>
+            <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 0.4rem' }}>
               清掉扫描修不好的残留记录（空书、缺主版本、文件其实还在别处的「文件缺失」、
-              移走文件夹后的孤儿），<strong>只动记录，不碰磁盘文件</strong>。
+              移走文件夹后没主的），<strong>只动记录，不碰磁盘文件</strong>。
               你在应用外自己删掉的文件不算残留——去侧栏「需要处理」档
               点「批量清理失效文件」，那种记录这儿清不掉。
             </p>
@@ -640,7 +648,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                     r.orphanBooks && `空书 ${r.orphanBooks}`,
                     r.missingPrimary && `补主版本 ${r.missingPrimary}`,
                     r.staleMissing && `残留的「缺失」记录 ${r.staleMissing}`,
-                    r.rootlessGone && `孤儿记录 ${r.rootlessGone}`,
+                    r.rootlessGone && `没主的书 ${r.rootlessGone} 条`,
                     // **这一项原来漏了。** `RepairReport` 有 5 个字段，这里只列了 4 个，
                     // 于是只修好这一类的那一轮，用户看到的是「没有发现需要整理的记录」
                     // ——一句错话，而它刚改了 N 条
@@ -651,11 +659,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
               >
                 整理一次
               </button>
-              {repairMsg && <span style={{ color: 'var(--accent)', fontSize: '.85rem' }}>{repairMsg}</span>}
+              {repairMsg && <span style={{ color: 'var(--accent)', fontSize: '0.85rem' }}>{repairMsg}</span>}
             </div>
 
             <h3>联网补全</h3>
-            <label className="row" style={{ gap: '.4rem', fontSize: '.87rem' }}>
+            <label className="row" style={{ gap: '.4rem', fontSize: '0.87rem' }}>
               {/* 绑 autofetch（用户那个开关），不是 running：自动暂停让路、队列跑完时
                   running 都会是 false 而开关仍开着，绑它会让勾选框视觉上自己取消 */}
               <input
@@ -667,10 +675,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </label>
             {/* 开关绑的是意图，所以「开着但没在跑」得说出来，不然看着像卡住了 */}
             {cover?.autofetch && !cover.running && !cover.pausedReason && (
-              <p className="muted" style={{ fontSize: '0.82rem', margin: '.2rem 0 0' }}>
+              <p className="muted" style={{ fontSize: '0.82rem', margin: '0.2rem 0 0' }}>
                 {cover.pending === 0
                   ? '开关开着，待补全的都跑完了——之后扫进新书会自动接着抓'
-                  : '开关开着，此刻没有在跑：你在用应用时它会自动让路，切走几秒接着跑'}
+                  : '开关开着，此刻没有在跑：你在用应用时它会自动让路，你离开这个窗口几秒后它接着跑'}
               </p>
             )}
             {/* 隐私这句必须留全文：联网补全会把书名和作者发出去。
@@ -685,16 +693,26 @@ export function Settings({ onClose }: { onClose: () => void }) {
               {/* 这条不是客套：抓一本要在隐藏窗口里真的渲染一遍对面的页面，
                   实测能让书架从 1.9 秒变成 40 秒。让路是自动的，但得让人知道，
                   否则「开着开关却看到剩余数不动」会被当成坏了 */}
-              <strong>你在用应用时它自动停下让路</strong>，切走几秒后接着跑；
+              <strong>你在用应用时它自动停下让路</strong>，你离开这个窗口几秒后它接着跑；
               不让路的话，补全期间整个界面会明显变慢。
             </p>
             {cover && (
-              <p className="muted" style={{ fontSize: '0.82rem', margin: '.2rem 0 .4rem' }}>
+              <p className="muted" style={{ fontSize: '0.82rem', margin: '0.2rem 0 0.4rem' }}>
                 已补全 {cover.done} · 剩余 {cover.pending} · 没找到 {cover.nomatch}
                 {cover.failed > 0 && ` · 失败 ${cover.failed}`}
                 {/* 速率是自适应的（撞限流翻倍、顺利跑一段减半）。不显示的话，
                     回填慢到一分钟一本时用户只会觉得「卡住了」，看不出是在自己让路 */}
                 {cover.gapMs > 3000 && ` · 每本间隔 ${cover.gapMs / 1000} 秒（撞过限流，会自己提回来）`}
+                {/* ETA 和「它跟着应用走」是同一句话，所以放在一处说。
+                    2026-09-26 那轮「剩余数怎么不动」的真相是应用那 7 天根本没开，
+                    可屏幕上没有一句读得出来这件事：间隔是内部退避值，人换算不出
+                    「6035 本 × 60 秒」是几天，于是只剩「坏了」那一种读法。 */}
+                {(() => {
+                  const eta = etaWords(cover.pending, cover.gapMs);
+                  return eta
+                    ? ` · ${eta}（按应用开着的时间算——它跟着应用走：关着不跑，开着从上次接着）`
+                    : null;
+                })()}
                 {/* 原因说的是「上次为什么停」，必须带上时间和「会自动重试」，
                     不然限流早解除了，这句话还挂着像在报现在的故障 */}
                 {cover.pausedReason && (
@@ -737,8 +755,19 @@ export function Settings({ onClose }: { onClose: () => void }) {
             >
               {checking ? '正在检查…' : '检查三个源'}
             </button>
+            {/* 这个按钮的真实收益得写在它旁边，不然「重试 830 本」读起来像有救。
+                实测在案：`cover-source.ts` 的 `resetMisses` 上面记着「随机抽 10 本重试，
+                命中 **0/10**」，而那次点下去要发 167 个请求、其中 136 个注定白打。
+                nomatch 是问过了、站上没有同一本；failed（没问出来）才真该重试，
+                那个由 `cover-fetcher.ts` 的 `start()` 自动清回队列，不用人点。 */}
+            {cover && cover.nomatch > 0 && (
+              <p className="muted" style={{ fontSize: '0.82rem', margin: '0.2rem 0 0' }}>
+                「没找到」多半是站上真没有同一本：抽过 10 本重试，命中 0 本。
+                所以这个键多半白按，别指望捞回多少。
+              </p>
+            )}
             {srcCheck && (
-              <p className="muted" style={{ fontSize: '0.82rem', margin: '.4rem 0 0' }}>
+              <p className="muted" style={{ fontSize: '0.82rem', margin: '0.4rem 0 0' }}>
                 {srcCheck.map((s) => (
                   <span key={s.label} style={{ marginRight: '.8rem' }} title={s.note}>
                     {s.ok ? '✓' : '✗'} {s.label}

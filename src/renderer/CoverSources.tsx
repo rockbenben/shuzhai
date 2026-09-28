@@ -42,11 +42,11 @@ export function CoverSources() {
 
   const field = (s: CustomSource, k: keyof CustomSource, label: string, hint: string) => (
     <label className="row" style={{ gap: '.4rem', marginBottom: '.35rem', alignItems: 'baseline' }}>
-      <span className="muted" style={{ minWidth: '5rem', fontSize: '.82rem' }} title={hint}>{label}</span>
+      <span className="muted" style={{ minWidth: '5rem', fontSize: '0.82rem' }} title={hint}>{label}</span>
       <input
         value={String(s[k] ?? '')}
         onChange={(e) => patch(s.id, { [k]: e.target.value } as Partial<CustomSource>)}
-        style={{ flex: 1, fontFamily: 'ui-monospace, monospace', fontSize: '.8rem' }}
+        style={{ flex: 1, fontFamily: 'ui-monospace, monospace', fontSize: '0.8rem' }}
       />
     </label>
   );
@@ -54,7 +54,7 @@ export function CoverSources() {
   return (
     <>
       <h3>自定义书源</h3>
-      <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 .5rem' }}>
+      <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 0.5rem' }}>
         内置 8 个站点都不用在这里配——起点、书旗、豆瓣能按书名搜（搜索链就是这三个）；
         纵横、番茄、独阅读、晋江、飞卢不进搜索链，但在「在线地址」那栏粘它们的详情页链接
         照样认得出。这里加的源在<strong>起点、书旗都没找到时</strong>才轮到，最后才是豆瓣兜底。
@@ -64,17 +64,21 @@ export function CoverSources() {
       </p>
 
       {list.map((s) => (
-        <div key={s.id} className="card" style={{ marginBottom: '.5rem', padding: '.6rem .8rem' }}>
+        <div key={s.id} className="card" style={{ marginBottom: '.5rem', padding: '0.6rem 0.8rem' }}>
           <div className="row" style={{ gap: '.5rem' }}>
             <label className="row" style={{ gap: '.3rem' }}>
               <input
                 type="checkbox"
                 checked={s.enabled}
                 onChange={(e) => patch(s.id, { enabled: e.target.checked })}
+                // 这一整排只有一个 <label> 包着两个控件，而 label 里没有文字——
+                // 读屏念出来是「复选框、编辑框」，不知道是哪一个源的开关
+                aria-label={`启用「${s.name || '这个源'}」`}
               />
               <input
                 value={s.name}
                 onChange={(e) => patch(s.id, { name: e.target.value })}
+                placeholder="源的名字"
                 style={{ width: '8rem' }}
               />
             </label>
@@ -101,16 +105,16 @@ export function CoverSources() {
 
           {open === s.id && (
             <div style={{ marginTop: '.5rem' }}>
-              {field(s, 'searchUrl', '搜索地址', '{q} 会被换成书名（已 URI 编码）')}
+              {field(s, 'searchUrl', '搜索地址', '{q} 会被换成书名，中文不用你管编码')}
               <label className="row" style={{ gap: '.4rem', marginBottom: '.35rem' }}>
-                <span className="muted" style={{ minWidth: '5rem', fontSize: '.82rem' }}>浏览器渲染</span>
+                <span className="muted" style={{ minWidth: '5rem', fontSize: '0.82rem' }}>浏览器渲染</span>
                 <input
                   type="checkbox"
                   checked={s.needsBrowser}
                   onChange={(e) => patch(s.id, { needsBrowser: e.target.checked })}
                 />
-                <span className="muted" style={{ fontSize: '.78rem' }}>
-                  站点是 SPA（普通请求拿到空壳）才勾。勾了会慢一个数量级
+                <span className="muted" style={{ fontSize: '0.78rem' }}>
+                  只有那种「页面要用浏览器画得出来」的站才勾。勾了会慢很多
                 </span>
               </label>
               {field(s, 'blockRe', '结果块', '每条搜索结果的整块。不圈块的话书名和作者会各找各的，对不上号')}
@@ -122,7 +126,7 @@ export function CoverSources() {
           )}
 
           {result[s.id] && (
-            <p className="muted" style={{ fontSize: '.8rem', margin: '.4rem 0 0' }}>
+            <p className="muted" style={{ fontSize: '0.8rem', margin: '0.4rem 0 0' }}>
               {result[s.id].ok
                 ? `抽到 ${result[s.id].found} 条：` + result[s.id].candidates
                   .map((c) => `《${c.title}》${c.author ?? '（没抽到作者）'}`).join('、')

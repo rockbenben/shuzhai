@@ -564,7 +564,10 @@ tbody tr:hover {
 .rate-stars {
   display: flex;
   align-items: center;
-  gap: 0.1rem;
+  /* 原来 0.1rem（1.6px）。下面那句「点错一颗就是打错一分」是这里写着的判据，
+     而**一直没人为它做点什么**：星是 24x24、缝 2px。提到 0.3rem，
+     五颗星仍然读作一组——那一组的边界由这个容器画，不靠把它们焊死 */
+  gap: 0.35rem;
   margin-bottom: 0.4rem;
 }
 /* 五颗星挨在一起，一颗只有 18×18——**点错一颗就是打错一分**，
@@ -601,7 +604,9 @@ tbody tr:hover {
 .chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  /* 0.25rem（4px）→ 0.3rem：和 `.cond-chips` 那排同一档节奏。
+     这两排原来是「同一件事两种缝」，而差的那 1px 正好卡在判据线上飘 */
+  gap: 0.35rem;
   margin-bottom: 0.4rem;
 }
 .chip.on {
@@ -1697,7 +1702,10 @@ button.toc-more:hover {
 .tts-timer {
   display: flex;
   flex-wrap: wrap;
-  gap: .25rem;
+  /* 原来 .25rem（4px）：这一排是「不定时 / 15 / 30 / 这一章念完」那种一次性的档，
+     躺着按的，走查那条「会不会点错」报出来的就是它。
+     ⚠️ 别停在 0.3rem（4.8px）——离判据线只剩 0.8px，字体一换就飘回去，第一版真飘了一次 */
+  gap: 0.35rem;
 }
 
 .tts-timer button {
@@ -1979,6 +1987,27 @@ button.toc-more:hover {
 }
 .cond > input,
 .cond > select { width: 100%; }
+/* 字数区间那两个框。flex 排开而不是各占 100%：上面那条只作用在**直接子节点**，
+   这两个在 span 里面，不给宽度的话 input 会按内容算出两个 15px 的窄缝 */
+.cond-range {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.cond-range input { flex: 1; min-width: 0; }
+/* 字号/行距那几档的 −/＋。两行之间原来只剩 2px，而这两颗只有 32px 高——
+   按下一档的「＋」容易点到上一档的「−」。纵向让开 0.3rem */
+.stepper { margin: 0.3rem 0; }
+/* 批量归入那一块不许被压扁：上面那个名单占满了剩下的高度（`.cat-hit-list` 的
+   `flex: 1`），不给这一条的话「把这 N 本都放进…」会跟着缩 */
+.cat-batch {
+  flex: none;
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.cat-batch .cat-hit-say button { margin-left: 0.4rem; }
 
 /*
  * 右边这一栏。**这是这次重做的全部理由**：把一个数换成一群书。

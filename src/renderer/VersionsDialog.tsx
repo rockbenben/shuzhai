@@ -203,7 +203,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
             而此刻屏幕上一个版本组都没有。「先点『定位』比对一下」尤其糟——
             界面上根本没有「定位」这个按钮 */}
         {groups.length > 0 && (
-          <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+          <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
             同名同作者的多个文件算一组。<strong>选中要留的那一份，其余移入系统回收站</strong>
             （不是真删，删错了能拖回来）。
             <br />
@@ -214,7 +214,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
         )}
 
         {error && <p className="danger">{error}</p>}
-        {msg && <p style={{ color: 'var(--accent)', fontSize: '.85rem' }}>{msg}</p>}
+        {msg && <p style={{ color: 'var(--accent)', fontSize: '0.85rem' }}>{msg}</p>}
 
         {groups.length === 0 ? (
           <p className="muted">
@@ -236,7 +236,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
                 <div className="row">
                   <strong>{g.title}</strong>
                   <span className="muted">{g.author ?? '未知作者'}</span>
-                  <span className="muted" style={{ fontSize: '.82rem' }}>{g.versions.length} 个文件</span>
+                  <span className="muted" style={{ fontSize: '0.82rem' }}>{g.versions.length} 个文件</span>
                 </div>
                 {/* 共同目录说一次就够。分散在不同文件夹时 commonDir 返回空，
                     那时候每一行印的就是各自的整条路径——因为那时候目录**是**区别 */}
@@ -283,12 +283,12 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
                             `dead-fields.mjs` 报 `mtime` 没人读，而它和 `DeleteCheck.identical`
                             是同一个形状：**字段没被读，是因为同一个事实有更合适的来源**。 */}
                         <td
-                          style={{ fontSize: '.82rem', overflowWrap: 'anywhere' }}
+                          style={{ fontSize: '0.82rem', overflowWrap: 'anywhere' }}
                           title={`${v.path}
 修改时间：${new Date(v.mtime).toLocaleString('zh-CN')}`}
                         >
                           {dir ? v.path.slice(dir.length) : v.path}
-                          <div style={{ fontSize: '.72rem' }}>
+                          <div style={{ fontSize: '0.72rem' }}>
                             {v.mostWords && <span style={{ color: 'var(--accent)' }}>字数最多 </span>}
                             {v.newest && <span style={{ color: 'var(--accent)' }}>最新 </span>}
                             {v.exactDuplicate && <span className="danger">完全重复 </span>}
@@ -300,7 +300,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
                         <td style={{ fontSize: '0.82rem' }}>{size(v.size)}</td>
                         <td>
                           <button
-                            style={{ fontSize: '.75rem', padding: '.1em .45em' }}
+                            style={{ fontSize: '0.75rem', padding: '.1em .45em' }}
                             onClick={() => void rpc('ui.revealFile', { path: v.path })}
                           >
                             定位
@@ -314,7 +314,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
                 {confirming === g.key ? (
                   <div className="card" style={{ marginTop: '.6rem', borderColor: 'var(--danger)' }}>
                     <strong className="danger">把这 {drop.length} 个移入回收站？</strong>
-                    <p className="muted" style={{ margin: '.3rem 0 .5rem', fontSize: '.85rem' }}>
+                    <p className="muted" style={{ margin: '0.3rem 0 0.5rem', fontSize: '0.85rem' }}>
                       {risky.length > 0 ? (
                         <>
                           <strong className="danger">
@@ -327,7 +327,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
                       )}
                       <br />
                       {drop.map((v) => (
-                        <span key={v.fileId} style={{ display: 'block', fontSize: '.8rem' }}>
+                        <span key={v.fileId} style={{ display: 'block', fontSize: '0.8rem' }}>
                           · {v.path.split(/[\\/]/).pop()}
                         </span>
                       ))}
@@ -347,7 +347,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
                         ? '评分和短评挂在书上，不会受影响；读到第几章还在库里，但没有正文可对了。'
                         : '阅读进度挂在书上而不是文件上，不会受影响。'}
                     </p>
-                    {失败 && <p className="danger" style={{ margin: '0 0 .5rem' }}>{失败}</p>}
+                    {失败 && <p className="danger" style={{ margin: '0 0 0.5rem' }}>{失败}</p>}
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       <button onClick={() => { setConfirming(null); set失败(null); }}>再看看</button>
                       <button
@@ -409,7 +409,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
           * 都要读一遍的东西（同书架那份体检名单的手势）。一条都没有就整个不出现。
           */}
         {删过的.length > 0 && (
-          <div className="card" style={{ marginTop: '.8rem', fontSize: '.82rem' }}>
+          <div className="card" style={{ marginTop: '.8rem', fontSize: '0.82rem' }}>
             <button className="mini" onClick={() => set看删除记录((v) => !v)}>
               {看删除记录 ? '收起' : `删过的 ${删过的.length} 个`}
             </button>
@@ -418,7 +418,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
                 {/* ⚠️ **「去哪儿找」比「删了什么」更要紧。** 回收站那一路人人会找，
                     暂存区那一路不说就没人找得到——路径带时间戳，猜不出来。
                     `reason` 里 core 已经把去处写全了，这里原样摆出来，界面不另编一句 */}
-                <p className="muted" style={{ margin: '0 0 .5rem' }}>
+                <p className="muted" style={{ margin: '0 0 0.5rem' }}>
                   文件都没有真删：进了系统回收站，或者（回收站用不了时）挪进了应用的暂存区。
                   下面每条都写着去处。
                 </p>
@@ -435,7 +435,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
                           在这儿写它拿不到任何东西（而且加一条全局 `.path` 就是
                           又一次类名撞车，`docs/lessons.md` 刚记过两回） */}
                       <div className="log-path" title={d.path}>{d.path}</div>
-                      <div className="muted" style={{ fontSize: '.78rem' }}>{d.reason}</div>
+                      <div className="muted" style={{ fontSize: '0.78rem' }}>{d.reason}</div>
                     </div>
                   );
                 })}

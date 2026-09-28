@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { relTime, sqlTime, wan, activeFilterWords, whenAgo } from './format.ts';
+import { relTime, sqlTime, wan, activeFilterWords, etaWords, whenAgo } from './format.ts';
 
 const NOW = Date.UTC(2026, 7, 16, 12, 0, 0);
 const ago = (ms: number) => relTime(NOW - ms, NOW);
@@ -188,4 +188,26 @@ test('按时间排笔记：库里两种时间写法混着，只能按 sqlTime �
   const 按字符串 = [早, 晚].sort((a, b) => b.localeCompare(a));
   assert.deepEqual(按字符串, [早, 晚], '这一行钉的是「字符串比会排反」——它要是哪天成立了，说明格式变了');
   assert.notDeepEqual(按字符串, 按解析, '两种排法结果一样的话，这条测试什么都没验');
+});
+
+test('队列 ETA：按量级换单位，而且只朝「不报小」那一侧取整', () => {
+  // 分钟 / 小时 / 天三档
+  assert.equal(etaWords(10, 60_000), '照这个速度还要约 10 分钟');
+  assert.equal(etaWords(100, 60_000), '照这个速度还要约 2 小时'); // 100 分钟
+  assert.equal(etaWords(6035, 60_000), '照这个速度还要约 4.2 天'); // 2026-09-26 真实书库那一档
+
+  // 取整方向：59 秒也要说「1 分钟」。报小了，下次没跑完就是撒谎
+  assert.equal(etaWords(1, 59_000), '照这个速度还要约 1 分钟');
+  // 满一天就换天，不留到「34 小时」那一档
+  assert.equal(etaWords(1, 86_400_000 * 1.4), '照这个速度还要约 1.4 天');
+
+  // 满 10 天不再带小数：「12.3 天」假装精确到了小时，而间隔本身是会自己变的
+  assert.equal(etaWords(20000, 60_000), '照这个速度还要约 14 天');
+});
+
+test('队列 ETA：没有可等的、或者不知道速率，就一个字都不印', () => {
+  // 「还要约 0 分钟」是一句假话（跑完了）；「还要约 ∞」也是
+  for (const [n, gap] of [[0, 60_000], [-3, 60_000], [100, 0], [100, -1], [100, NaN]] as const) {
+    assert.equal(etaWords(n, gap), null, `n=${n} gap=${gap} 该是什么都不说`);
+  }
 });

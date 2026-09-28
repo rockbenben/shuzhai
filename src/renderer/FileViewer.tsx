@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ICO } from './icons.tsx';
 import { rpc } from './rpc.ts';
 import {
-  loadKeys, actionFor, loadSettings, saveSettings, applySettings, applyFontFaces,
-  type ReadSettings,
+  loadKeys, actionFor, keyLabel, loadSettings, saveSettings, applySettings, applyFontFaces,
+  type ReadSettings, type Action,
 } from './settings.ts';
 import { atEndPaging, 点到哪边 } from '../core/reading-pos.ts';
 import { ReviewCard, useReview } from './ReviewCard.tsx';
@@ -2157,6 +2157,17 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
    * （见下面 `挂进正文` 那段）。
    */
   const 键表 = useRef(loadKeys());
+  /*
+   * 提示里那个键名**必须从键表来**，不能写死。`Reader.tsx` 当年修过一轮
+   * （见它 1396 行那段：原来写着「（T）」「（←）」「（B）」，恰好等于默认绑定，
+   * 所以怎么测都是对的），**这一侧和两侧的「自动滚」都漏了**。
+   *
+   * ⚠️ `exit` 不在这里：Esc 是硬编码的「收最上面那一层」，不走 `actionFor`
+   * （判据写在 `Reader.tsx` 那段——退出键改绑成普通字母之后，
+   * 在短评框里打那个字母不该把卡片关掉）。所以「回书架（Esc）」那句**是真的**，
+   * 别顺手把它也改成 `键('exit')`，那反而变成假的。
+   */
+  const 键 = (a: Action) => keyLabel(键表.current[a][0]);
   const 按键 = useRef<(e: KeyboardEvent) => void>(() => {});
   按键.current = (e) => {
     // App 层弹窗（编辑/在线地址/改名…）压在上面时键盘一个键都不接——判据抄
@@ -2457,7 +2468,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
                       String(o.page) + ':' + o.title === c.key ? { page: o.page, title: t } : o)));
                   }}
                   onBlur={() => set改目录(null)}
-                  style={{ flex: 1, minWidth: 0, margin: '.1rem .3rem' }}
+                  style={{ flex: 1, minWidth: 0, margin: '0.1rem 0.3rem' }}
                 />
               ) : (
               <button
@@ -2508,7 +2519,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
               </div>
             ))}
             {显示的目录.length === 0 && (
-              <p className="muted" style={{ padding: '.5rem .8rem' }}>没有匹配的章节</p>
+              <p className="muted" style={{ padding: '0.5rem 0.8rem' }}>没有匹配的章节</p>
             )}
           </div>
         </aside>
@@ -2536,8 +2547,8 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
               {ICO.toc}<span>目录</span>
             </button>
           )}
-          <button onClick={() => api.current.prev?.()} title="上一页（←）">{ICO.prev}<span>上一页</span></button>
-          <button onClick={() => api.current.next?.()} title="下一页（→）">{ICO.next}<span>下一页</span></button>
+          <button onClick={() => api.current.prev?.()} title={`上一页（${键('prev')}）`}>{ICO.prev}<span>上一页</span></button>
+          <button onClick={() => api.current.next?.()} title={`下一页（${键('next')}）`}>{ICO.next}<span>下一页</span></button>
           {/* 设置：纸色、字号、行距、正文字体。**和 txt 阅读器同一个面板**
               （`ReadSettings.tsx`），不是这儿抄一份。
               ⚠️ PDF 那一页是 canvas 上的一张图，「字」那一组作用不到它——
@@ -2633,7 +2644,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
             className={滚着 ? 'on' : ''}
             disabled={settings.mode === 'page'}
             onClick={() => set滚着((v) => !v)}
-            title="自动往下滚，读到底自动接下一屏（空格）。左右翻页模式下用不上"
+            title={`自动往下滚，读到底自动接下一屏（${键('autoScroll')}）。左右翻页模式下用不上`}
           >
             {ICO.auto}<span>自动滚</span>
           </button>
@@ -2677,21 +2688,21 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
               flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem',
             }}
           >
-            <span className="muted" style={{ fontSize: '.8rem', maxWidth: '13rem', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+            <span className="muted" style={{ fontSize: '0.8rem', maxWidth: '13rem', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
               「{待划.text}」
             </span>
             {待划.锚.偏移 < 0 ? (
               /* **跨页选中：说清为什么划不了，以及该怎么办。**
                  静默丢弃的话，用户分不清是「划不了」还是「压根没选中」 */
               <>
-                <span className="danger" style={{ fontSize: '.8rem' }}>
+                <span className="danger" style={{ fontSize: '0.8rem' }}>
                   这一段跨了两页，划不了——一页一页划。
                 </span>
                 <button className="quiet" onClick={() => set待划(null)}>知道了</button>
               </>
             ) : 笔记草稿 === null ? (
               <>
-                <span style={{ fontSize: '.82rem' }}>划线</span>
+                <span style={{ fontSize: '0.82rem' }}>划线</span>
                 {COLORS.map((c) => (
                   <button
                     key={c}
@@ -2809,7 +2820,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
             {viewer === 'pdf' && (
               /* **说清为什么这儿没有「字」那一组。** 少一整组的设置面板，
                  不说的话看起来像坏了 */
-              <p className="muted" style={{ fontSize: '.75rem', margin: '.2rem 0 0' }}>
+              <p className="muted" style={{ fontSize: '0.75rem', margin: '0.2rem 0 0' }}>
                 PDF 那一页是整张图，字号、行距、字体都作用不到它，所以没有「字」那一组。
               </p>
             )}
@@ -2947,11 +2958,11 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
             </button>
           )}
           <span className="pager">
-            <button className="mini" onClick={() => api.current.prev?.()} title="上一页（←）">‹ 上一页</button>
+            <button className="mini" onClick={() => api.current.prev?.()} title={`上一页（${键('prev')}）`}>‹ 上一页</button>
             <span className="muted" style={{ fontVariantNumeric: 'tabular-nums' }}>
               {viewer === 'pdf' ? `${page} / ${pages || '…'} 页` : pct == null ? '…' : `${pct}%`}
             </span>
-            <button className="mini" onClick={() => api.current.next?.()} title="下一页（→）">下一页 ›</button>
+            <button className="mini" onClick={() => api.current.next?.()} title={`下一页（${键('next')}）`}>下一页 ›</button>
           </span>
           {/* PDF 才有整本的页码，拖得动；EPUB 那边 epub.js 要先生成 locations 才谈得上按比例跳 */}
           {viewer === 'pdf' && pages > 1 && (

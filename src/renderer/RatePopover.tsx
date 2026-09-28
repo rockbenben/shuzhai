@@ -196,7 +196,7 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
         onGrow={量一次}
       />
 
-      {error && <p className="danger" style={{ margin: '.4rem 0 0', fontSize: '.82rem' }}>{error}</p>}
+      {error && <p className="danger" style={{ margin: '0.4rem 0 0', fontSize: '0.82rem' }}>{error}</p>}
     </div>
   );
 }

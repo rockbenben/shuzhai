@@ -168,7 +168,7 @@ export function SearchPanel({ onOpen, onClose }: Props) {
           * 藏在一个没人会去点的下拉里。标题加上，差别写在第一句话里。
           */}
         <h2>全库搜索</h2>
-        <p className="muted" style={{ margin: '0 0 .7rem', fontSize: '.85rem' }}>
+        <p className="muted" style={{ margin: '0 0 0.7rem', fontSize: '0.85rem' }}>
           书名、作者、标签、<strong>你自己写的短评</strong>随时能搜。
           <strong>要搜正文，先给那本书建索引</strong>——
           按书建不是整库建：一本 500 章的书几秒，12000 章的要一分多钟。
@@ -181,7 +181,11 @@ export function SearchPanel({ onOpen, onClose }: Props) {
             placeholder={scope === 'meta' ? '搜书名 / 作者 / 标签 / 你写的短评' : '搜正文'}
             style={{ flex: 1 }}
           />
-          <select value={scope} onChange={(e) => setScope(e.target.value as 'meta' | 'full')}>
+          <select
+            value={scope}
+            onChange={(e) => setScope(e.target.value as 'meta' | 'full')}
+            aria-label="搜哪一片"
+          >
             {/* 「书名作者标签」三个词连着读，第一眼分不出是三样还是一样 */}
             {/* 「你写的短评」要写出来：搜得到但没人知道搜得到，等于没有 */}
             <option value="meta">书名 / 作者 / 标签 / 短评</option>
@@ -192,7 +196,7 @@ export function SearchPanel({ onOpen, onClose }: Props) {
         {scope === 'full' && (
           <div className="card" style={{ marginTop: '.6rem' }}>
             <div className="row">
-              <strong style={{ fontSize: '.9rem' }}>
+              <strong style={{ fontSize: '0.9rem' }}>
                 正文搜索的范围：{books.length ? `${books.length} 本书` : '还没有书建索引'}
               </strong>
               <span style={{ flex: 1 }} />
@@ -211,22 +215,22 @@ export function SearchPanel({ onOpen, onClose }: Props) {
                 <>
                   <button
                     className="danger"
-                    style={{ fontSize: '.78rem', padding: '.1em .5em' }}
+                    style={{ fontSize: '0.78rem', padding: '.1em .5em' }}
                     onClick={() => { set要全删吗(false); void dropFor(); }}
                   >
                     确认删掉这 {books.length} 本的索引
                   </button>
-                  <button style={{ fontSize: '.78rem', padding: '.1em .5em' }} onClick={() => set要全删吗(false)}>
+                  <button style={{ fontSize: '0.78rem', padding: '.1em .5em' }} onClick={() => set要全删吗(false)}>
                     再看看
                   </button>
                 </>
               ) : (
-                <button style={{ fontSize: '.78rem', padding: '.1em .5em' }} onClick={() => set要全删吗(true)}>
+                <button style={{ fontSize: '0.78rem', padding: '.1em .5em' }} onClick={() => set要全删吗(true)}>
                   删掉全部索引
                 </button>
               ))}
             </div>
-            <p className="muted" style={{ margin: '.25rem 0 .5rem', fontSize: '.82rem' }}>
+            <p className="muted" style={{ margin: '0.25rem 0 0.5rem', fontSize: '0.82rem' }}>
               索引<strong>按本建</strong>——这个库有六百多万章，全库建一次要跑几小时。
               建索引只<strong>读</strong> txt，把正文副本存进数据库；
               <strong>原文件一个字节都不会改</strong>，索引随时能删。
@@ -257,7 +261,7 @@ export function SearchPanel({ onOpen, onClose }: Props) {
                 placeholder="输入书名，给它建索引"
                 style={{ flex: 1 }}
               />
-              {busy && <span className="muted" style={{ fontSize: '.82rem' }}>{busy}</span>}
+              {busy && <span className="muted" style={{ fontSize: '0.82rem' }}>{busy}</span>}
             </div>
             {picks.length > 0 && (
               <div className="row" style={{ flexWrap: 'wrap', gap: '.3rem', marginTop: '.4rem' }}>
@@ -345,7 +349,7 @@ export function SearchPanel({ onOpen, onClose }: Props) {
                         * 而 CSS 里那段注释写着「收成两行」，**代码从来没兑现过**。
                         * 全文放 title 里。
                         */}
-                      <td className="muted" style={{ fontSize: '.8rem' }} title={m.tags ?? ''}>
+                      <td className="muted" style={{ fontSize: '0.8rem' }} title={m.tags ?? ''}>
                         <div className="clamp2">{m.tags ?? ''}</div>
                       </td>
                     </tr>
@@ -357,7 +361,7 @@ export function SearchPanel({ onOpen, onClose }: Props) {
             q && books.length > 0 && <p className="muted">这 {books.length} 本书的正文里没有找到。</p>
           ) : (
             <>
-              <p className="muted" style={{ fontSize: '.85rem', margin: '0 0 .3rem' }}>
+              <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 0.3rem' }}>
                 命中 {hits.length} 处
               </p>
               <table>
@@ -368,12 +372,12 @@ export function SearchPanel({ onOpen, onClose }: Props) {
                         <div>{h.bookTitle}</div>
                         <div className="muted" style={{ fontSize: '0.75rem' }}>{h.chapterTitle}</div>
                       </td>
-                      <td style={{ fontSize: '.85rem' }}>
+                      <td style={{ fontSize: '0.85rem' }}>
                         <Snippet text={h.snippet} />
                       </td>
                       <td style={{ width: '4rem' }}>
                         <button
-                          style={{ fontSize: '.78rem', padding: '.1em .5em' }}
+                          style={{ fontSize: '0.78rem', padding: '.1em .5em' }}
                           onClick={() => onOpen(h.bookId, h.chapterIdx)}
                         >
                           跳转

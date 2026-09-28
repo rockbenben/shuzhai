@@ -96,11 +96,14 @@ export function ReadSettingsPanel(
     const to = (n: number) => set(k, Number(Math.min(max, Math.max(min, n)).toFixed(1)));
     return (
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap', alignItems: 'flex-start' }}>
-        <span className="muted" style={{ fontSize: '.8rem', minWidth: 0, whiteSpace: 'nowrap' }}>
+        <span className="muted" style={{ fontSize: '0.8rem', minWidth: 0, whiteSpace: 'nowrap' }}>
           {label} {show(v)}{unit}
           {hint && <span style={{ opacity: 0.75, display: 'block' }}>{hint(v)}</span>}
         </span>
-        <span className="row" style={{ gap: '.3rem', flex: 'none' }}>
+        {/* ⚠️ 这一排的缝**纵向也要管**：−/＋ 只有 32px 高，行与行原来只隔 2px，
+            想按下一档的「＋」容易落到上一档的「−」上。走查那条「挨着的小键」
+            量的就是相邻两行的这两颗，不是同一行里的那一对 */}
+        <span className="row stepper" style={{ gap: '.3rem', flex: 'none' }}>
           <button disabled={v <= min} aria-label={label + '减小'} onClick={() => to(v - d)}>−</button>
           <button disabled={v >= max} aria-label={label + '增大'} onClick={() => to(v + d)}>＋</button>
         </span>
@@ -209,7 +212,7 @@ export function ReadSettingsPanel(
             * 「宋体」和「黑体」长得一模一样，只能选一个、关掉、看一眼、再回来换。
             */}
           <div className="cond" style={{ gap: '.25rem' }}>
-            <span className="muted" style={{ fontSize: '.8rem' }}>正文字体</span>
+            <span className="muted" style={{ fontSize: '0.8rem' }}>正文字体</span>
             <div className="font-row">
               {READ_FONTS.map((f) => (
                 <button
@@ -254,10 +257,10 @@ export function ReadSettingsPanel(
             * 分而不是按「它对这一屏有没有作用」分。这一条是同一个判据的第三次应用。
             */}
           <div className="row" style={{ justifyContent: 'space-between' }}>
-            <span className="muted" style={{ fontSize: '.8rem' }}>繁简</span>
+            <span className="muted" style={{ fontSize: '0.8rem' }}>繁简</span>
             <select
               value={繁简.值}
-              title="运行时转换，不改原文件"
+              title="读的时候才转，原文件一个字节都不改"
               onChange={(e) => 繁简.改(e.target.value)}
             >
               <option value="off">原文</option>
@@ -266,7 +269,7 @@ export function ReadSettingsPanel(
             </select>
           </div>
           {繁简.说明 && (
-            <p className="muted" style={{ fontSize: '.75rem', margin: '-.2rem 0 .2rem' }}>{繁简.说明}</p>
+            <p className="muted" style={{ fontSize: '0.75rem', margin: '-.2rem 0 0.2rem' }}>{繁简.说明}</p>
           )}
         </>
       )}
@@ -313,7 +316,7 @@ export function ReadSettingsPanel(
             */}
           <h4 className="panel-group">读</h4>
           <div className="row" style={{ justifyContent: 'space-between' }}>
-            <span className="muted" style={{ fontSize: '.8rem' }}>阅读方式</span>
+            <span className="muted" style={{ fontSize: '0.8rem' }}>阅读方式</span>
             <div className="tabs">
               {([
                 {
@@ -336,7 +339,7 @@ export function ReadSettingsPanel(
             </div>
           </div>
           <label className="row" style={{ justifyContent: 'space-between', gap: '.4rem' }}>
-            <span className="muted" style={{ fontSize: '.8rem' }} title={`${settings.autoScroll} px/s`}>自动滚</span>
+            <span className="muted" style={{ fontSize: '0.8rem' }} title={`${settings.autoScroll} px/s`}>自动滚</span>
             <input
               type="range"
               min={10}
@@ -346,7 +349,7 @@ export function ReadSettingsPanel(
               onChange={(e) => set('autoScroll', Number(e.target.value))}
               style={{ flex: 1, minWidth: 0, accentColor: 'var(--accent)' }}
             />
-            <span className="muted" style={{ fontSize: '.78rem', minWidth: '3.4rem', textAlign: 'right' }}>
+            <span className="muted" style={{ fontSize: '0.78rem', minWidth: '3.4rem', textAlign: 'right' }}>
               {/* **`px/s` 不是人话**（同这个面板里「顶部留白」不摆 rem 那条）。
                   换算成「一分钟几行」：一行的高度就是 字号 × 行距，
                   读书的人对「一分钟十几行」有感觉，对「40 px/s」没有。

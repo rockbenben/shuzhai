@@ -53,7 +53,7 @@ export function KeywordTags({ onPick, onClose }: Props) {
         {words === null && <p className="muted">正在统计…</p>}
 
         {words && words.length === 0 && (
-          <p className="muted" style={{ margin: '.2rem 0 0' }}>
+          <p className="muted" style={{ margin: '0.2rem 0 0' }}>
             书名里没有反复出现的词，这一步帮不上忙——书名各不相同的库，
             直接用上面的搜索框按关键词找，再「批量打标签」。
           </p>
@@ -65,7 +65,7 @@ export function KeywordTags({ onPick, onClose }: Props) {
             和预览表「只列会变的那些」上都记过） */}
         {words && words.length > 0 && (
           <>
-          <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+          <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
             书名里反复出现的词，按出现次数排。<strong>点一个词</strong>就会搜出这些书、
             并带着这个词去打标签——你在那一步还能改标签名、也能反悔。
             <br />

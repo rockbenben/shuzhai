@@ -83,7 +83,7 @@ export function AddBookDialog({ onAdded, onClose }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>添一本读过的书</h2>
-        <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+        <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
           网上看的、纸质的、别的设备上读的——本地没有 txt 也能记一条。
           <br />
           以后要是把这本书的 txt 拷进书库，扫描时会<strong>自动认领这条记录</strong>，

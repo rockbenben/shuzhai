@@ -82,7 +82,7 @@ export function TtsPanel(
     opts: { min: number; max: number; step: number; fmt: (v: number) => string },
   ) => (
     <label className="row" style={{ justifyContent: 'space-between', gap: '.4rem' }}>
-      <span className="muted" style={{ fontSize: '.8rem', minWidth: '2.4rem' }}>{label}</span>
+      <span className="muted" style={{ fontSize: '0.8rem', minWidth: '2.4rem' }}>{label}</span>
       <input
         type="range"
         min={opts.min}
@@ -92,7 +92,7 @@ export function TtsPanel(
         onChange={(e) => set(key, Number(e.target.value))}
         style={{ flex: 1, minWidth: 0, accentColor: 'var(--accent)' }}
       />
-      <span className="muted" style={{ fontSize: '.78rem', minWidth: '2.6rem', textAlign: 'right' }}>
+      <span className="muted" style={{ fontSize: '0.78rem', minWidth: '2.6rem', textAlign: 'right' }}>
         {opts.fmt(read[key])}
       </span>
     </label>
@@ -104,10 +104,11 @@ export function TtsPanel(
           换引擎/音色是一件事（换完要试听），调语速音量是另一件 */}
       <h4 className="panel-group">声音</h4>
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <span className="muted" style={{ fontSize: '.8rem' }}>引擎</span>
+        <span className="muted" style={{ fontSize: '0.8rem' }}>引擎</span>
         <select
           value={read.ttsEngine}
           onChange={(e) => set('ttsEngine', e.target.value)}
+          aria-label="用哪个朗读引擎"
           style={{ maxWidth: '9.5rem' }}
         >
           <option value="system">系统语音（离线）</option>
@@ -119,17 +120,18 @@ export function TtsPanel(
           理由见 `builtin-tts.ts` 顶上。）空着不说话的话，用户会以为这个下拉坏了；
           说了就得说清去哪儿加——同本仓库那条「功能名要出现在通往它的那句话里」 */}
       {engines.length === 0 && (
-        <p className="muted" style={{ fontSize: '.75rem', margin: '.1rem 0' }}>
+        <p className="muted" style={{ fontSize: '0.75rem', margin: '0.1rem 0' }}>
           只有系统语音。想用在线的去<strong>设置 · 阅读 · 朗读引擎</strong>导一份、或者手填一个。
         </p>
       )}
 
       {read.ttsEngine === 'system' && (
         <div className="row" style={{ justifyContent: 'space-between' }}>
-          <span className="muted" style={{ fontSize: '.8rem' }}>音色</span>
+          <span className="muted" style={{ fontSize: '0.8rem' }}>音色</span>
           <select
             value={read.ttsVoice}
             onChange={(e) => set('ttsVoice', e.target.value)}
+            aria-label="用哪个音色"
             style={{ maxWidth: '9.5rem' }}
           >
             <option value="">自动挑中文</option>
@@ -141,12 +143,12 @@ export function TtsPanel(
       {/* **在线引擎会把正文发出去，这句话不能省**（本文件那条：会造成数据事故
           或者把正文外发的说明，必须留全文） */}
       {read.ttsEngine !== 'system' && (
-        <p className="muted" style={{ fontSize: '.75rem', margin: '.1rem 0' }}>
+        <p className="muted" style={{ fontSize: '0.75rem', margin: '0.1rem 0' }}>
           在线引擎<strong>会把正文一段一段发到第三方服务器</strong>；服务挂掉时自动退回系统语音。
         </p>
       )}
       {read.ttsEngine === 'system' && voices.length === 0 && (
-        <p className="muted" style={{ fontSize: '.75rem', margin: '.1rem 0' }}>
+        <p className="muted" style={{ fontSize: '0.75rem', margin: '0.1rem 0' }}>
           系统里没装中文语音。Windows 设置 → 时间和语言 → 语音 里可以加。
         </p>
       )}
@@ -177,7 +179,7 @@ export function TtsPanel(
           那上面只有 volume 和 playbackRate，没有 pitch——摆出来就是个调了不动的控件 */}
       {read.ttsEngine === 'system'
         && slider('音调', 'ttsPitch', { min: 0, max: 2, step: 0.1, fmt: (v) => v.toFixed(1) })}
-      <label className="row" style={{ gap: '.3rem', fontSize: '.8rem' }}>
+      <label className="row" style={{ gap: '.3rem', fontSize: '0.8rem' }}>
         <input
           type="checkbox"
           checked={read.ttsContinuous}
@@ -186,7 +188,7 @@ export function TtsPanel(
         <span>一章念完接着念下一章</span>
       </label>
       {tts.fellBack && (
-        <p className="muted" style={{ fontSize: '.75rem', margin: '.1rem 0' }}>
+        <p className="muted" style={{ fontSize: '0.75rem', margin: '0.1rem 0' }}>
           这个引擎没出声，已经退回系统语音：{tts.fellBack}
         </p>
       )}

@@ -70,11 +70,13 @@ export function FindInBook({ 搜, onJump, onClose, 上限 }: Props) {
         <button onClick={() => void search()} disabled={busy || !q.trim()}>
           {busy ? '搜索中…' : '搜索'}
         </button>
-        <button onClick={onClose} style={{ padding: '.2em .5em' }}>×</button>
+        {/* 裸一个 × 的话，读屏念出来是「×」——这个仓库有条通则：
+            **能点的图形要带名字**（`docs/lessons.md`「色块按钮要带名字」那一节） */}
+        <button onClick={onClose} title="关闭" aria-label="关闭在书里搜索" style={{ padding: '.2em .5em' }}>×</button>
       </div>
 
       {hits !== null && (
-        <p className="muted" style={{ fontSize: '.8rem', margin: '.4rem 0 .2rem' }}>
+        <p className="muted" style={{ fontSize: '0.8rem', margin: '0.4rem 0 0.2rem' }}>
           {hits.length === 0
             ? '没有找到'
             : 上限 && hits.length >= 上限

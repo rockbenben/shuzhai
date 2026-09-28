@@ -609,7 +609,9 @@
 .book-tools {
   align-self: stretch;
   display: flex;
-  gap: 0.2rem;
+  /* 原来 0.2rem（3px）：这排键 24px 高、缝 3px，正好卡在 WCAG 那条只管
+     「点不点得着」的地板上面。提到 0.35rem */
+  gap: 0.35rem;
   padding: 0 0.25rem;
   height: 0;
   overflow: hidden;
@@ -648,10 +650,12 @@
 
 /* ── 视图切换 · 临时筛选 · 表格 ─────────────── */
 
-/* 三个键挨在一起当一组，中间不留缝——它们是一个单选组，不是三个独立按钮 */
+/* 三个键当一组看（容器就是「一组」的边界），但它们**不是连体**：原来 0.2rem（3px）
+   被走查那条「会不会点错」的判据当场报出来——键身 29px 高、缝只有 3px。
+   现在 0.35rem，和 `.cond-chips` 那排芯片的既定节奏（5px）对齐 */
 .viewpick {
   display: flex;
-  gap: 0.2rem;
+  gap: 0.35rem;
 }
 
 /* 正在生效的临时筛选。**摆在书架正上方**，理由在 App.tsx 那段注释里。
@@ -1485,7 +1489,9 @@
 }
 .tabs {
   display: inline-flex;
-  gap: 0.15rem;
+  /* 页签之间原来 0.15rem（2px）：30px 高的键缝 2px，点「划线」容易落到
+     隔壁「书签」上。走查那条「挨着的小键」报出来的第三大簇就是这里 */
+  gap: 0.35rem;
   margin-left: 0.8rem;
 }
 .tabs button {

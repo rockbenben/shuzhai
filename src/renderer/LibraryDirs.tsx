@@ -115,10 +115,10 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
   return (
     <div className="modal-backdrop" onClick={() => onClose(changed)}>
       <div className="modal" style={{ width: 'min(48rem, 100%)' }} onClick={(e) => e.stopPropagation()}>
-        <h2 style={{ margin: '0 0 .8rem', fontSize: '1.1rem' }}>书库文件夹</h2>
+        <h2 style={{ margin: '0 0 0.8rem', fontSize: '1.1rem' }}>书库文件夹</h2>
 
-        <div className="row" style={{ justifyContent: 'space-between', margin: '0 0 .3rem' }}>
-          <h3 style={{ fontSize: '.95rem', margin: 0 }}>放书的文件夹</h3>
+        <div className="row" style={{ justifyContent: 'space-between', margin: '0 0 0.3rem' }}>
+          <h3 style={{ fontSize: '0.95rem', margin: 0 }}>放书的文件夹</h3>
           <button disabled={busy} onClick={() => void addRoot()}>
             {busy ? '正在读…' : '添加文件夹…'}
           </button>
@@ -144,7 +144,7 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
                       {r.enabled === 1 ? '启用' : '停用'}
                     </label>
                   </td>
-                  <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: '.8rem', overflowWrap: 'anywhere' }}>
+                  <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.8rem', overflowWrap: 'anywhere' }}>
                     {r.path}
                   </td>
                   {/*
@@ -159,7 +159,7 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
                       <div className="row" style={{ gap: '.3rem' }}>
                         <button
                           className="danger"
-                          style={{ fontSize: '.75rem', padding: '.1em .45em' }}
+                          style={{ fontSize: '0.75rem', padding: '.1em .45em' }}
                           onClick={async () => {
                             setKilling(null);
                             /*
@@ -181,12 +181,12 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
                                 : '已移除。',
                             );
                           }}
-                          title="书和阅读进度都留着，但那些记录会变成没人管的孤儿"
+                          title="书和阅读进度都留着，只是它们暂时归不到哪个文件夹底下了"
                         >
                           确认移除
                         </button>
                         <button
-                          style={{ fontSize: '.75rem', padding: '.1em .45em' }}
+                          style={{ fontSize: '0.75rem', padding: '.1em .45em' }}
                           onClick={() => setKilling(null)}
                         >
                           取消
@@ -194,9 +194,9 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
                       </div>
                     ) : (
                       <button
-                        style={{ fontSize: '.75rem', padding: '.1em .45em' }}
+                        style={{ fontSize: '0.75rem', padding: '.1em .45em' }}
                         onClick={() => setKilling(r.id)}
-                        title="只移除这个文件夹的登记，书和阅读进度都留着；但那些记录会变成没人管的孤儿"
+                        title="只移除这个文件夹的登记，书和阅读进度都留着；只是它们暂时归不到哪个文件夹底下了"
                       >
                         移除
                       </button>
@@ -212,7 +212,7 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
           （阅读进度、书签、评分重新扫描也恢复不了，所以这里不碰它们。）
         </p>
 
-        <h3 style={{ fontSize: '.95rem', margin: '1.1rem 0 .3rem' }}>屏蔽规则</h3>
+        <h3 style={{ fontSize: '0.95rem', margin: '1.1rem 0 0.3rem' }}>屏蔽规则</h3>
         <div className="row" style={{ marginBottom: '.5rem' }}>
           <button onClick={pickDirToBlock}>选一个文件夹来屏蔽…</button>
           <button
@@ -227,13 +227,13 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
           <tbody>
             {patterns.map((p) => (
               <tr key={p}>
-                <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: '.8rem' }}>{p}</td>
+                <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.8rem' }}>{p}</td>
                 <td style={{ width: '3rem' }}>
                   {/* 光一个「×」不说明删的是什么，而这条规则一删，
                       被它挡住的书下次扫描就会全部收进来。title 说清楚，
                       尺寸给够（24×24 是 WCAG 2.2 的下限） */}
                   <button
-                    style={{ fontSize: '.9rem', minWidth: 24, height: 24, padding: 0, lineHeight: 1 }}
+                    style={{ fontSize: '0.9rem', minWidth: 24, height: 24, padding: 0, lineHeight: 1 }}
                     title={`删掉这条屏蔽规则：${p}`}
                     aria-label={`删掉屏蔽规则 ${p}`}
                     onClick={() => void save(patterns.filter((x) => x !== p))}
@@ -269,8 +269,8 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
             添加
           </button>
         </div>
-        <p className="muted" style={{ fontSize: '.82rem', marginTop: '.3rem' }}>
-          规则是相对书库文件夹的 glob。<strong>要屏蔽整个子文件夹记得加 <code>/**</code></strong>——
+        <p className="muted" style={{ fontSize: '0.82rem', marginTop: '.3rem' }}>
+          规则是相对书库文件夹写的，比如 <code>临时/**</code>。<strong>要屏蔽整个子文件夹记得加 <code>/**</code></strong>——
           只写 <code>临时</code> 一个都挡不住，而且不会有任何报错。
         </p>
 
@@ -284,10 +284,10 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
                 {preview.withProgress > 0 && (
                   <span className="danger">（其中 {preview.withProgress} 本有阅读进度）</span>
                 )}
-                <div className="muted" style={{ fontSize: '.78rem', marginTop: '.3rem' }}>
+                <div className="muted" style={{ fontSize: '0.78rem', marginTop: '.3rem' }}>
                   它们不会被删除，只是以后扫描不再更新。示例：
                 </div>
-                <ul style={{ margin: '.2rem 0 0', paddingLeft: '1.2rem', fontSize: '0.75rem' }}>
+                <ul style={{ margin: '0.2rem 0 0', paddingLeft: '1.2rem', fontSize: '0.75rem' }}>
                   {preview.samples.slice(0, 5).map((s) => (
                     <li key={s} style={{ overflowWrap: 'anywhere' }}>{s}</li>
                   ))}
@@ -298,7 +298,7 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
         )}
 
         {error && <p className="danger">{error}</p>}
-        {msg && <p style={{ color: 'var(--accent)', fontSize: '.85rem' }}>{msg}</p>}
+        {msg && <p style={{ color: 'var(--accent)', fontSize: '0.85rem' }}>{msg}</p>}
 
         <div className="row modal-actions" style={{ marginTop: '.9rem', justifyContent: 'flex-end' }}>
           <button onClick={() => onClose(changed)}>关闭</button>

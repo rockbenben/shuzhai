@@ -118,7 +118,7 @@ export function BatchTagDialog({ filter, initialNames, onClose }: Props) {
         <h2>
           给当前筛选出的 {total ?? '…'} 本书打标签
         </h2>
-        <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+        <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
           {/* 原来这里写的是 `**整个筛选结果**`——从文档注释里抄过来的 markdown，
               JSX 不认，界面上老老实实显示成四个星号 */}
           作用于<strong>整个筛选结果</strong>，不只是屏幕上这一页。
@@ -130,7 +130,7 @@ export function BatchTagDialog({ filter, initialNames, onClose }: Props) {
             <strong>
               已给 {done.bookIds.length} 本书打上「{done.names.join('、')}」
             </strong>
-            <p className="muted" style={{ margin: '.4rem 0 0', fontSize: '.85rem' }}>
+            <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.85rem' }}>
               {done.already > 0 && `另外 ${done.already} 本本来就有，没有重复打。`}
               撤销只会摘掉这次新打上的，不影响你之前打好的。
             </p>
@@ -177,7 +177,7 @@ export function BatchTagDialog({ filter, initialNames, onClose }: Props) {
                   这里原来写的是「同 `BatchStatusDialog`」，那句指路正是分叉前的形状 */}
               {n > 0 && <BatchPlanList sample={plan?.sample} total={n} />}
               {plan != null && plan.already > 0 && (
-                <p className="muted" style={{ margin: '.4rem 0 0', fontSize: '.82rem' }}>
+                <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.82rem' }}>
                   另外 {plan.already} 本本来就有这些标签，不会重复打。
                 </p>
               )}

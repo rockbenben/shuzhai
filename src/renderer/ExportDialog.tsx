@@ -54,7 +54,7 @@ export function ExportDialog({ book, onClose }: Props) {
               标题却写「元数据」，同一件事三个说法，而「元数据」还是个系统词 */}
           {book ? `导出《${book.title}》` : '导出书库表格'}
         </h2>
-        <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+        <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
           {/* 这里原来是一整条字符串，里面带着 `**原 txt 一个字节都不会动**`——
               markdown 的星号在 JSX 里不会变成加粗，界面上就是四个星号。
               而这句话正是铁律 1 对用户的承诺，该加粗的就用 <strong> */}
@@ -66,7 +66,7 @@ export function ExportDialog({ book, onClose }: Props) {
         </p>
 
         {book && (
-          <label className="row" style={{ marginBottom: '.7rem', fontSize: '.85rem' }}>
+          <label className="row" style={{ marginBottom: '.7rem', fontSize: '0.85rem' }}>
             <input type="checkbox" checked={clean} onChange={(e) => setClean(e.target.checked)} />
             套用正文净化规则（去掉制作组页脚、推广行这些不属于作者的东西）
           </label>
@@ -97,7 +97,7 @@ export function ExportDialog({ book, onClose }: Props) {
         </div>
 
         {done && (
-          <p className="muted" style={{ marginBottom: 0, fontSize: '.85rem' }}>
+          <p className="muted" style={{ marginBottom: 0, fontSize: '0.85rem' }}>
             写好了：{done}
           </p>
         )}

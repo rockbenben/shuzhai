@@ -119,7 +119,7 @@ export function BatchStatusDialog({ filter, onClose }: Props) {
     <div className="modal-backdrop" onClick={() => { if (!done) close(); }}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>把筛选出来的书标成…</h2>
-        <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+        <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
           作用于<strong>整个筛选结果</strong>，不只是屏幕上这一页。
           <strong>确认无误再点下面那个按钮，在那之前什么都不会改</strong>。
         </p>
@@ -127,7 +127,7 @@ export function BatchStatusDialog({ filter, onClose }: Props) {
         {done ? (
           <div className="card">
             <strong>已把 {done.changed.length} 本标成「{name}」</strong>
-            <p className="muted" style={{ margin: '.4rem 0 0', fontSize: '.85rem' }}>
+            <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.85rem' }}>
               {done.same > 0 && `另外 ${done.same} 本本来就是这个状态，没重复写。`}
               {done.kept > 0 && (
                 <>
@@ -157,7 +157,7 @@ export function BatchStatusDialog({ filter, onClose }: Props) {
                   「样本条数由服务端定、这边不另立上限」那条判据跟着它走 */}
               {n > 0 && <BatchPlanList sample={plan?.sample} total={n} />}
               {plan != null && (plan.same > 0 || plan.kept > 0) && (
-                <p className="muted" style={{ margin: '.5rem 0 0', fontSize: '.82rem' }}>
+                <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
                   {plan.same > 0 && `另外 ${plan.same} 本本来就是「${name}」。`}
                   {plan.kept > 0 && `有 ${plan.kept} 本你已经动过（读完了，或者读到过第几章），批量不会碰——不然会变成「想读，却已经读到一半」这种说不通的记录。要改的话，点开那本书自己改。`}
                 </p>

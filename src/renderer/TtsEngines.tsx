@@ -114,7 +114,7 @@ export function TtsEngines({
       {draft && (
         <div className="tts-form">
           <label className="field">
-            <span className="muted" style={{ fontSize: '.78rem' }}>名字</span>
+            <span className="muted" style={{ fontSize: '0.78rem' }}>名字</span>
             <input
               placeholder="朗读设置的下拉里显示的就是它"
               value={draft.name}
@@ -122,14 +122,14 @@ export function TtsEngines({
             />
           </label>
           <label className="field" style={{ marginTop: '.4rem' }}>
-            <span className="muted" style={{ fontSize: '.78rem' }}>地址</span>
+            <span className="muted" style={{ fontSize: '0.78rem' }}>地址</span>
             <input
               placeholder="「阅读」里那一行整行贴进来也行"
               value={draft.url}
               onChange={(e) => setDraft({ ...draft, url: e.target.value })}
             />
           </label>
-          <p className="muted" style={{ fontSize: '.75rem', margin: '.4rem 0 .5rem' }}>
+          <p className="muted" style={{ fontSize: '0.75rem', margin: '0.4rem 0 0.5rem' }}>
             要念的那一段写成 <code>{'{text}'}</code>。「阅读」的配置写的是
             {' '}<code>{'{{java.encodeURI(speakText)}}'}</code>，整行贴进来会自动认出来，
             走 POST 的那种也认。
@@ -186,26 +186,26 @@ export function TtsEngines({
             </div>
           ))}
           {列出来的.length === 0 && (
-            <p className="muted" style={{ fontSize: '.8rem', margin: '.4rem' }}>
+            <p className="muted" style={{ fontSize: '0.8rem', margin: '.4rem' }}>
               没有名字带「{搜}」的引擎
             </p>
           )}
         </div>
       )}
 
-      <p className="muted" style={{ fontSize: '.78rem', margin: '.5rem 0 .6rem' }}>
+      <p className="muted" style={{ fontSize: '0.78rem', margin: '0.5rem 0 0.6rem' }}>
         默认只有<strong>系统语音</strong>，离线、不外发一个字。
         在线引擎<strong>会把正文一段一段发到第三方服务器</strong>，所以要自己加。
         <br />
         加进来的<strong>只存在这台机器上</strong>，跟着备份走，不进代码仓库。
       </p>
       {tts.fellBack && (
-        <p className="muted" style={{ fontSize: '.8rem', margin: '0 0 .5rem' }}>
+        <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
           这个引擎没出声，已经退回系统语音：{tts.fellBack}
         </p>
       )}
       {msg && (
-        <p className={坏消息 ? 'danger' : 'muted'} style={{ fontSize: '.8rem', margin: '0 0 .5rem' }}>
+        <p className={坏消息 ? 'danger' : 'muted'} style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
           {msg}
         </p>
       )}

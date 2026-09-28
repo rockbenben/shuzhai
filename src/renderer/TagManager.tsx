@@ -94,7 +94,7 @@ export function TagManager({ onClose }: { onClose: (changed: boolean) => void })
             空状态该说的是**下一步去哪儿**，不是这里的操作语义 */}
         {merging && (
           <div className="card" style={{ marginBottom: '.6rem' }}>
-            <div style={{ fontSize: '.9rem', marginBottom: '.4rem' }}>
+            <div style={{ fontSize: '0.9rem', marginBottom: '.4rem' }}>
               <strong>「{merging.into.name}」已经有了。</strong>
               <span className="muted">
                 　改成它就是把这两个标签并成一个：「{merging.from.name}」
@@ -111,7 +111,7 @@ export function TagManager({ onClose }: { onClose: (changed: boolean) => void })
           </div>
         )}
         {tags.length > 0 && (
-          <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+          <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
             共 {tags.length} 个标签。<strong>改成一个已经存在的名字就是合并</strong>——
             两个标签的书会并到一起，两边都打过的书只算一次。
           </p>
@@ -140,7 +140,7 @@ export function TagManager({ onClose }: { onClose: (changed: boolean) => void })
 
         <div style={{ maxHeight: '22rem', overflowY: 'auto' }}>
           {shown.map((t) => (
-            <div key={t.id} className="row" style={{ padding: '.25rem 0', alignItems: 'center' }}>
+            <div key={t.id} className="row" style={{ padding: '0.25rem 0', alignItems: 'center' }}>
               {editing === t.id ? (
                 <input
                   autoFocus
@@ -164,7 +164,7 @@ export function TagManager({ onClose }: { onClose: (changed: boolean) => void })
                   {t.name}
                 </button>
               )}
-              <span className="muted" style={{ fontSize: '.85rem', minWidth: '4rem', textAlign: 'right' }}>
+              <span className="muted" style={{ fontSize: '0.85rem', minWidth: '4rem', textAlign: 'right' }}>
                 {t.count} 本
               </span>
               {/*

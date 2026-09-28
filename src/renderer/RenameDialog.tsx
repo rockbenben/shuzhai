@@ -159,7 +159,7 @@ export function RenameDialog({ bookIds, onClose }: Props) {
               ⚠️ 主按钮**说的是会发生什么，不是心情**：原来写「我明白了」，
               而这个键真正干的事这段话自己已经写明了——去试算预览，磁盘上还什么都没变。
               「我明白了」既没说去处，也和别处的「知道了」是同一件事的两种说法 */}
-          <h2 style={{ margin: '0 0 .6rem', fontSize: '1.1rem' }}>
+          <h2 style={{ margin: '0 0 0.6rem', fontSize: '1.1rem' }}>
             要给 {bookIds.length} 本书改文件名
           </h2>
           <p style={{ marginTop: 0 }}>
@@ -195,7 +195,7 @@ export function RenameDialog({ bookIds, onClose }: Props) {
     <div className="modal-backdrop" onClick={() => !busy && onClose(report !== null)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>批量改名（{bookIds.length} 本）</h2>
-        <p className="muted" style={{ margin: '0 0 .7rem', fontSize: '.85rem' }}>
+        <p className="muted" style={{ margin: '0 0 0.7rem', fontSize: '0.85rem' }}>
           下面是<strong>试算结果</strong>，此刻磁盘上什么都没变。逐行核对后点「执行」才会真改。
         </p>
 
@@ -203,13 +203,13 @@ export function RenameDialog({ bookIds, onClose }: Props) {
             rename_log 只留最近 20 批，超出这个窗口就真的找不回来了 */}
         {undoable.length > 0 && (
           <div className="card" style={{ marginBottom: '.7rem' }}>
-            <strong style={{ fontSize: '.9rem' }}>可以撤回的改名</strong>
-            <span className="muted" style={{ fontSize: '.82rem' }}>
+            <strong style={{ fontSize: '0.9rem' }}>可以撤回的改名</strong>
+            <span className="muted" style={{ fontSize: '0.82rem' }}>
               　只留最近 {undoable.length} 批，再往前的撤不回来了
             </span>
             {undoable.map((b) => (
-              <div key={b.batchId} className="row" style={{ alignItems: 'center', padding: '.2rem 0' }}>
-                <span style={{ flex: 1, fontSize: '.85rem' }}>
+              <div key={b.batchId} className="row" style={{ alignItems: 'center', padding: '0.2rem 0' }}>
+                <span style={{ flex: 1, fontSize: '0.85rem' }}>
                   {/* `renamed_at` 是 sqlite 的 UTC 文本，原样印出来在东八区差 8 小时。
                       判据在 `core/format.ts` 的 `whenAgo`，`no-raw-time.test.ts` 守着 */}
                   <span title={whenAgo(b.renamedAt)?.title}>{whenAgo(b.renamedAt)?.text ?? b.renamedAt}</span>
@@ -223,7 +223,7 @@ export function RenameDialog({ bookIds, onClose }: Props) {
 
         <div className="row" style={{ marginBottom: '.5rem' }}>
           {PRESETS.map((p) => (
-            <button key={p.label} onClick={() => setTemplate(p.template)} style={{ fontSize: '.82rem' }}>
+            <button key={p.label} onClick={() => setTemplate(p.template)} style={{ fontSize: '0.82rem' }}>
               {p.label}
             </button>
           ))}
@@ -236,14 +236,19 @@ export function RenameDialog({ bookIds, onClose }: Props) {
           placeholder="可用变量：{title} {author} {status} {wordcount} {index} {ext}"
         />
 
-        <div className="row" style={{ margin: '.5rem 0' }}>
-          <span className="muted" style={{ fontSize: '.85rem' }}>重名时</span>
-          <select value={onConflict} onChange={(e) => setOnConflict(e.target.value as 'skip' | 'number')}>
+        <div className="row" style={{ margin: '0.5rem 0' }}>
+          <span className="muted" style={{ fontSize: '0.85rem' }}>重名时</span>
+          <select
+            value={onConflict}
+            onChange={(e) => setOnConflict(e.target.value as 'skip' | 'number')}
+            // 「重名时」是旁边那个 <span>，不是这个下拉的名字——读屏只念得出选项
+            aria-label="重名时怎么办"
+          >
             <option value="skip">跳过并标红</option>
             <option value="number">自动加序号 (2)</option>
           </select>
           {rows && (
-            <span className="muted" style={{ fontSize: '.85rem' }}>
+            <span className="muted" style={{ fontSize: '0.85rem' }}>
               正常 {counts.ok ?? 0} · 无变化 {counts.unchanged ?? 0} · 冲突 {counts.conflict ?? 0} ·
               非法字符 {counts.sanitized ?? 0} · 已勾选 {picked.size}
             </span>
@@ -256,7 +261,7 @@ export function RenameDialog({ bookIds, onClose }: Props) {
           <div className="card" style={{ marginBottom: '.6rem' }}>
             <strong>执行完成</strong>：成功 {report.ok} · 失败 {report.failed.length}
             {report.failed.length > 0 && (
-              <ul className="danger" style={{ margin: '.3rem 0 0', paddingLeft: '1.2rem', fontSize: '.85rem' }}>
+              <ul className="danger" style={{ margin: '0.3rem 0 0', paddingLeft: '1.2rem', fontSize: '0.85rem' }}>
                 {report.failed.map((f) => (
                   <li key={f.oldName}>{f.oldName} —— {f.error}</li>
                 ))}
@@ -273,7 +278,7 @@ export function RenameDialog({ bookIds, onClose }: Props) {
           * 静默截断读起来就是「全在这儿了」。
           */}
         {rows && rows.length > LIST_MAX && (
-          <p className="muted" style={{ margin: '0 0 .4rem', fontSize: '.82rem' }}>
+          <p className="muted" style={{ margin: '0 0 0.4rem', fontSize: '0.82rem' }}>
             共 {rows.length} 行，表格只列前 {LIST_MAX} 行——
             <strong>没列出来的也在勾选范围里</strong>，会一起改。要逐行核对就先把筛选缩小些。
           </p>
@@ -302,13 +307,13 @@ export function RenameDialog({ bookIds, onClose }: Props) {
                           onChange={() => toggle(r.fileId)}
                         />
                       </td>
-                      <td style={{ fontSize: '.82rem', overflowWrap: 'anywhere' }}>{r.oldName}</td>
-                      <td style={{ fontSize: '.82rem', overflowWrap: 'anywhere', color: meta.color }}>
+                      <td style={{ fontSize: '0.82rem', overflowWrap: 'anywhere' }}>{r.oldName}</td>
+                      <td style={{ fontSize: '0.82rem', overflowWrap: 'anywhere', color: meta.color }}>
                         {r.status === 'unchanged' ? '—' : r.newName}
                       </td>
-                      <td style={{ fontSize: '.8rem', color: meta.color }}>
+                      <td style={{ fontSize: '0.8rem', color: meta.color }}>
                         {meta.text}
-                        {r.note && <div className="muted" style={{ fontSize: '.75rem' }}>{r.note}</div>}
+                        {r.note && <div className="muted" style={{ fontSize: '0.75rem' }}>{r.note}</div>}
                       </td>
                     </tr>
                   );
@@ -321,7 +326,7 @@ export function RenameDialog({ bookIds, onClose }: Props) {
         {confirming ? (
           <div className="card" style={{ marginTop: '.8rem', borderColor: 'var(--danger)' }}>
             <strong className="danger">要给 {picked.size} 个文件改名，确认吗？</strong>
-            <p className="muted" style={{ margin: '.3rem 0 .5rem', fontSize: '.85rem' }}>
+            <p className="muted" style={{ margin: '0.3rem 0 0.5rem', fontSize: '0.85rem' }}>
               这会真的修改磁盘上的文件名。执行后可以整批撤销。
             </p>
             <div className="row" style={{ justifyContent: 'flex-end' }}>

@@ -103,7 +103,7 @@ export function TtsLayer(
       {正文.trim() === '' ? (
         /* **这一页没有可念的字。** 扫描版 PDF 就是这样——一张图，没有文字层。
            说清楚比摆一个点了没反应的键强（本仓库那条老规矩） */
-        <p className="muted" style={{ fontSize: '.8rem', margin: 0 }}>
+        <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>
           这一页没有可念的文字。扫出来的 PDF 是一张图，取不到字。
         </p>
       ) : !tts.speaking && !tts.paused ? (
@@ -171,7 +171,7 @@ export function TtsLayer(
           这一章念完
         </button>
       </div>
-      <label className="row" style={{ gap: '.35rem', fontSize: '.8rem', marginTop: '.3rem' }}>
+      <label className="row" style={{ gap: '.35rem', fontSize: '0.8rem', marginTop: '.3rem' }}>
         <span className="muted">自定义</span>
         <input
           type="number"
@@ -196,7 +196,7 @@ export function TtsLayer(
       </label>
       {睡到 !== null && (
         <div className="row" style={{ justifyContent: 'space-between', marginTop: '.3rem' }}>
-          <span className="muted" style={{ fontSize: '.78rem' }}>
+          <span className="muted" style={{ fontSize: '0.78rem' }}>
             {睡到 === 'chapter'
               ? '这一章念完就停'
               : Math.max(1, Math.round((睡到 - 现在) / 60_000)) + ' 分钟后停'}

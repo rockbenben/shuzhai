@@ -21,7 +21,7 @@ export function BatchPlanList({ sample, total }: {
 }) {
   const 列出的 = sample?.length ?? 0;
   return (
-    <ol style={{ margin: '.5rem 0 0', paddingLeft: '1.4rem', fontSize: '.87rem', maxHeight: '12rem', overflowY: 'auto' }}>
+    <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.4rem', fontSize: '0.87rem', maxHeight: '12rem', overflowY: 'auto' }}>
       {sample?.map((b) => <li key={b.bookId}>{b.title}</li>)}
       {total > 列出的 && (
         <li className="muted">…以及另外 {total - 列出的} 本</li>

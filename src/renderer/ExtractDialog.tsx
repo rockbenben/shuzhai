@@ -91,7 +91,7 @@ export function ExtractDialog({ bookIds, onClose }: Props) {
         <h2>从文件名提取书名作者</h2>
         {/* **没有要改的时候，这段「逐行核对」是句空话**——下面根本没有行 */}
         {changedCount > 0 && (
-          <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+          <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
             这是<strong>猜测</strong>，不是事实。下面逐行核对，不对的取消勾选——
             应用后会覆盖现有的书名和作者。
           </p>
@@ -102,13 +102,13 @@ export function ExtractDialog({ bookIds, onClose }: Props) {
 
         {rows && (
           <>
-            <p style={{ margin: '0 0 .4rem', fontSize: '.87rem' }}>
+            <p style={{ margin: '0 0 0.4rem', fontSize: '0.87rem' }}>
               {changedCount === 0
                 ? `这 ${rows.length} 本的书名作者都已经和文件名对得上，没有要改的。`
                 : `${rows.length} 本里有 ${changedCount} 本会变，已勾选 ${picked.size} 本。下面只列会变的。`}
             </p>
             {hiddenCount > 0 && (
-              <p className="muted" style={{ margin: '0 0 .4rem', fontSize: '.82rem' }}>
+              <p className="muted" style={{ margin: '0 0 0.4rem', fontSize: '0.82rem' }}>
                 表格只列前 {LIST_MAX} 本，还有 {hiddenCount} 本没列出来——
                 <strong>它们也在勾选范围里</strong>，会一起应用。
               </p>
@@ -135,12 +135,12 @@ export function ExtractDialog({ bookIds, onClose }: Props) {
                           onChange={() => toggle(r.bookId)}
                         />
                       </td>
-                      <td style={{ fontSize: '.82rem', overflowWrap: 'anywhere' }}>{r.filename}</td>
-                      <td style={{ fontSize: '.85rem' }}>
+                      <td style={{ fontSize: '0.82rem', overflowWrap: 'anywhere' }}>{r.filename}</td>
+                      <td style={{ fontSize: '0.85rem' }}>
                         {r.currentTitle}
                         {r.currentAuthor && <span className="muted"> / {r.currentAuthor}</span>}
                       </td>
-                      <td style={{ fontSize: '.85rem', color: r.changed ? 'var(--accent)' : undefined }}>
+                      <td style={{ fontSize: '0.85rem', color: r.changed ? 'var(--accent)' : undefined }}>
                         {r.title}
                         {r.author && <span className="muted"> / {r.author}</span>}
                       </td>
@@ -161,7 +161,7 @@ export function ExtractDialog({ bookIds, onClose }: Props) {
           <div className="card">
             <strong>已经改好 {done} 本的书名和作者</strong>
             {done < picked.size && (
-              <p className="muted" style={{ margin: '.4rem 0 0', fontSize: '.85rem' }}>
+              <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.85rem' }}>
                 勾了 {picked.size} 本，有 {picked.size - done} 本没能改——
                 多半是那条记录已经不在了（比如刚被合并或删掉）。重新扫描一次再看看。
               </p>

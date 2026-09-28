@@ -90,7 +90,7 @@ export function CleanRules({ sampleBookId, onClose }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" style={{ width: 'min(56rem, 100%)' }} onClick={(e) => e.stopPropagation()}>
         <h2>正文净化</h2>
-        <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+        <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
           净化是<strong>运行时套用</strong>的——原始 txt 一个字节都不会改，
           随时可以关掉规则看原文。
         </p>
@@ -130,12 +130,12 @@ export function CleanRules({ sampleBookId, onClose }: Props) {
                 <td>
                   <input type="checkbox" checked={r.enabled} onChange={() => void toggle(r)} />
                 </td>
-                <td style={{ fontSize: '.87rem' }}>
+                <td style={{ fontSize: '0.87rem' }}>
                   {r.name}
-                  {r.builtin && <span className="muted" style={{ fontSize: '.75rem' }}> 内置</span>}
+                  {r.builtin && <span className="muted" style={{ fontSize: '0.75rem' }}> 内置</span>}
                   {/* 十几条规则光看名字判断不了该不该开，说明得直接摆出来 */}
                   {r.note && (
-                    <div className="muted" style={{ fontSize: '.75rem', marginTop: '.15rem' }}>{r.note}</div>
+                    <div className="muted" style={{ fontSize: '0.75rem', marginTop: '.15rem' }}>{r.note}</div>
                   )}
                 </td>
                 {/* 净化规则的正则动辄几百个字符，不封顶会把整张表撑得没法看。
@@ -143,7 +143,7 @@ export function CleanRules({ sampleBookId, onClose }: Props) {
                 <td
                   className="clean-pattern"
                   style={{
-                    fontFamily: 'ui-monospace, monospace', fontSize: '.75rem',
+                    fontFamily: 'ui-monospace, monospace', fontSize: '0.75rem',
                     overflowWrap: 'anywhere', maxHeight: '3.2em', overflow: 'hidden',
                   }}
                   title={r.pattern}
@@ -153,7 +153,7 @@ export function CleanRules({ sampleBookId, onClose }: Props) {
                 <td>
                   {!r.builtin && (
                     <button
-                      style={{ fontSize: '.75rem', padding: '.1em .4em' }}
+                      style={{ fontSize: '0.75rem', padding: '.1em .4em' }}
                       onClick={async () => {
                         await rpc('clean.remove', { id: r.id });
                         await reload();
@@ -187,27 +187,27 @@ export function CleanRules({ sampleBookId, onClose }: Props) {
 
         {error && <p className="danger">{error}</p>}
 
-        <h3 style={{ fontSize: '.95rem', margin: '1rem 0 .3rem' }}>
+        <h3 style={{ fontSize: '0.95rem', margin: '1rem 0 0.3rem' }}>
           效果预览{sampleTitle && <span className="muted"> · {sampleTitle}</span>}
         </h3>
         {sampleBookId === undefined ? (
-          <p className="muted" style={{ fontSize: '.85rem' }}>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
             书架里还没有能试算的书——净化只对 txt 正文生效，PDF、EPUB 这些只编目不解析。
           </p>
         ) : previewErr ? (
-          <p className="muted" style={{ fontSize: '.85rem' }}>这本书试算不出来：{previewErr}</p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>这本书试算不出来：{previewErr}</p>
         ) : diff === null ? (
-          <p className="muted" style={{ fontSize: '.85rem' }}>正在试算…</p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>正在试算…</p>
         ) : (
           <>
         {whole.removed > 0 && (
-          <p className="muted" style={{ fontSize: '.85rem', margin: '0 0 .4rem' }}>
+          <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 0.4rem' }}>
             整章规则删掉了 <strong>{whole.removed.toLocaleString()}</strong> 个字
             （整段整段地删，下面那张按行对照的表里看不到它们）。
           </p>
         )}
         {whole.rejected.length > 0 && (
-          <p className="danger" style={{ fontSize: '.85rem', margin: '0 0 .4rem' }}>
+          <p className="danger" style={{ fontSize: '0.85rem', margin: '0 0 0.4rem' }}>
             <strong>{whole.rejected.join('、')}</strong> 这一条会删掉超过四成正文，
             已经当它没生效——多半是正则写宽了。
           </p>
@@ -215,7 +215,7 @@ export function CleanRules({ sampleBookId, onClose }: Props) {
         {diff.length === 0 ? (
           /* 上面刚说完「整章规则删掉了 N 个字」，这里再说「没有任何一行会被改动」
              就自相矛盾了——**下面这张表只管按行的规则**，话得说到这个份上 */
-          <p className="muted" style={{ fontSize: '.85rem' }}>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
             {whole.removed > 0 ? '按行的规则没有再改动任何一行。' : '这一章没有任何一行会被改动。'}
           </p>
         ) : (
@@ -231,17 +231,17 @@ export function CleanRules({ sampleBookId, onClose }: Props) {
               <tbody>
                 {diff.map((l, i) => (
                   <tr key={i}>
-                    <td style={{ fontSize: '.8rem', overflowWrap: 'anywhere' }}>{l.before}</td>
+                    <td style={{ fontSize: '0.8rem', overflowWrap: 'anywhere' }}>{l.before}</td>
                     <td
                       style={{
-                        fontSize: '.8rem',
+                        fontSize: '0.8rem',
                         overflowWrap: 'anywhere',
                         color: l.after === null ? 'var(--danger)' : 'var(--accent)',
                       }}
                     >
                       {l.after === null ? '（整行删除）' : l.after}
                     </td>
-                    <td className="muted" style={{ fontSize: '.78rem' }}>{l.by}</td>
+                    <td className="muted" style={{ fontSize: '0.78rem' }}>{l.by}</td>
                   </tr>
                 ))}
               </tbody>

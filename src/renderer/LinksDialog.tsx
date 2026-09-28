@@ -85,7 +85,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
     <div className="modal-backdrop" onClick={() => onClose(changed)}>
       <div className="modal" style={{ width: 'min(50rem, 100%)' }} onClick={(e) => e.stopPropagation()}>
         <h2>在线地址 · {bookTitle}</h2>
-        <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+        <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
           粘一个这本书的网址，可以<strong>一键把封面、简介、作者补进来</strong>；
           地址也会记下，用来查死链、看对面更新到第几章。<strong>不抓正文也不在这里读</strong>。
         </p>
@@ -146,16 +146,16 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
                         {l.url}
                       </a>
                     </td>
-                    <td style={{ fontSize: '.82rem', color: st?.color }}>
+                    <td style={{ fontSize: '0.82rem', color: st?.color }}>
                       {st?.text ?? '未检查'}
                       {l.last_checked_at && (
-                        <div className="muted" style={{ fontSize: '.72rem' }} title={whenAgo(l.last_checked_at)?.title}>
+                        <div className="muted" style={{ fontSize: '0.72rem' }} title={whenAgo(l.last_checked_at)?.title}>
                           {/* 原来是 `slice(5, 16)` 截那串 UTC 文本，差 8 小时 */}
                           {whenAgo(l.last_checked_at)?.text}
                         </div>
                       )}
                     </td>
-                    <td style={{ fontSize: '.82rem' }}>
+                    <td style={{ fontSize: '0.82rem' }}>
                       {l.latest_chapter_title ?? (
                         <span className="muted">还没检查过</span>
                       )}
@@ -164,7 +164,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
                       <input
                         defaultValue={l.selector ?? ''}
                         placeholder="留空自动识别"
-                        style={{ width: '100%', font: 'inherit', fontSize: '.75rem' }}
+                        style={{ width: '100%', font: 'inherit', fontSize: '0.75rem' }}
                         onBlur={(e) => {
                           const v = e.target.value;
                           if ((l.selector ?? '') === (v.trim() ? v : '')) return;
@@ -177,7 +177,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
                     </td>
                     <td>
                       <button
-                        style={{ fontSize: '.75rem', padding: '.1em .45em' }}
+                        style={{ fontSize: '0.75rem', padding: '.1em .45em' }}
                         onClick={() => void run('', async () => {
                           await rpc('link.remove', { id: l.id });
                           await reload();
@@ -191,8 +191,8 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
               })}
             </tbody>
           </table>
-          <p className="muted" style={{ fontSize: '.75rem', marginTop: '.3rem' }}>
-            内置站点（起点、书旗、纵横、番茄、豆瓣）留空就自动识别最新章；其他网站可以填一个正则，第一个捕获组＝最新章标题。要浏览器渲染才出内容的陌生站正则也取不到，只能探活。
+          <p className="muted" style={{ fontSize: '0.75rem', marginTop: '.3rem' }}>
+            内置站点（起点、书旗、纵横、番茄、豆瓣）留空就自动识别最新章；其他网站可以填一个正则，第一个捕获组＝最新章标题。要浏览器把页面画得出来才有内容的陌生站，正则也取不到最新章，只能查到「这个地址还打得开」。
           </p>
           </>
         )}
@@ -202,7 +202,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
           <div
             style={{
               border: '1px solid var(--line)', borderRadius: 6, padding: '.7rem',
-              margin: '.7rem 0', background: 'var(--bg)',
+              margin: '0.7rem 0', background: 'var(--bg)',
             }}
           >
             <div className="row" style={{ gap: '.7rem', alignItems: 'flex-start' }}>
@@ -219,13 +219,13 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600 }}>{c.title || '（没认出书名）'}</div>
-                {c.author && <div className="muted" style={{ fontSize: '.82rem' }}>作者：{c.author}</div>}
-                {c.category && <div className="muted" style={{ fontSize: '.82rem' }}>分类：{c.category}</div>}
+                {c.author && <div className="muted" style={{ fontSize: '0.82rem' }}>作者：{c.author}</div>}
+                {c.category && <div className="muted" style={{ fontSize: '0.82rem' }}>分类：{c.category}</div>}
                 {c.tags && c.tags.length > 0 && (
-                  <div className="muted" style={{ fontSize: '.82rem' }}>标签：{c.tags.join('、')}</div>
+                  <div className="muted" style={{ fontSize: '0.82rem' }}>标签：{c.tags.join('、')}</div>
                 )}
                 {c.intro && (
-                  <p style={{ fontSize: '.8rem', margin: '.4rem 0 0', maxHeight: '7.5em', overflow: 'auto' }}>
+                  <p style={{ fontSize: '0.8rem', margin: '0.4rem 0 0', maxHeight: '7.5em', overflow: 'auto' }}>
                     {c.intro}
                   </p>
                 )}
@@ -233,7 +233,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
             </div>
 
             {detail!.titleMismatch && (
-              <p className="danger" style={{ fontSize: '.8rem', margin: '.5rem 0 0' }}>
+              <p className="danger" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
                 对面书名「{c.title}」和本地「{bookTitle}」对不上——只会补本地还空着的字段
                 （封面、简介、作者），<strong>不会改你的书名</strong>。确认这是同一本书再应用。
               </p>
@@ -263,7 +263,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
         )}
 
         {result && (
-          <p style={{ fontSize: '.85rem', margin: '.5rem 0', color: result.applied.length ? 'var(--accent)' : undefined }}>
+          <p style={{ fontSize: '0.85rem', margin: '0.5rem 0', color: result.applied.length ? 'var(--accent)' : undefined }}>
             {result.applied.length
               ? `已补全：${result.applied.join('、')}`
               : '本地这些字段都已经有了，没有要补的。'}
@@ -279,7 +279,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
           rows={2}
           placeholder="把网址粘在这里，一次可以粘一大段（中文标点会自动断开）"
           style={{
-            width: '100%', marginTop: '.7rem', font: 'inherit', fontSize: '.85rem',
+            width: '100%', marginTop: '.7rem', font: 'inherit', fontSize: '0.85rem',
             color: 'var(--fg)', background: 'var(--bg)', border: '1px solid var(--line)',
             borderRadius: 5, padding: '.3em .5em',
           }}
@@ -367,7 +367,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
           >
             检查
           </button>
-          {busy && <span className="muted" style={{ fontSize: '.85rem' }}>{busy}</span>}
+          {busy && <span className="muted" style={{ fontSize: '0.85rem' }}>{busy}</span>}
           <span style={{ flex: 1 }} />
           <button onClick={() => onClose(changed)}>关闭</button>
         </div>

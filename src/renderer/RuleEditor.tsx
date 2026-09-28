@@ -135,7 +135,7 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
           * 写一条正则……」——一本已经切成 45 章的书也这么讲，等于催着人去改
           * 一个没坏的东西。
           */}
-        <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+        <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
           {base === null ? (
             '正在看这本书现在切成几章…'
           ) : base.recognized && base.count > 1 ? (
@@ -157,14 +157,14 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
         </p>
 
         {suggests === null && (
-          <p className="muted" style={{ margin: '0 0 .5rem', fontSize: '.85rem' }}>
+          <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.85rem' }}>
             正在从这本书里找可能的标题格式…
           </p>
         )}
 
         {suggests !== null && suggests.length > 0 && (
           <div className="card" style={{ marginBottom: '.6rem' }}>
-            <div style={{ fontSize: '.85rem', marginBottom: '.4rem' }}>
+            <div style={{ fontSize: '0.85rem', marginBottom: '.4rem' }}>
               <strong>从这本书自己的正文里找到的格式</strong>
               <span className="muted">　点一条看看它会切成什么样</span>
             </div>
@@ -201,11 +201,11 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
 
         {suggests !== null && suggests.length === 0 && (
           <div className="row" style={{ marginBottom: '.5rem' }}>
-            <span className="muted" style={{ fontSize: '.82rem', alignSelf: 'center' }}>
+            <span className="muted" style={{ fontSize: '0.82rem', alignSelf: 'center' }}>
               这本书里没找到反复出现的标题格式，试试这些常见写法：
             </span>
             {RULE_PRESETS.map((p) => (
-              <button key={p.label} onClick={() => setPattern(p.pattern)} style={{ fontSize: '.82rem' }}>
+              <button key={p.label} onClick={() => setPattern(p.pattern)} style={{ fontSize: '0.82rem' }}>
                 {p.label}
               </button>
             ))}
@@ -219,7 +219,7 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
           * 点上面的建议照样会把内容填进来，折叠区会自动展开给人看到发生了什么。
           */}
         <details open={!!pattern}>
-          <summary style={{ fontSize: '.85rem', cursor: 'pointer', color: 'var(--muted)', margin: '.2rem 0 .4rem' }}>
+          <summary style={{ fontSize: '0.85rem', cursor: 'pointer', color: 'var(--muted)', margin: '0.2rem 0 0.4rem' }}>
             自己写规则（要会正则表达式）
           </summary>
           <input
@@ -239,13 +239,13 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
               {pattern === (saved ?? '') ? '现在切成' : '会切成'} {preview.count} 章
               {!preview.recognized && '——一条标题都没认出来，这是按固定字数硬分的段'}
             </strong>
-            <ol style={{ margin: '.5rem 0 0', paddingLeft: '1.4rem', fontSize: '.87rem', maxHeight: '13rem', overflowY: 'auto' }}>
+            <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.4rem', fontSize: '0.87rem', maxHeight: '13rem', overflowY: 'auto' }}>
               {preview.titles.map((t, i) => (
                 <li key={i}>{t}</li>
               ))}
             </ol>
             {preview.count > preview.titles.length && (
-              <p className="muted" style={{ margin: '.4rem 0 0', fontSize: '.82rem' }}>
+              <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.82rem' }}>
                 只列出前 {preview.titles.length} 章
               </p>
             )}
