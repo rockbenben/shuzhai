@@ -78,7 +78,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
     <div className="modal-backdrop" onClick={() => !busy && onClose(changed)}>
       <div className="modal" style={{ width: 'min(44rem, 100%)' }} onClick={(e) => e.stopPropagation()}>
         <h2>备份与恢复</h2>
-        <p className="muted" style={{ margin: '0 0 .8rem', fontSize: '.85rem' }}>
+        <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
           备份的是<strong>重新扫描恢复不了</strong>的东西：阅读进度、书签、评分短评、
           标签分类、各种规则。txt 文件本身不在备份里，也不需要。
         </p>
@@ -123,10 +123,10 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
         {pendingFile && (
           <div className="card" style={{ marginTop: '.6rem' }}>
             <strong className="danger">用这份备份覆盖现在的阅读进度？</strong>
-            <p className="muted" style={{ margin: '.3rem 0', fontSize: '0.82rem', overflowWrap: 'anywhere' }}>
+            <p className="muted" style={{ margin: '0.3rem 0', fontSize: '0.82rem', overflowWrap: 'anywhere' }}>
               {pendingFile}
             </p>
-            <p className="muted" style={{ margin: '.3rem 0 .5rem', fontSize: '0.82rem' }}>
+            <p className="muted" style={{ margin: '0.3rem 0 0.5rem', fontSize: '0.82rem' }}>
               备份里认得出的书，<strong>阅读进度、书签、评分短评会被备份里的那份替换</strong>——
               这三样重新扫描恢复不了，覆盖了就是覆盖了。认不出的书不动，
               书和 txt 文件也一个都不会动。
@@ -206,7 +206,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
               * 认不回来 → 扫描 → 再恢复一次就认得回来，**而且第三次也不翻倍**
               * （书签划线都按位置去重）。
               */}
-            <p className="muted" style={{ margin: '.3rem 0', fontSize: '0.82rem' }}>
+            <p className="muted" style={{ margin: '0.3rem 0', fontSize: '0.82rem' }}>
               这些书的进度还在备份文件里，但本地找不到对应的 txt——
               多半是文件还没扫进来。<strong>先把书库文件夹加进来扫描一次，再恢复一遍</strong>，
               这些就认得回来了；重复恢复不会让书签划线翻倍。
@@ -214,7 +214,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
               文件确实不在这台机器上的话，那几本就先留在备份里——
               <strong>程序不会凭空建条目</strong>，那样只会得到一堆点开就报错的幽灵。
             </p>
-            <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '.8rem' }}>
+            <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.8rem' }}>
               {restore.unmatched.slice(0, 10).map((u, i) => (
                 <li key={i}>
                   {u.title}
@@ -228,7 +228,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
           </div>
         )}
 
-        <h3 style={{ fontSize: '.95rem', margin: '1.1rem 0 .3rem' }}>自动备份</h3>
+        <h3 style={{ fontSize: '0.95rem', margin: '1.1rem 0 0.3rem' }}>自动备份</h3>
         <label className="row" style={{ gap: '.4rem' }}>
           <input
             type="checkbox"
@@ -239,23 +239,25 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
         </label>
 
         <div className="row" style={{ marginTop: '.5rem' }}>
-          <span className="muted" style={{ fontSize: '.85rem' }}>每</span>
+          <span className="muted" style={{ fontSize: '0.85rem' }}>每</span>
           <input
             type="number"
             min={1}
+            aria-label="每隔多少天自动备份一次"
             value={cfg.everyDays}
             onChange={(e) => void save({ everyDays: Number(e.target.value) })}
             style={{ width: '4.5rem' }}
           />
-          <span className="muted" style={{ fontSize: '.85rem' }}>天，保留最近</span>
+          <span className="muted" style={{ fontSize: '0.85rem' }}>天，保留最近</span>
           <input
             type="number"
             min={1}
+            aria-label="保留最近几份"
             value={cfg.keep}
             onChange={(e) => void save({ keep: Number(e.target.value) })}
             style={{ width: '4.5rem' }}
           />
-          <span className="muted" style={{ fontSize: '.85rem' }}>份</span>
+          <span className="muted" style={{ fontSize: '0.85rem' }}>份</span>
         </div>
 
         <div className="row" style={{ marginTop: '.5rem' }}>
@@ -267,7 +269,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
           >
             选备份文件夹…
           </button>
-          <span className="muted" style={{ fontSize: '.8rem', overflowWrap: 'anywhere' }}>
+          <span className="muted" style={{ fontSize: '0.8rem', overflowWrap: 'anywhere' }}>
             {cfg.dir || '还没选'}
           </span>
         </div>
@@ -280,11 +282,11 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
           * 把这个目录指到 OneDrive / 坚果云 / 任何网盘客户端的同步目录就行。
           * 这个能力一直都有，只是界面上**一个字都没提**，等于没有。
           */}
-        <p className="muted" style={{ fontSize: '.82rem', marginTop: '.4rem' }}>
+        <p className="muted" style={{ fontSize: '0.82rem', marginTop: '.4rem' }}>
           选一个<strong>正在同步的文件夹</strong>（OneDrive、坚果云、网盘客户端的文件夹都行），
           备份就跟着上了云——默认位置和书库在同一块盘上，盘坏了两份一起没。
         </p>
-        <p className="muted" style={{ fontSize: '.82rem', marginTop: '.4rem' }}>
+        <p className="muted" style={{ fontSize: '0.82rem', marginTop: '.4rem' }}>
           {/* 原来是 `slice(0, 16).replace('T', ' ')`——那串是 `toISOString()` 的 **UTC**，
               截出来的还是 UTC，摆给用户看在东八区差 8 小时 */}
           {cfg.lastAt
