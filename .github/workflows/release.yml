@@ -115,9 +115,19 @@ jobs:
         run: |
           $files = Get-ChildItem release\* -Include *-x64-setup.exe, *-x64.zip -File
           if ($files.Count -ne 2) { throw "release/ 里找到 $($files.Count) 个产物，该有 2 个" }
-          $files | Get-FileHash -Algorithm SHA256 |
-            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
-            Set-Content release/SHA256SUMS.txt -Encoding ascii
+          $lines = $files | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) }
+          # ⚠️ **行尾必须是 LF，不能用 Set-Content。** 它在 Windows 上写 CRLF，而 sha256sum
+          # 把那个 `\r` 当成文件名的一部分：Linux / macOS / WSL / Git Bash 里
+          # `sha256sum -c SHA256SUMS.txt` 逐条报
+          #   sha256sum: 'shuzhai-…-x64-setup.exe'$'\r': No such file or directory → FAILED
+          # **摘要是对的**（把 `\r` 去掉两条都 OK），坏的是这个文件存在的目的——它被下载去
+          # 就是为了让人一条命令验完，而那条命令在非 Windows 上必然报错，看起来像包被改过。
+          # v1.1.3 发出去的那份就是 CRLF，当场撞过一次才改的。
+          # `WriteAllText` 不写 BOM（pwsh 是 .NET，UTF8 无 BOM），内容是纯 ASCII。
+          [IO.File]::WriteAllText(
+            (Join-Path (Get-Location).Path 'release/SHA256SUMS.txt'),
+            (($lines -join "`n") + "`n"))
           Get-Content release/SHA256SUMS.txt | ForEach-Object { $_ >> $env:GITHUB_STEP_SUMMARY }
 
       # **来源证明，比 SHA256SUMS 强一档**（同 020 / 033，它们记的那条判据）：
