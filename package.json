@@ -11,7 +11,9 @@
   "scripts": {
     "test": "node --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "lint:ui": "node scripts/dead-fields.mjs && node scripts/dead-mounts.mjs && node scripts/dead-exports.mjs && node scripts/stale-refs.mjs && node scripts/dup-decls.mjs",
+    "font:scale": "node scripts/font-scale.mjs",
+    "font:scale": "node scripts/font-scale.mjs",
+    "lint:ui": "node scripts/dead-fields.mjs && node scripts/dead-mounts.mjs && node scripts/dead-exports.mjs && node scripts/stale-refs.mjs && node scripts/dup-decls.mjs && node scripts/hardcoded-keys.mjs && node scripts/cond-groups.mjs && node scripts/lessons-refs.mjs",
     "dev": "vite",
     "build": "vite build",
     "start": "electron .",
