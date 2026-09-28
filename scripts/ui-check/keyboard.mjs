@@ -207,6 +207,8 @@ const tools = [];
  * 拿掉星星的 `aria-label` 去破坏它，它一声不吭。
  */
 const 没名字 = [];
+/** 这一句「所有控件都有名字」到底覆盖了哪几屏——最后打印出来，别让它含糊地说「都有」 */
+const 扫过的屏 = ['书架'];
 const scanNames = async (哪一屏) => {
   const doc = (await send('DOM.getDocument', { depth: -1 })).result;
   const { nodeIds } = (await send('DOM.querySelectorAll', {
@@ -246,6 +248,115 @@ const scanNames = async (哪一屏) => {
     console.error(`✗ 自检没过：塞了个只有「◇」的按钮，判据却说它有名字 → ${JSON.stringify(dn?.name?.value)}`);
     process.exit(1);
   }
+
+}
+
+/*
+ * **再扫几屏带输入控件的弹窗。** 原来这一段只扫书架和评价浮层两处，
+ * 而 Design QA 那遍清点出来的**十个没名字的控件全在别的弹窗里**——
+ * 改名（重名时下拉）、备份（每 N 天 / 保留 N 份）、设置·书库（定期扫描三个框）、
+ * 自定义封面源（启用勾选框 + 源名字框）、朗读（引擎 / 音色）、书内搜索（搜哪一片）、
+ * 筛选（文件夹下拉）。
+ *
+ * 共同形状是同一个：**标题写成 `<div>` 里的 `<span className="muted">`，
+ * 而不是包着控件的 `<label>`**——眼睛看得到「每」，可及性树里没有。
+ * 所以判据要扫到那一屏才量得到，只扫书架等于这一整类永远绿。
+ *
+ * ⚠️ **开不起来的那一屏要报错，不许静默跳过。** 第一版这里写的是 `continue`，
+ * 而 `scanNames` 当时还没 `const` 到（这段被插在它上面），整段一行都没跑，
+ * 破坏实验（删掉一个 `aria-label`）当场是绿的——**「什么都没扫」和
+ * 「扫了没问题」印出来是同一句「0 处」**，这个仓库记过它七八个变体。
+ */
+{
+  const 再扫 = [
+    ['改名', async () => {
+      /*
+       * 卡片那排工具条**平时是折起来的**（`height: 0` + `pointer-events: none`，
+       * 为的是留在 tab 序里，见 shell.css 那段），所以不能像 `audit.mjs` 里
+       * `card:` 那样直接点——那一屏之前先有别的屏把弹窗开着、焦点在里面。
+       * 这里让**第一张卡自己拿到焦点**：`:focus-within` 会展开工具条，
+       * 这同时也是键盘用户真实会走的那条路。
+       */
+      await ev("(() => { const c=document.querySelector('.book'); if(c){ const a=c.querySelector('.book-art'); a && a.focus(); } return 1; })()");
+      await wait(500);
+      if (!(await ev("(() => { const b=[...document.querySelectorAll('.book-tools button')].find(x=>x.textContent.trim()==='编辑'); if(!b) return 0; b.click(); return 1; })()"))) return false;
+      for (let i = 0; i < 40; i++) {
+        if (await ev("(() => { const g=[...document.querySelectorAll('.modal .mini')].find(x=>/改文件名/.test(x.textContent)); if(g){ g.click(); return 1; } return 0; })()")) return true;
+        await wait(200);
+      }
+      return false;
+    }],
+    ['备份', async () => 开工具了('备份')],
+    ['设置·书库', async () => { if (!(await 开工具了('设置'))) return false;
+      return await 切到页签('书库'); }],
+
+    ['筛选', "(() => { const b=[...document.querySelectorAll('.main-head .chip')].find(x=>x.textContent.trim()==='筛选'); if(b) b.click(); return b?1:0; })()"],
+  ];
+  const 切到页签 = async (名) => {
+    const 找 = `[...document.querySelectorAll('.tabs button')].find(x=>x.textContent.trim()===${JSON.stringify(名)})`;
+    if (!(await ev(`!!${找}`))) {
+      await ev(`(() => { const b=${找}; if(b) b.click(); return 1; })()`);
+    }
+    for (let i = 0; i < 30 && !(await ev(`!!${找}:not([aria-selected="false"])`)); i++) await wait(150);
+    return !!(await ev(`!!${找}`));
+  };
+  const 没开成 = [];
+  /*
+   * **收干净再开下一屏。** 前面几段（弹窗焦点、换层、打分那一段）会留下
+   * 还开着的弹窗和评价浮层，而 `.main-head .chip` 那些键在遮罩背后点不着——
+   * 于是每一屏都「开不起来」。第一版就是这么四条一起红的。
+   * 收法抄 `audit.mjs` 那一处：连点遮罩几层 + 三下 Esc（浮层不吃遮罩）。
+   */
+  const 收干净 = async () => {
+    /*
+     * **先看是不是还停在阅读器/查看器里，是就 reload。**
+     * 第五段为了量那五颗星会开进一本书，而 `App.tsx` 在阅读器里会整个 return 掉书架——
+     * 这时候屏幕上没有卡片、没有顶栏那排 chip，点什么都没反应
+     * （诊断打出来是「卡片=0 顶栏chip=空」）。
+     * 用 Esc 退出去**等于用 CDP 驱动阅读器界面**，那会往 `reading_state` 写进度——
+     * 铁律 3 里重扫恢复不了的数据，本仓库明令不许这么干。reload 不碰任何状态。
+     */
+    await ev("(() => { for (let i=0;i<6;i++) { const b=document.querySelector('.modal-backdrop'); if(!b) break; b.click(); } return 1; })()");
+    await wait(350);
+    await ev("(() => { for (let i=0;i<3;i++) window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); return 1; })()");
+    await wait(350);
+    // 切回「全部」：前面某段可能停在别的档位或别的视图上，那一屏上没有「筛选」那颗键
+    await ev("(() => { const b=[...document.querySelectorAll('.nav-item')].find(x=>x.textContent.trim().startsWith('全部')); if(b) b.click(); return 1; })()");
+    await wait(500);
+  };
+  /*
+   * **整段开头 reload 一次**，不是每屏一次：上一段为了量那五颗星开进了阅读器，
+   * 而 `App.tsx` 在阅读器里会整个 return 掉书架——这时候屏幕上没有卡片、
+   * 没有顶栏那排 chip，点什么都没反应（诊断打出来是「卡片=0 顶栏chip=空」）。
+   * ⚠️ **不用 Esc 退出阅读器**：那等于用 CDP 驱动阅读界面，会往 `reading_state`
+   * 写进度，铁律 3 里重扫恢复不了的数据，本仓库明令不许。reload 不碰任何状态。
+   */
+  await reload();
+  for (let i = 0; i < 40 && !(await ev("!!document.querySelector('.book')")); i++) await wait(250);
+  for (const [哪一屏, 开] of 再扫) {
+    await 收干净();
+    if (!(await (typeof 开 === 'function' ? 开() : ev(开)))) {
+      // 现场留下来说话。「键没点着」这四个字排查不了——是遮罩还压着、
+      // 卡片没悬停展开、还是那个键在折叠里，三种病因三种修法
+      const 现场 = await ev("(() => ['遮罩=' + document.querySelectorAll('.modal-backdrop').length,"
+        + " '卡片=' + document.querySelectorAll('.book').length,"
+        + " '工具条键=' + [...document.querySelectorAll('.book-tools button')].filter(x=>getComputedStyle(x).pointerEvents!=='none').length,"
+        + " '顶栏chip=' + [...document.querySelectorAll('.main-head .chip')].map(x=>x.textContent.trim()).join('/')].join(' '))()");
+      没开成.push(哪一屏 + '（键没点着；' + 现场 + '）');
+      continue;
+    }
+    await wait(1800);
+    if (!(await ev("!!document.querySelector('.modal')"))) { 没开成.push(哪一屏 + '（弹窗没出现）'); continue; }
+    const 量了 = await scanNames(哪一屏);
+    // 每一屏都得真量到东西，否则「这一屏 0 处」是假的
+    if (量了 < 3) 没开成.push(`${哪一屏}（只量到 ${量了} 个控件）`);
+  }
+  await 收干净();
+  if (没开成.length) {
+    console.error(`✗ 自检没过：这几屏没扫成，「所有控件都有名字」这句话不包括它们 → ${没开成.join('、')}`);
+    process.exit(1);
+  }
+  扫过的屏.push(...再扫.map(([n]) => n));
 }
 
 /*
@@ -305,6 +416,7 @@ const ax = [];
       await wait(1200);
       // 浮层开着时再扫一遍名字——星星就在这一屏上，只扫书架等于没扫
       await scanNames('评价浮层');
+      扫过的屏.push('评价浮层');
       const stars = await axOf('.rate-stars button');
       const group = (await axOf('.rate-stars'))[0];
 
@@ -400,7 +512,7 @@ console.log(`
 for (const x of 没名字的弹窗) console.log('   ', JSON.stringify(x));
 
 console.log(`
-每个控件都有能读的名字：${没名字.length ? '' : '书架和评价浮层上，所有按钮/下拉/输入框都有'}`);
+每个控件都有能读的名字：${没名字.length ? '' : `${扫过的屏.length} 屏都干净（${扫过的屏.join('、')}）`}`);
 for (const x of 没名字) console.log('   ', JSON.stringify(x));
 
 process.exit(blind.length + leak.length + swap.length + tools.length + ax.length + 没名字.length + 没名字的弹窗.length ? 1 : 0);

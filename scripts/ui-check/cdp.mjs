@@ -57,13 +57,19 @@ const 确认不是真实库 = () => (把关过 ??= guardTestLibrary());
  * 闸门认两种给法：命令行 `--big`（人手工驱走查脚本时），或环境变量 `SHUZHAI_BIG=1`
  * （测台在自己进程里连页面时——它不该去改写 `process.argv`）。
  * **两种都只是「申请」，不是「放行」**：真放行要过 `connect()` 里那个封条检查。
+ *
+ * ⚠️ 收 `argv` 当参数，是为了让测试能喂一个不含 `--big` 的数组进来。
+ * 而**判据只有这一份**：`guardTestLibrary` 当年自己写了一遍
+ * `argv.includes('--big')`，漏掉环境变量那一半，于是
+ * `SHUZHAI_BIG=1 node scripts/ui-check/audit.mjs 760x520 设置·书库`
+ * 在一台**带着封条的快照**上被拒（方向是安全的，但那条环境变量明明就是为这种跑法写的）。
  */
-const 是大库测量 = () =>
-  process.argv.includes('--big') || process.env.SHUZHAI_BIG === '1';
+const 是大库测量 = (argv = process.argv) =>
+  argv.includes('--big') || process.env.SHUZHAI_BIG === '1';
 
 export async function guardTestLibrary(argv = process.argv) {
   const stats = await (await fetch(`${API}/api/stats`)).json();
-  const big = argv.includes('--big');
+  const big = 是大库测量(argv);
   if (stats.books > 100 && !big) {
     console.error(
       `✗ 拒绝运行：连上的这个库有 ${stats.books} 本书，看着像真实书库。\n`

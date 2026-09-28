@@ -73,7 +73,8 @@ const RES_全 = [[760, 520], [1280, 720], [1440, 900], [1920, 1080], [2560, 1440
 
 /*
  * **能只跑一部分**：`node audit.mjs 760x520 全库搜索 设置`。
- * 不加参数就是全量（CI 之外没人手动跑全量以外的东西，所以默认不变）。
+ * 不加参数就是全量。改一处想快点看结果：`node audit.mjs --fast @smoke`
+ * （两档分辨率 × 八块代表屏，几分钟；理由见下面那两段注释）。
  *
  * 加这个是因为**跑一趟全量要接近一小时**（实测每档约十分钟），
  * 而「改一处、量一次」是这类走查唯一有用的用法——
@@ -81,11 +82,24 @@ const RES_全 = [[760, 520], [1280, 720], [1440, 900], [1920, 1080], [2560, 1440
  * 于是走查从「工具」变成「发版前跑一次的仪式」。
  */
 const 参数 = process.argv.slice(2);
-const 要的分辨率 = 参数.filter((a) => /^\d+x\d+$/.test(a));
-const 要的界面 = 参数.filter((a) => !/^\d+x\d+$/.test(a));
+const 快档 = 参数.includes('--fast');
+const 位置参数 = 参数.filter((a) => a !== '--fast');
+const 要的分辨率 = 位置参数.filter((a) => /^\d+x\d+$/.test(a));
+const 要的界面 = 位置参数.filter((a) => !/^\d+x\d+$/.test(a));
+/*
+ * `--fast` 只跑**两端那一档和中间那一档**（760×520 与 1440×900）。
+ * 为什么是这两档：窄窗口那一档是历轮真缺陷最集中的地方（文件顶上那段：
+ * 补上它一口气量出 17 条），而中间那一档是绝大多数人实际在用的尺寸。
+ * 1280 / 1920 / 2560 在历轮里基本只是把同一条问题再报一遍。
+ *
+ * ⚠️ **它是「改一处、量一次」用的，不是发版用的。** 发版前那一趟仍然跑全量：
+ * 断点类的毛病（`@media (max-width: 900px)` 那种）只在某一档出现，
+ * 少跑三档就是放过那一类。
+ */
+const RES_快 = [[760, 520], [1440, 900]];
 const RES = 要的分辨率.length
   ? RES_全.filter(([w, h]) => 要的分辨率.includes(`${w}x${h}`))
-  : RES_全;
+  : 快档 ? RES_快 : RES_全;
 if (要的分辨率.length && RES.length !== 要的分辨率.length) {
   console.error('这些分辨率不在表里：', 要的分辨率.filter((r) => !RES_全.some(([w, h]) => `${w}x${h}` === r)).join(' '));
   process.exit(2);
@@ -155,6 +169,30 @@ const SURFACES = [
       + " if(!找()) { const m=[...document.querySelectorAll('.nav-item')].find(x=>x.textContent.startsWith('更多')); if(m) m.click(); }"
       + " let n=0; const t=setInterval(()=>{ const b=找(); if(b){clearInterval(t); b.click();} if(++n>20) clearInterval(t); },150); return 1; })()",
     close: "(() => { const b=[...document.querySelectorAll('.nav-item')].find(x=>x.textContent.startsWith('全部')); if(b) b.click(); return 1; })()" },
+  /*
+   * **筛出 0 本的那块空屏（`.empty` + `emptyHint()`）。**
+   *
+   * 它是这份清单里唯一「内容是句子而不是卡片」的一屏，而那句话的形状完全由
+   * **条件数**决定：多于一条走「没有同时满足这几个条件的书：…」（一长串顿号），
+   * 只有一条走具体那句。`counts.total > 0` 那道闸门（判据在 `App.tsx`）必须
+   * 不把这排控件一起收掉——真出过「筛出 0 本被当成库是空的，用户只能重启应用」。
+   *
+   * ⚠️ **不是「空库首屏」那一屏。** 没有书库目录时的那句「选一个放书的文件夹」
+   * 走 `guardTestLibrary()` 的闸门（底下 `books===0` 直接退出），一趟跑不出来，
+   * 这一条量不到，别当成它被覆盖了。
+   *
+   * `ready` 同时要求搜索框里还是自己填的那个词：只看 `.empty` 的话，
+   * 任何别的原因造成的空屏都会被判成「这一屏没问题」。
+   */
+  { name: '筛选空结果', wait: 2500,
+    ready: "(() => { const i = document.querySelector('.search-box');"
+      + " return !!document.querySelector('.empty') && !!i && i.value === 'zzzqqq不存在'; })()",
+    open: "(() => { const i = document.querySelector('.search-box'); if (!i) return 0;"
+      + " const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;"
+      + " set.call(i, 'zzzqqq不存在'); i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()",
+    close: "(() => { const i = document.querySelector('.search-box'); if (!i) return 1;"
+      + " const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;"
+      + " set.call(i, ''); i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()" },
   /* 「筛选」开的是分类那个编辑器（多一条「就这么筛」的出路）。
      条件组比原来多了两组（读完年份 / 连载状态），高度值得单量一屏 */
   { name: '筛选', wait: 1500, expect: '.cat-modal .cond-chips',
@@ -489,7 +527,80 @@ const SURFACES = [
     close: "(() => { const K='novel.read-settings'; const s=JSON.parse(localStorage.getItem(K)||'{}');"
       + " localStorage.setItem(K, JSON.stringify(Object.assign({}, s, { mode: 'scroll' })));"
       + " const b=[...document.querySelectorAll('.reader-rail button')].find(x=>x.textContent.includes('书架')); if(b) b.click(); return 1; })()" },
+
+  /*
+   * **右下角那个通知浮层（`.toasts`）。**
+   *
+   * 它原来在这份清单里一屏都没有：整块 `pointer-events: none`、`z-index` 要压过
+   * 弹窗遮罩、有 `max-height` 所以里面会内滚、动作行还得 `sticky` 钉在底沿——
+   * 这四条判据每一条都有注释指着，而**量错任何一条探针都抓不到**：
+   * 浮层压住底下书架的点击、或者「知道了」滚出视野，报告上都是干净的 0 条。
+   *
+   * 起报告的动作是侧栏那颗「扫描书库」：只读原文件、不改一个字节（在铁律 1 内），
+   * 扫完那条报告自己走——干净的 12 秒、有失败/缺失的 25 秒（`报告要等人处理()`）。
+   *
+   * ⚠️ **不能改成直接调 `library.scan`。** 实测过：裸 rpc 扫得动、返回也对，
+   * 而浮层是**空的**——`report` 是 React 状态，只有界面自己那条 `scan()` 会
+   * `setReport`。拿裸 rpc 起的这一屏量到的是一个什么都没有的容器，报告干净、什么都没查。
+   *
+   * ⚠️ **超时那条不许静默放行。** 扫得比预算还慢时浮层还没长出来，
+   * 那时候 `res()` 交回的是 `!!document.querySelector(...)` 而不是随手一个 1——
+   * 它于是走「打不开」重试一遍，而不是把只有空容器的屏幕交出来量
+   * （`expect` 查的是里面的 `.toast`，容器本身满足不了它）。
+   * 一条假装量到了的走查比没有更糟。
+   *
+   * ⚠️ **`settleMax` 是这一屏专用的，别照着抄到别的屏上。** 跑那一级的规矩说
+   * `s.wait` 是**下限**、元素早出现也要等满——那条是给「`expect` 写成通用的
+   * `.modal`，而 open 是一串点击链」那几屏防「量的不是目标屏」的。这一屏正相反：
+   * 内容自己会走（12 秒），**等满就是量一个已经空了的容器**。所以这里要的是上限。
+   *
+   * ⚠️ 轮询写成 `setInterval` 那个形状（不是 async + while）是为了让文件顶上
+   * `checkWaits()` 那段预算自检量得到这一屏——**它只认那个形状**，
+   * 换成 await 循环就绕过自检了。
+   */
+  { name: '扫描报告', wait: 8000, settleMax: 1500, expect: '.toasts .toast',
+    open: "(() => { const 找 = () => document.querySelector('.toasts .toast');"
+      + " let n = 0; let 点过了 = false;"
+      + " return new Promise((res) => { const t = setInterval(() => {"
+      + "   if (找()) { clearInterval(t); res(1); return; }"
+      + "   if (++n > 32) { clearInterval(t); res(!!找()); return; }"
+      + "   if (!点过了) { const b = [...document.querySelectorAll('.nav-tool')]"
+      + "     .find((x) => x.textContent.trim() === '扫描书库' && !x.disabled);"
+      + "     if (b) { 点过了 = true; b.click(); } }"
+      + " }, 250); }); })()",
+    close: "(() => { const b = [...document.querySelectorAll('.toast-actions button')]"
+      + "   .find((x) => /这次先不管/.test(x.textContent || ''));"
+      + " if (b) b.click();"
+      + " let n = 0;"
+      + " return new Promise((res) => { const t = setInterval(() => {"
+      + "   if (!document.querySelector('.toasts .toast') || ++n > 100) { clearInterval(t); res(1); } }, 250); }); })()" },
 ];
+
+/*
+ * **`@smoke` 是一组代表屏，不是「受影响的那些」。**
+ *
+ * 本来想做「按 git diff 猜哪几屏受影响」——查过之后放弃了：
+ * `SURFACES` 里那些 `open` 是一整串 `querySelectorAll('.cat-batch button')`
+ * 这样的表达式，要从里面认出「这个界面用到 `CategoryDialog`」就得解析 JS，
+ * 而**猜漏一屏比明说要重跑一趟糟得多**（漏掉的那一屏印出来是「0 条」，
+ * 和「全都好好的」逐字相同）。所以这里放的是一份**手写的、覆盖各版面的代表屏**：
+ * 三种书架视图各一、一个两栏弹窗、一个浮层、一个阅读器、一个 iframe 查看器、
+ * 一个挤的（我的笔记·多选）。改完先跑它，几分钟；发版前跑全量。
+ */
+const SMOKE = ['书架', '我的书评', '书架·表格', '筛选', '编辑一本书', '阅读器', 'PDF 查看器', '我的笔记·多选'];
+if (要的界面.includes('@smoke')) {
+  要的界面.splice(0, 要的界面.length, ...SMOKE.filter((n, i, a) => a.indexOf(n) === i));
+}
+/*
+ * ⚠️ **`--fast` 不许配「全量界面」。** 只砍分辨率不砍屏数，跑的是 44 屏 × 两档，
+ * 那是全量六成的时间——而它印出来的样子和「一次快速的复查」一模一样，
+ * 人会因为这个名字而以为已经快跑过了。要么点名几个界面，要么加 `@smoke`。
+ */
+if (快档 && !位置参数.some((a) => !/^\d+x\d+$/.test(a))) {
+  console.error('✗ --fast 只砍分辨率档，不砍界面数。请点名界面，或加 @smoke（那一组代表屏）');
+  console.error('  例：node audit.mjs --fast @smoke');
+  process.exit(2);
+}
 
 /*
  * ⚠️ **点名了就得说清点中了几个。** 不然写错一个界面名的后果是「一个都没跑」，
@@ -817,6 +928,15 @@ const PROBE = String.raw`
       return cs.pointerEvents !== 'none' && cs.visibility !== 'hidden';
     };
     /*
+     * **滑杆（input[type=range]）整个不参与这两条。** 它的矩形是**整条轨道**
+     * （朗读引擎那一屏的定时滑杆 602px 宽、24px 高），而真正按得到的是
+     * 12px 那个滑块，**它停在哪儿取决于当前值**。拿轨道去比间距，
+     * 和上下左右任何东西都可能「重叠 -24px」——报出来的 10 条
+     * 全是这一种，而它们长得和真重叠一模一样。
+     * 轨道够不够 24px 高也不是个问题（它本来就过 24 那条线）。
+     */
+    const isRange = (x) => x.type === 'range';
+    /*
      * **只和同一层的目标比。**
      * 弹窗开着的时候，背后书架上的按钮虽然还在视口里、坐标上也可能只隔几个像素，
      * 但**隔着一层挡住点击的遮罩，点不到**——拿它去挤弹窗里那个复选框的
@@ -824,13 +944,30 @@ const PROBE = String.raw`
      * 被背后书架上的「★4+」判成「挨得近」，两者相距 7px，而中间隔着遮罩。
      * 和上面那条 pointer-events 的排除是同一个道理，只是这次隔开它们的是层次。
      */
-    const layerOf = (x) => x.closest('.modal') || document.body;
+    /*
+     * **「同一层」不止弹窗。** 原来只认 .modal，于是挂在卡片上的那个
+     * 评价浮层（.rate-pop）和背后的书架被当成了同一层——量出来的
+     * 「85x29 的芯片压住书架芯片 15px」其实是**浮层盖在书架上**，
+     * 不是两个键挨着。reader-pop（排版/朗读那两层）、toc（目录）同理。
+     * 判据还是那条：隔着一层挡住点击的东西，不算彼此的目标。
+     * ⚠️ 这一段在 String.raw 模板里，**一个反引号都不能写**（今天第三次踩，
+     * 症状是模块级 ReferenceError，报的行号还是注释自己）。
+     */
+    const layerOf = (x) => x.closest('.modal, .rate-pop, .reader-pop, .toc') || document.body;
+    /*
+     * **父子不算两个键。** 包着控件的那个容器（一个带 input 的 div，
+     * 比如朗读引擎里那排定时控件）自己也被 button, input, select 这个选择器命中，
+     * 拿它和肚子里的控件比间距，量出来的永远是**负的**——
+     * 实测「朗读引擎」那一屏 10 条「缝 -24px」全是这一个假阳性，
+     * 而它长得和真重叠一模一样。
+     */
+    const 同一个东西 = (a, b) => a === b || a.contains(b) || b.contains(a);
     if ((tag === 'button' || tag === 'a' || tag === 'input' || tag === 'select') && !el.disabled
-        && (r.width < 24 || r.height < 24) && clickable(el)) {
+        && (r.width < 24 || r.height < 24) && clickable(el) && !isRange(el)) {
       const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
       let crowded = false;
       for (const o of document.querySelectorAll('button, a, input, select')) {
-        if (o === el || o.disabled) continue;
+        if (同一个东西(o, el) || o.disabled || isRange(o)) continue;
         const q = o.getBoundingClientRect();
         if (!q.width || !q.height) continue;
         if (!clickable(o)) continue;
@@ -838,6 +975,58 @@ const PROBE = String.raw`
         if (Math.hypot(q.left + q.width / 2 - cx, q.top + q.height / 2 - cy) < 24) { crowded = true; break; }
       }
       if (crowded) push({ 类: '点击目标偏小且挨得近', 元素: label, 值: Math.round(r.width) + 'x' + Math.round(r.height) });
+    }
+    /*
+     * **挨着的小键**——上面那条答的是「点不点得着」，这一条答的是「会不会点错」。
+     *
+     * 24px 是 WCAG 2.5.8 的地板，而它**自带一个盲区**：目标只要够到 24 就算合格，
+     * 和它挨多近都不问。实测这个界面上最挤的几组长得正好是这样——
+     * 顶栏那排视图键 29px 高、**缝只有 3px**；卡片工具条 24px 高、缝 2px；
+     * 弹窗底部那三颗键**边贴边**。**五个分辨率 × 全部界面一条不报**，
+     * 而用户报的是「按钮间的间距」。判据没写错，**它问的不是这个问题**。
+     *
+     * ── 线画在哪 ──
+     * 把全应用所有缝量了一遍，分布是**三档**的：
+     *   5px  芯片排的既定节奏（筛选弹窗一屏就 56 个）
+     *   4px  另一批芯片排（评价浮层、批量打标签）
+     *   3px / 2px / 0px  顶栏视图键、卡片工具条、弹窗底部那三颗
+     * 线画在 6 的第一版报了 738 条，绝大多数是 5px 那档正常的芯片排——
+     * 等于把「改三处」变成「全仓库的 gap 都要动」。所以线画在 **< 4px**：
+     * 只抓 3/2/0/负 那一簇，4px 和 5px 是这一套界面自己的节奏。
+     *
+     * ── 三条排除，一条都不能少 ──
+     * 1. 点不到的不算目标（pointer-events: none / hidden）
+     * 2. 只和同一层比（弹窗遮罩背后那些不算）
+     * 3. 父子不算两个键
+     * 4. **跨轴的重叠不算挨着**——第一版拿四边之差当缝，于是自动放大的
+     *    滑杆（.foot-range 横向 602px）和**旁边那一排**的 input 在纵轴上差 -24，
+     *    被报成「重叠 24px」。两个矩形必须**两个轴都相交**才叫重叠；
+     *    只在一条轴上搭着，那是排得正常的两行，缝要按另一条轴算。
+     *    少了这一条，朗读那一屏凭空 10 条假阳性，长得和真重叠一模一样。
+     */
+    if ((tag === 'button' || tag === 'a' || tag === 'input' || tag === 'select') && !el.disabled
+        && Math.min(r.width, r.height) < 32 && clickable(el) && !isRange(el)) {
+      let 太近 = null;
+      for (const o of document.querySelectorAll('button, a, input, select')) {
+        if (同一个东西(o, el) || o.disabled || isRange(o)) continue;
+        const q = o.getBoundingClientRect();
+        if (!q.width || !q.height) continue;
+        if (!clickable(o)) continue;
+        if (layerOf(o) !== layerOf(el)) continue;
+        if (Math.min(q.width, q.height) >= 32) continue;
+        const 横搭 = Math.min(r.right, q.right) - Math.max(r.left, q.left);
+        const 纵搭 = Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top);
+        // **只量同一行里并排的两颗。** 上下叠的行（输入框下面跟一排芯片）
+        // 本来就会因为行高不齐而互相压住十几个像素，而那不叫「挨着」——
+        // 上下两行点错的机会比左右两行小得多，报出来也没人知道该怎么修。
+        // 「两行之间该留多少」是另一条判据（够不够 24px），上面那条 WCAG 管。
+        if (纵搭 <= 0) continue;                                    // 不在同一行
+        const 缝 = 横搭 > 0 ? -横搭 : Math.max(q.left - r.right, r.left - q.right);
+        if (缝 < 4) { 太近 = Math.round(缝); break; }
+      }
+      if (太近 !== null) {
+        push({ 类: '挨着的小键', 元素: label, 值: Math.round(r.width) + 'x' + Math.round(r.height) + '，缝 ' + 太近 + 'px' });
+      }
     }
     if (!el.children.length && (el.textContent || '').trim().length > 1) {
       const fg = rgb(s.color);
@@ -1114,7 +1303,10 @@ await ev(`(() => {
        它被顶到 y=932 —— 而自检跑在 1440x900 上，**整个夹具在视口外**，
        elementFromPoint 返回 null，两条断言一起变成 false。
        第一版就是这么红的，看起来像判据坏了，其实是诱饵没在屏幕上。 */
-    + '<div class="reader-rail" style="position:fixed;left:0;top:0;display:flex;flex-direction:row;gap:8px;z-index:99999">'
+    /* ⚠️ 这个 gap 原来是 8px，改成 12px 是因为新加的「挨着的小键」那条
+       会把 40x40 / 缝 8px 判成挤（最小边 40 不算小，但缝 8 > 6 才放得过）。
+       这个夹具量的是「浮层盖不盖键」，不是间距——别让它被不相干的判据报进来。 */
+    + '<div class="reader-rail" style="position:fixed;left:0;top:0;display:flex;flex-direction:row;gap:12px;z-index:99999">'
     + '<button style="all:unset;display:block;width:40px;height:40px;background:#ccc">目录</button>'
     + '<button style="all:unset;display:block;width:40px;height:40px;background:#ccc">搜索</button>'
     + '<div style="position:absolute;left:0;top:0;width:40px;height:40px;background:#fff;z-index:9"></div>'
@@ -1131,6 +1323,26 @@ await ev(`(() => {
     + '<span class="book-badge" style="position:absolute;left:0;top:96px;background:#000;color:#fff">让 9</span>'
     + '</div>'
     + '<p id="__decoy" style="width:600px;font-size:16px;margin:0">字号 21px 行距 1.8 倍 每行 53 字</p>';
+  /*
+   * 「挨着的小键」那一条要**一正一反**两个夹具，缺一个都能让判据空转：
+   * 只放该报的，把判据写成「凡是键就报」也照样绿；只放不该报的，
+   * 反过来写成「一律不报」也绿。
+   *
+   * ⚠️ 这对键的宽度**不能小于 24**：不然它会同时被上面那条 WCAG 24px
+   * 的判据抓住，于是「新判据没生效」看起来和「新判据生效了」一模一样。
+   * 36x36 加 12px 的缝，两条都该放它过去。
+   */
+  d.innerHTML += '<div style="position:fixed;left:0;bottom:0;display:flex;gap:3px;z-index:99998">'
+    + '<button class="tight-a" style="all:unset;display:block;width:28px;height:28px;background:#888">挤</button>'
+    + '<button class="tight-b" style="all:unset;display:block;width:28px;height:28px;background:#888">挤</button>'
+    /* 第三枚**压在第一枚身上**（负 margin）：验的是「真重叠也要报」。
+       没有它的话，把判据写成「只量并排的缝」也照样全绿。 */
+    + '<button class="tight-c" style="all:unset;display:block;width:28px;height:28px;margin-left:-20px;background:#888">叠</button>'
+    + '</div>'
+    + '<div style="position:fixed;left:200px;bottom:0;display:flex;gap:12px;z-index:99998">'
+    + '<button class="roomy" style="all:unset;display:block;width:36px;height:36px;background:#888">宽</button>'
+    + '<button class="roomy2" style="all:unset;display:block;width:36px;height:36px;background:#888">宽</button>'
+    + '</div>';
   document.body.appendChild(d);
   return 1;
 })()`);
@@ -1150,15 +1362,26 @@ const 压住 = self.filter((b) => b.类 === '封面上的字被角标压住');
 const caughtCoverText = 压住.some((b) => b.文.includes('压住的书名'));
 const coverTextFalse = 压住.some((b) => b.文.includes('让开的书名'));
 const covers = self.filter((b) => b.类 === '浮层盖住了工具轨上的键');
+/*
+ * 「挨着的小键」那条新判据的自检。**没有这一段的话，加一条判据等于没加**——
+ * 这个文件自己就记着「一个永远报 0 条的体检和没有体检是一回事」。
+ * 反着来的一半同样要紧：那对 36x36 / 缝 12px 的键必须不被报。
+ */
+const 挤 = self.filter((b) => b.类 === '挨着的小键');
+// 认**自己那两个类名**，不认「有没有报过任何东西」：界面上本来就有别的键可能
+// 真的挤（那是要报的真缺陷，不该拿它当自检的证据）
+const caughtTight = 挤.some((b) => /\.tight-[ab]/.test(b.元素 || ''));
+const tightFalse = 挤.some((b) => /\.roomy/.test(b.元素 || ''));
 const caughtCover = covers.some((b) => b.元素 === '目录');
 const coverFalse = covers.some((b) => b.元素 === '搜索');
 if (!caughtSmall || !caughtColor || !caughtOrphan || !caughtClamped || falsePositive || !caughtCover || coverFalse
-  || !caughtCoverText || coverTextFalse) {
+  || !caughtCoverText || coverTextFalse || !caughtTight || tightFalse) {
   console.error('✗ 自检没过——探针坏了，先修它：'
     + `小目标 ${caughtSmall}，低对比 ${caughtColor}，孤字 ${caughtOrphan}，`
     + `夹在 line-clamp 里的孤字 ${caughtClamped}，中英混排被误报 ${falsePositive}，`
     + `浮层盖键 ${caughtCover}，没被盖的键被误报 ${coverFalse}，`
-    + `角标压住书名 ${caughtCoverText}，没被压的被误报 ${coverTextFalse}`);
+    + `角标压住书名 ${caughtCoverText}，没被压的被误报 ${coverTextFalse}，`
+    + `挨着的小键 ${caughtTight}，间距够的被误报 ${tightFalse}`);
   close();
   process.exit(1);
 }
@@ -1285,7 +1508,11 @@ for (const [W, H] of RES) {
         await wait(200);
       }
       // 等满 settle 再量；元素来得比 settle 晚就再补 600ms 让它排完版
-      await wait(Math.max(600, settle - (Date.now() - t0)));
+      // ⚠️ `settleMax` 是给「内容自己会走」那种屏开的一个口子（现在只有扫描报告）：
+      // 那一屏的 `open` 已经把到位这件事自己等掉了，等满会把已经空掉的容器交出来量。
+      // 别的屏不许抄——下限那条规矩防的是另一件事，见 SURFACES 里那一屏的注释。
+      const cap = s.settleMax ?? Infinity;
+      await wait(Math.min(cap, Math.max(600, settle - (Date.now() - t0))));
       const final = await ev(has);
       if (isErr(final) || !final) {
         if (s.close) { await ev(s.close); await wait(900); }

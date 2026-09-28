@@ -309,6 +309,64 @@ if (await openTool('批量改状态')) {
   step('批量改状态：能打开', false, '按钮点不开');
 }
 
+// ── 批量归入分类：界面那条路（`shelf.planAddByFilter` → `addBooksByFilter` → 撤销）──
+//
+// 那两条 core 函数落了很久、`dead-exports.mjs` 一直报「全仓库零引用」，
+// 和 `shelf.forBook` / `addBooks` / `removeBooks` 当年是同一个形状
+// （「数据层只有数据层和测试，界面入口后续补上」）。这一条钉的是**接上了**：
+// 双击一个规则圈得到的分类，右栏底下真有一颗能点的键，点完说的话对得上数。
+//
+// 「预览报几本就真动几本」由 `library.test.ts` 那条钉（含「已经是成员的
+// 既不进预览也不进撤销名单」），**这条端到端不重复验那半截**，只验接线。
+{
+  const TAG = '走查批量';
+  const 两本 = (((await rpc('book.list', { limit: 2 })).r ?? []).map((b) => b.id));
+  await rpc('tag.add', { bookIds: 两本, names: [TAG] });
+  const 存的 = ((await rpc('tag.list')).r ?? []).find((t) => t.name === TAG);
+  const 分类 = (await rpc('shelf.save', { name: TAG, filter: { tagIds: [存的.id] } })).r;
+  await reload();
+  await wait(2600);
+
+  /*
+   * ⚠️ **第一版拿「里面有没有 `.chip-n` 计数徽标」当判别去认那一枚 chip**——
+   * 实测那枚键上**没有**这个子节点（`class` 就是 `chip`），选择器永远返回 0，
+   * 于是报「双击分类能开：右栏底下没有那一块」，看着像新功能坏了，其实是找错了键。
+   * **判据：选择器找不到东西的时候，先证伪选择器再判功能。**
+   * 认文字就够了：这一批里只有这一枚 chip 带这个名字。
+   */
+  const 分类chip = "(() => [...document.querySelectorAll('.chip')].find(x => x.textContent.includes('" + TAG + "')))()";
+  await ev("(() => { const c=" + 分类chip + "; if(c){ c.click(); } return 1; })()");
+  await wait(900);
+  await ev("(() => { const c=" + 分类chip + "; if(c){ c.dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); return 1;} return 0; })()");
+  const 开了 = await until("!!document.querySelector('.cat-batch')", 12000);
+  step('批量归入分类：双击分类能开', 开了, 开了 ? '' : '右栏底下没有那一块');
+  if (开了) {
+    const 按钮 = "(document.querySelector('.cat-batch button')||{}).textContent||''";
+    const 报的 = Number(String(await ev(按钮)).match(/(\d+)/)?.[1] ?? -1);
+    step('批量归入分类：按钮上写着会动的本数', 报的 === 2, `按钮「${String(await ev(按钮)).trim()}」`);
+    await ev("(() => { const b=document.querySelector('.cat-batch button'); if(b) b.click(); return 1; })()");
+    const 加好了 = await until("((document.querySelector('.cat-batch')||{}).textContent||'').includes('已经')", 12000);
+    step('批量归入分类：点下去真的写进去了', 加好了,
+      加好了 ? '' : '点完那句话没出来');
+    const 成员 = ((await rpc('shelf.forBook', { bookId: 两本[0] })).r ?? [])
+      .find((s) => s.id === 分类.id);
+    step('批量归入分类：落库的是手动成员', !!成员?.manual,
+      成员 ? `manual=${成员.manual}` : '这本书的分类里没有这一条');
+    // 撤销：等**自己写出来的那句话**换出来，不能假定上一个请求已经落地（同一文件 ⑮ 栽过）
+    await ev("(() => { const b=[...document.querySelectorAll('.cat-batch button')].find(x=>x.textContent.trim()==='撤销'); if(b) b.click(); return 1; })()");
+    const 撤回了 = await until("((document.querySelector('.cat-batch')||{}).textContent||'').includes('摘掉')", 12000);
+    const 又是两本 = await until("((document.querySelector('.cat-batch button')||{}).textContent||'').includes('2')", 8000);
+    step('批量归入分类：撤销摘得回去、按钮上的数回到 2', !!撤回了 && 又是两本,
+      `撤回了 ${!!撤回了} / 数回到 ${又是两本}`);
+    await closeModal();
+  }
+  // 收尾：成员和分类都不留残局（同 ⑤ 那个批量分类的收尾）
+  await rpc('tag.remove', { bookIds: 两本, tagId: 存的.id });
+  await rpc('tag.delete', { tagId: 存的.id, confirmed: true });
+  await rpc('shelf.remove', { id: 分类.id });
+  await reload();
+}
+
 // ── ⑥ 备份 → 丢掉书评 → 恢复 → **界面上真的回来了** ──────────
 //
 // 这条链原来只有单元测试。而它是最不该只靠单测的一条：
@@ -1269,16 +1327,70 @@ const cardOf2 = (id) => `document.querySelector('.book[data-book-id="${id}"]')`;
     /*
      * **卸章那一下不许把正文抽走。** 窗口接满之后会从视野上方卸掉几章并补偿
      * `scrollTop`；补偿写漏了的话，正文会当场往上蹿掉卸掉的那一段高度。
-     * 判据是「顶上还是同一章、进去的深度还是那么多」——
-     * 只钉「窗口没超上限」的话，把补偿整个删掉也照样绿。
+     *
+     * ⚠️ **量的不是「顶上还是同一章、进去多深」。** 那一版偶发变红，因为接章是
+     * **连续过程**而不是「派一个事件来一章」：两次采样之间能接两章、卸两章，
+     * 而「深」是按章首算的，章号一动它就跟着动。同一条件下实测跑两遍能差出
+     * -138px 和 +151px，两次应用都是好的。
+     * 现在认的是**具体那一段**：取视口上沿往下第一段的 `章号:偏移` 当锚，
+     * 等窗口不再变化之后按同一个锚再量一次它离视口上沿的距离。
+     * 卸掉的是锚**上面**的内容，所以锚不会消失——它凭什么不该动。
+     * 容差取这一段自己的高度：补偿整个删掉时量到的是「两三章的高度」，远不止一段。
      */
-    const 位置 = () => ev(`(() => {
+    const 量锚 = `(() => {
       const b = document.querySelector('.reader-body');
       const arts = [...b.querySelectorAll('article[data-chapter]')];
-      const top = b.scrollTop + 4;
-      const a = arts.findLast(x => x.offsetTop - b.offsetTop <= top) || arts[0];
-      return JSON.stringify({ 章: Number(a.dataset.chapter), 深: Math.round(b.scrollTop - (a.offsetTop - b.offsetTop)), 窗: arts.map(x=>Number(x.dataset.chapter)) });
+      const ps = [...b.querySelectorAll('article[data-chapter] p[data-offset]')];
+      if (!ps.length) return JSON.stringify({ 锚: null, 窗: arts.map(x => Number(x.dataset.chapter)) });
+      const p = ps.find(x => x.offsetTop - b.offsetTop >= b.scrollTop - 2) || ps[ps.length - 1];
+      return JSON.stringify({
+        锚: p.closest('article').dataset.chapter + ':' + p.dataset.offset,
+        距顶: Math.round(p.getBoundingClientRect().top - b.getBoundingClientRect().top),
+        高: p.offsetHeight,
+        窗: arts.map(x => Number(x.dataset.chapter)),
+      });
+    })()`;
+    const 取 = async () => JSON.parse(await ev(量锚));
+    /*
+     * **滚到底、派事件、当场量锚——三件事必须在同一次求值里。**
+     *
+     * 接一章要等一次 `chapter.read`，卸章跟着接章来，中间隔着一次异步。
+     * 要是先滚、再单独发一句 `ev()` 去量「之前」，回来时卸章可能**已经落完了**，
+     * 量到的「之前」其实是「之后」，判据就成了掷硬币（这正是上一版偶发红的地方）。
+     * 写在同一次求值里，整段是一个任务，异步的东西插不进来。
+     */
+    const 滚到底并量锚 = async () => JSON.parse(await ev(`(() => {
+      const b = document.querySelector('.reader-body');
+      b.scrollTop = b.scrollHeight;
+      b.dispatchEvent(new Event('scroll'));
+      return ${量锚};
+    })()`));
+    /** 按 (章号:偏移) 找回那一段，量它现在离视口上沿多远；找不到就是被卸掉了 */
+    const 按锚量 = (锚) => ev(`(() => {
+      const b = document.querySelector('.reader-body');
+      const [章, 偏] = ${JSON.stringify(锚)}.split(':');
+      const art = [...b.querySelectorAll('article[data-chapter]')].find(a => a.dataset.chapter === 章);
+      const p = art && art.querySelector('p[data-offset="' + 偏 + '"]');
+      return p ? Math.round(p.getBoundingClientRect().top - b.getBoundingClientRect().top) : null;
     })()`);
+    /**
+     * 接到稳定为止：**连着三次采样窗口一模一样**（每 200ms 采一次，也就是变化
+     * 之后还要再安静 400ms）才算数。**两次不够**——渲染是一帧的事，
+     * 真漏一次的话这一步又会变成偶发红，而那正是这一条要治的。
+     * 上限到了还没安静 = 落定失败，当场红，不许糊里糊涂量一个变化中的瞬间。
+     */
+    async function 等落定(轮数 = 30, 要安静几次 = 2) {
+      let 上 = (await 取()).窗.join(',');
+      let 安静 = 0;
+      for (let i = 0; i < 轮数; i++) {
+        await wait(200);
+        const 现 = (await 取()).窗.join(',');
+        安静 = 现 === 上 ? 安静 + 1 : 0;
+        上 = 现;
+        if (安静 >= 要安静几次) return true;
+      }
+      return false;
+    }
 
     // 一直滚到窗口接满（12 章），卸章才会发生
     for (let i = 0; i < 30; i++) {
@@ -1287,23 +1399,43 @@ const cardOf2 = (id) => `document.querySelector('.book[data-book-id="${id}"]')`;
       await until(`document.querySelectorAll('article[data-chapter]').length !== ${w0}`, 3000);
       if (await ev("document.querySelectorAll('article[data-chapter]').length >= 12")) break;
     }
-    const 卸前 = JSON.parse(await 位置());
-    /*
-     * **触发卸章的那一下不能再动 scrollTop。** 第一版在两次测量之间
-     * 又滚了一屏，于是“章号变了”——那是我自己滚过去的，不是被卸跑的。
-     * 已经在底下了，光派一个 scroll 事件就够触发接下一章。
-     */
-    await ev("(() => { const b=document.querySelector('.reader-body'); b.dispatchEvent(new Event('scroll')); return b.scrollTop; })()");
-    await until(`JSON.stringify([...document.querySelectorAll('article[data-chapter]')].map(a=>Number(a.dataset.chapter))) !== ${JSON.stringify(JSON.stringify(卸前.窗))}`, 4000);
-    await wait(400);
-    const 卸后 = JSON.parse(await 位置());
-    const 连着2 = 卸后.窗.every((v, i) => v === 卸后.窗[0] + i);
+    const 接满了 = await ev("document.querySelectorAll('article[data-chapter]').length >= 12");
 
-    step('无限下滑：窗口是滑动的，卸掉上面几章不会把正文抽走',
-      卸后.窗.length <= 12 && 卸后.窗[0] > 0 && 连着2
-        && 卸后.章 === 卸前.章 && Math.abs(卸后.深 - 卸前.深) < 8,
-      `卸前 第${卸前.章}章/深${卸前.深}/窗${卸前.窗.length}(起${卸前.窗[0]})　`
-        + `卸后 第${卸后.章}章/深${卸后.深}/窗${卸后.窗.length}(起${卸后.窗[0]})`);
+    /*
+     * **判据只在「真的观察到顶上卸掉了章」的那一轮下结论。**
+     *
+     * 一轮 = 滚到底 + 当场量锚 → 等窗口安静 → 再量。顶上那一章的号变大了，
+     * 说明这一轮里真卸了章，那这个锚前后的差就是「卸章有没有把正文抽走」。
+     * 没观察到卸章的轮子不下判据（那是空转，把补偿整个删掉也照样绿）；
+     * 滚满 8 轮还没卸过章 = 当场红，不许糊里糊涂绿过去。
+     *
+     * ⚠️ 这里**要滚**，和上一版「不许动 scrollTop」相反——因为判据不再是
+     * 「顶上哪一章 + 进去多深」（那玩意儿一动 scrollTop 就跟着变），
+     * 而是那段具体文字离视口上沿多远。补偿写没写，只看它。
+     */
+    let 判 = null;
+    for (let 轮 = 0; 轮 < 8 && !判; 轮++) {
+      const 前 = await 滚到底并量锚();
+      const 落定了 = await 等落定();
+      const 后 = await 取();
+      if (后.窗[0] > 前.窗[0]) 判 = { 前, 后, 落定了, 轮 };
+    }
+
+    if (!判) {
+      step('无限下滑：窗口是滑动的，卸掉上面几章不会把正文抽走', false,
+        `滚了 8 轮而顶上一直没卸过章${接满了 ? '' : '（而窗口压根没接满 12 章）'}——`
+        + '要么接不到新章了，要么上限没生效，这一条没测成');
+    } else {
+      const { 前, 后, 落定了 } = 判;
+      const 窗连号 = 后.窗.length > 0 && 后.窗.every((v, i) => v === 后.窗[0] + i);
+      const 还在 = 前.锚 ? await 按锚量(前.锚) : null;
+      const 漂 = 还在 === null ? Number.POSITIVE_INFINITY : Math.abs(还在 - 前.距顶);
+      step('无限下滑：窗口是滑动的，卸掉上面几章不会把正文抽走',
+        接满了 && 落定了 && 后.窗.length <= 12 && 后.窗[0] > 0 && 窗连号 && 还在 !== null && 漂 <= 前.高,
+        `第 ${判.轮 + 1} 轮卸了章：窗口 ${后.窗.length} 章(起 ${后.窗[0]}${窗连号 ? '' : '，跳号：' + JSON.stringify(后.窗)})`
+          + `${落定了 ? '' : '　✗ 窗口一直不安静'}　锚（第几章:段偏移）${前.锚} 距顶 ${前.距顶}px → `
+          + (还在 === null ? '这一段被卸掉了' : `${还在}px（动了 ${漂}px，这一段本身高 ${前.高}px）`));
+    }
 
     // 收尾：模式和进度都放回去，免得给后面的步骤和下一跑留残局
     await 存模式('scroll');
