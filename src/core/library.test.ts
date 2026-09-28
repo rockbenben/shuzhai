@@ -19,6 +19,8 @@ import {
   listShelves,
   addShelfBooks,
   removeShelfBooks,
+  planShelfByFilter,
+  addShelfBooksByFilter,
   shelvesForBook,
   repairLibrary,
   cleanupMissing,
@@ -141,6 +143,61 @@ test('按字数区间和连载状态组合筛选', () => {
     titles(listBooks(db, { serialStatus: ['finished'], minWords: 100000 })),
     ['长篇'],
     '多个条件是与关系',
+  );
+});
+
+test('重读过的书：列表要带出重读次数', () => {
+  // `reread_count` 一直在写（读完再开读自增）、一直进备份和导出，而卡片上
+  // 一处都没显示。这条守的是**列表把它带出来**——界面才有东西可画
+  const a = addBook('重读过的');
+  addBook('只读了一遍');
+  setStatus(db, a, { status: 'finished' });
+  setStatus(db, a, { status: 'reading' }); // 读完之后再读才算一次重读
+
+  const row = (r: unknown) => (r as { reread_count: number }).reread_count;
+  assert.equal(row(listBooks(db, { keyword: '重读过的' })[0]), 1);
+  assert.equal(
+    row(listBooks(db, { keyword: '只读了一遍' })[0]),
+    0,
+    '没重读过要是 0，不能是 undefined——界面上 undefined 和「查不到」分不开',
+  );
+});
+
+test('字数区间能存进分类的规则里（编辑器往返）', () => {
+  // 后端一直筛得动（上一条），缺的是**界面上摆得出这一条**。存的就是一个 Filter，
+  // 所以这里钉的是这两个键原样进规则、原样出规则——和 minRating 同一件事
+  const 规则: Filter = { minWords: 10000, maxWords: 100000 };
+  const id = saveShelf(db, '中等长度的', 规则).id;
+  const 存回来的 = listShelves(db).find((s) => s.id === id)!.filter;
+  assert.deepEqual(存回来的, 规则);
+  assert.deepEqual(
+    titles(listBooks(db, 存回来的)),
+    titles(listBooks(db, 规则)),
+    '按存回来的规则和按原规则筛，必须是同一批书',
+  );
+});
+
+test('批量归入分类：预览报几本就真会动几本', () => {
+  // 同 `reading.planStatusByFilter` 那条判据：按钮上写着 N、点完动 0 本，
+  // 或反过来多动了书，都是「预览和执行抄了两份口径」。
+  // 这里专门留一本**已经是成员**的——它不该被数进预览，也不该出现在撤销名单里
+  const 甲 = addBook('甲书');
+  const 乙 = addBook('乙书');
+  const id = saveShelf(db, '手动攒的一堆', {}).id;
+  addShelfBooks(db, id, [甲]);
+
+  const 规则: Filter = { keyword: '书' };
+  const 前 = planShelfByFilter(db, id, 规则);
+  assert.deepEqual(前.sample.map((s) => s.title), ['乙书'], '样本里不许有已经是成员的');
+  assert.equal(前.total, 1, '只有还差的那一本算「会新增」');
+  assert.equal(前.already, 1);
+
+  const 后 = addShelfBooksByFilter(db, id, 规则);
+  assert.deepEqual(后.bookIds, [乙], '撤销名单只能有这次真新加的那本');
+  assert.equal(
+    planShelfByFilter(db, id, 规则).total,
+    0,
+    '加完再预览一次应当一本都不剩——否则按钮上永远挂着个假数字',
   );
 });
 

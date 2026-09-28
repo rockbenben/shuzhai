@@ -15,8 +15,39 @@ import type { Book } from './App.tsx';
 /** 格式的中文说法。**扩展名本身就是名字**，只有「没有文件」那一档要翻译 */
 const 格式名 = (f: string) => (f === 'manual' ? '只有记录' : f.toUpperCase());
 
+/**
+ * 这一台编辑器**当前摆得出来的条件**，按屏上从上到下的顺序。
+ *
+ * ⚠️ 顶上那句提示（`App.tsx` 的「筛选」和「＋ 新建分类」两颗键的 `title`）
+ * **必须从这里来，不许手写**。原来两处各写了一份、还写得不一样
+ * （一处列「状态、读完年份、格式」一处只列「阅读状态」），而刚加进来的
+ * 字数区间两边都没提——**一句介绍功能的提示，手写就一定会飘**。
+ * 有一条测试逐个对 `COND_GROUPS` 和这一屏真的摆出来的行，加一行不登记就红。
+ */
+export const COND_GROUPS = [
+  '文件夹', '格式', '评分', '字数', '读完年份', '连载状态', '阅读状态', '标签',
+] as const;
+
+/** 两颗入口键的提示语。只此一份 */
+export const 筛选提示 = `按${COND_GROUPS.join('、')}组合着筛一下；想留着就起个名字存成分类`;
+
 /** 「不限」用的哨兵值：`dir` 的空串是**根目录直属**，不能拿来当「不限」 */
 const 不限目录 = '\u0000';
+
+/**
+ * 「万字」那个输入框里的东西 → 规则里的一个字数条件；没填或填不出数就是空对象。
+ *
+ * ⚠️ 认的是**翻译出来的那个数**，不是原始字符串：把浏览器塞进来的怪串当成
+ * 「用户填过了」，规则里就躺着一条 `NaN`，而 `JSON.stringify` 会把 NaN 写成
+ * `null` —— 右边预览照常数「不限」，存下去的规则却带一条 null 的条件，
+ * 两边筛的不是同一批书。判据要认翻译结果，不认形状（`library.ts` 的空规则那条同）。
+ */
+function 字数条件(key: 'minWords' | 'maxWords', 填的: string): Filter {
+  const 文本 = 填的.trim();
+  const 数 = Number(文本);
+  if (!文本 || !Number.isFinite(数) || 数 < 0) return {};
+  return { [key]: Math.round(数 * 10000) } as Filter;
+}
 
 /**
  * 建一个**分类**：一个名字 + 一条规则。
@@ -72,6 +103,14 @@ export default function CategoryDialog(
   const [要删吗, set要删吗] = useState(false);
   const [dir, setDir] = useState<string>(初值.dir ?? 不限目录);
   const [minRating, setMinRating] = useState<number | ''>(初值.minRating ?? '');
+  /*
+   * 字数区间。后端 `buildFilter` 一直认这两个键（单边的「10 万字以下」和
+   * 「50 万字以上」都筛得了），缺的只是界面上摆不出来。
+   * 存的是**字数**，这里过一道「万字」——卡片上印的就是万字，
+   * 让人输 300000 而看的是「30 万」是同一条判据的反面。
+   */
+  const [minWan, setMinWan] = useState<string>(初值.minWords != null ? String(初值.minWords / 10000) : '');
+  const [maxWan, setMaxWan] = useState<string>(初值.maxWords != null ? String(初值.maxWords / 10000) : '');
   const [tagIds, setTagIds] = useState<number[]>(初值.tagIds ?? []);
   const [status, setStatus] = useState<string[]>(初值.readingStatus ?? []);
   const [format, setFormat] = useState<string[]>(初值.format ?? []);
@@ -100,6 +139,9 @@ export default function CategoryDialog(
   const filter: Filter = {
     ...(dir === 不限目录 ? {} : { dir }),
     ...(minRating === '' ? {} : { minRating: Number(minRating) }),
+    // 空串和填了又清空都算「不限」——和上面那排芯片的「不限」同一个意思
+    ...字数条件('minWords', minWan),
+    ...字数条件('maxWords', maxWan),
     ...(tagIds.length ? { tagIds } : {}),
     ...(status.length ? { readingStatus: status } : {}),
     ...(format.length ? { format } : {}),
@@ -127,6 +169,77 @@ export default function CategoryDialog(
   }, [rule]);
 
   const 空规则 = Object.keys(filter).length === 0;
+
+  /*
+   * ── **「把当前圈中的这些，都放进这一分类」** ─────────────────────
+   *
+   * 分类的成员＝规则命中 ∪ 手动加入（`shelf_member`，迁移 27）。数据层那两条
+   * （`planShelfByFilter` / `addShelfBooksByFilter`）落了很久、`dead-exports.mjs`
+   * 一直报「全仓库零引用」——缺的从来只是这个入口。
+   *
+   * 什么时候用得上：规则圈不中书的分类（纯手动那一类）靠编辑弹窗一本一本勾，
+   * 一百本就要点一百下；而用户常常已经用别的方式圈好了那一批。
+   *
+   * ⚠️ **预览和执行必须是同一份口径**（同 `reading.planStatusByFilter` 那条判据）：
+   * 按钮上写着 N、点完动 0 本是骗人，多动了书是事故。这里 N ＝ 还差的那几本，
+   * **已经是手动成员的既不算进来、也不进撤销名单**。
+   */
+  /** 预览那三条数：还差几本、已经在了几本、样本是哪几本 */
+  interface 批量预览 { sample: Array<{ bookId: number; title: string }>; total: number; already: number }
+  const [批量, set批量] = useState<批量预览 | null>(null);
+  const [新加的, set新加的] = useState<number[] | null>(null);
+  const [批量忙, set批量忙] = useState(false);
+  const [批量话, set批量话] = useState<string | null>(null);
+  // 依赖记的是**序列化之后的那一条**（`rule`）：`filter` 每次渲染都是新的对象引用，
+  // 拿它当依赖等于每敲一个字重问一次后端。上面那个预览的 effect 早就是靠 `rule`
+  const 问批量 = (那一个: SmartShelf) => rpc<批量预览>('shelf.planAddByFilter', {
+    shelfId: 那一个.id, filter: JSON.parse(rule) as Filter,
+  });
+
+  useEffect(() => {
+    if (!editing) { set批量(null); return; }
+    let alive = true;
+    void 问批量(editing)
+      .then((p) => alive && set批量(p))
+      .catch(() => alive && set批量(null));
+    return () => { alive = false; };
+  }, [editing, rule]);
+
+  const 批量加进去 = async () => {
+    if (!editing) return;
+    set批量忙(true);
+    set批量话(null);
+    try {
+      const r = await rpc<{ bookIds: number[] }>('shelf.addBooksByFilter', {
+        shelfId: editing.id, filter: JSON.parse(rule) as Filter,
+      });
+      set新加的(r.bookIds);
+      set批量话(`已经把 ${r.bookIds.length} 本放进「${editing.name}」。`);
+      set批量(await 问批量(editing));
+    } catch (e) {
+      set批量话((e as Error).message);
+    } finally {
+      set批量忙(false);
+    }
+  };
+
+  const 撤销批量 = async () => {
+    if (!editing || !新加的) return;
+    set批量忙(true);
+    try {
+      // 一次把整批发过去——逐本发就是几千次 IPC，同 `reading.restoreStatus` 那条
+      const r = await rpc<{ removed: number }>('shelf.removeBooks', {
+        shelfId: editing.id, bookIds: 新加的,
+      });
+      set批量话(`已经摘掉这次放进去的 ${r.removed} 本（原来就在的没动）。`);
+      set新加的(null);
+      set批量(await 问批量(editing));
+    } catch (e) {
+      set批量话((e as Error).message);
+    } finally {
+      set批量忙(false);
+    }
+  };
 
   const save = async () => {
     setErr(null);
@@ -189,7 +302,7 @@ export default function CategoryDialog(
           * 而这个仓库被「同一份判据抄第二份」咬过好几次。
           */}
         <h2>{editing ? '改这个分类' : '筛选'}</h2>
-        <p className="muted" style={{ fontSize: '.85rem', marginTop: 0 }}>
+        <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
           挑几个条件，右边随时看圈中了谁。
           {editing
             ? '分类存的是规则不是结果——以后扫进来的书只要符合，自己就进这一类。'
@@ -212,7 +325,13 @@ export default function CategoryDialog(
             <div className="cond">
               <span className="cond-label">文件夹</span>
               {/* 只有这一项还是下拉：目录是一棵几十上百个节点的树，芯片摆不下 */}
-              <select value={dir} onChange={(e) => setDir(e.target.value)}>
+              <select
+                value={dir}
+                onChange={(e) => setDir(e.target.value)}
+                // 同这一屏新加的那两个字数框：这一排的标题只是个说明用的 span，
+                // 不是包着控件的 label，读屏念不出这是在问什么
+                aria-label="只看某个文件夹里的书"
+              >
                 <option value={不限目录}>不限</option>
                 {dirs.map((d) => (
                   <option key={d.dir} value={d.dir}>
@@ -239,6 +358,40 @@ export default function CategoryDialog(
               (id) => setMinRating(minRating === Number(id) ? '' : Number(id)),
               () => setMinRating(''),
             )}
+
+            {/*
+             * **字数区间。** `buildFilter` 认这两个键很久了（单边也成立：只填一头
+             * 就是「N 万字以上」/「N 万字以下」），缺的从来只是摆不出来。
+             *
+             * ⚠️ 用输入框不用芯片：芯片只能表达写死的几档（10 万 / 50 万），
+             * 而「别给我那种十万字的短篇」要的是一条自己定的线。
+             * 和「文件夹」那一行同一个道理——**值不受控的项不做成芯片**。
+             *
+             * 空着＝不限，跟右边那排芯片的「不限」是同一个意思，不额外摆开关。
+             */}
+            <div className="cond">
+              <span className="cond-label">
+                字数
+                <span className="cond-hint">万字，空着＝不限；只填一头就是「以上」或「以下」</span>
+              </span>
+              <span className="cond-range">
+                <input
+                  type="number" min="0" step="0.1" inputMode="decimal"
+                  value={minWan}
+                  onChange={(e) => setMinWan(e.target.value)}
+                  placeholder="最低"
+                  aria-label="字数不少于（万字）"
+                />
+                <span className="muted">–</span>
+                <input
+                  type="number" min="0" step="0.1" inputMode="decimal"
+                  value={maxWan}
+                  onChange={(e) => setMaxWan(e.target.value)}
+                  placeholder="最高"
+                  aria-label="字数不多于（万字）"
+                />
+              </span>
+            </div>
 
             {/*
               * **读完年份。** `finished_at` 一直在写、一直进备份，而在这之前
@@ -322,6 +475,37 @@ export default function CategoryDialog(
                 )}
               </>
             )}
+
+            {/*
+             * 批量入口**只在改一个已经存在的分类时出现**：新建那一步还没有 id，
+             * 而「存成分类」和「一次性塞一百本」不该挤在同一次点击里——
+             * 那是两件事，先把规则定下来再谈塞书。
+             */}
+            {editing && !空规则 && (
+              <div className="cat-batch">
+                {批量 && 批量.total === 0 ? (
+                  <p className="muted cat-hit-say">
+                    {批量.already > 0
+                      ? <>这一批<strong>已经是</strong>「{editing.name}」的成员了（{批量.already} 本）。</>
+                      : '右边这些一本都不用加。'}
+                  </p>
+                ) : (
+                  <button className="mini" disabled={批量忙} onClick={() => void 批量加进去()}>
+                    把这 {批量?.total ?? '几'} 本都放进「{editing.name}」
+                  </button>
+                )}
+                {批量话 && (
+                  <p className="muted cat-hit-say">
+                    {批量话}
+                    {新加的 && 新加的.length > 0 && (
+                      <button className="mini" disabled={批量忙} onClick={() => void 撤销批量()}>
+                        撤销
+                      </button>
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -381,7 +565,7 @@ export default function CategoryDialog(
           )}
         </div>
         {要删吗 && (
-          <p className="muted" style={{ margin: '.4rem 0 0', fontSize: '.85rem' }}>
+          <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.85rem' }}>
             只删这条分类规则，书一本都不会少——那些书还在书架上，只是不再自动归到这一类。
           </p>
         )}

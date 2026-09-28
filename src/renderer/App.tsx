@@ -8,7 +8,7 @@ import { RuleEditor } from './RuleEditor.tsx';
 import { BookEditor, type Detail } from './BookEditor.tsx';
 import { 拆标签 } from './TagPicker.tsx';
 import { ExtractDialog } from './ExtractDialog.tsx';
-import CategoryDialog from './CategoryDialog.tsx';
+import CategoryDialog, { 筛选提示 } from './CategoryDialog.tsx';
 import { RenameDialog } from './RenameDialog.tsx';
 import { CleanRules } from './CleanRules.tsx';
 import { SearchPanel } from './SearchPanel.tsx';
@@ -93,6 +93,11 @@ export interface Book {
    * 是 UTC 文本，印之前必须走 `format.ts`。
    */
   finished_at: string | null;
+  /**
+   * 重读了几次。**`core/status.ts` 自增（读完之后再开读才算）、备份和导出一直带着它**，
+   * 而这一份类型没跟上，于是界面上说不出「这本我又翻了一遍」。
+   */
+  reread_count?: number;
   /** 划线 + 书签一共几条。信息行上那个 ✎ 标记靠它（判据见 `core/library.ts` 的 `hasNotesSql`） */
   note_count?: number;
   /** 弃坑原因。和短评同一条道理，而且更该看见 */
@@ -589,7 +594,7 @@ export function App() {
     if (keyword) return <>没有书名、作者或别名里带「{keyword}」的书。</>;
     // 书架这排标签开关是单选（pickedTags 至多一个）；多个标签取交集只可能来自
     // 分类/临时筛选规则，那几条在上面 conds 里已经按名字列出来了
-    if (pickedTags.length === 1) return <>这一档里没有带这个标签的书。</>;
+    if (pickedTags.length === 1) return <>这一类里没有带这个标签的书。</>;
     /*
      * **分类圈不中书**——用户报的就是这一条。
      *
@@ -656,7 +661,7 @@ export function App() {
      * 是句怪话——他刚做完，不是「还没有」。
      */
     if (shelf === 'unreviewed') return <>读过的书都写过一句了。</>;
-    return <>这一档还没有书。</>;
+    return <>这里还没有书。</>;
   };
 
   /*
@@ -1683,7 +1688,7 @@ export function App() {
               // 不该让「全部」跟着变（`settings.ts` 的 `loadSort` 记着症状）
               saveSort(shelf, v);
             }}
-            style={{ fontSize: '.82rem' }}
+            style={{ fontSize: '0.82rem' }}
             /*
              * ⚠️ **这里原来把一句写给开发者的话塞进了 `title`**：
              * 「……SQLite 没有中文拼音排序，而八千本不可能拉到前端排」。
@@ -1723,7 +1728,7 @@ export function App() {
             className="chip"
             aria-pressed={adhoc !== null}
             onClick={() => setEditCat({ id: 0, name: '', filter: adhoc ?? {} })}
-            title="按文件夹、评分、标签、状态、读完年份、格式组合着筛一下；想留着就存成分类"
+            title={筛选提示}
           >
             筛选
           </button>
@@ -1731,7 +1736,7 @@ export function App() {
             <button
               className="chip"
               disabled={checkingUpdates}
-              title="逐本访问每本书的主链接看对面最新章。同域名间隔 2 秒、起点要开隐藏窗口，慢是有意的礼貌"
+              title="一本一本去访问每本书的主页，看对面更到第几章。书多的时候要几分钟，慢是有意的——不去敲人家的服务器"
               onClick={() => void (async () => {
                 setCheckingUpdates(true);
                 try {
@@ -1759,12 +1764,12 @@ export function App() {
           {shelf === 'problem' && (
             cleanupArmed ? (
               <>
-                <button className="chip" style={{ fontSize: '.82rem' }} onClick={() => setCleanupArmed(false)}>
+                <button className="chip" style={{ fontSize: '0.82rem' }} onClick={() => setCleanupArmed(false)}>
                   取消
                 </button>
                 <button
                   className="chip"
-                  style={{ fontSize: '.82rem', color: 'var(--danger)' }}
+                  style={{ fontSize: '0.82rem', color: 'var(--danger)' }}
                   title="不删你的任何评价、进度、标签：写过的书留成「只有记录」，只有一样数据都没有的空书才整条移走"
                   onClick={() => void (async () => {
                     try {
@@ -1774,7 +1779,7 @@ export function App() {
                       setCleanupArmed(false);
                       const bits = [
                         r.restored ? `文件其实还在，恢复 ${r.restored} 条` : '',
-                        r.files ? `清掉失效指针 ${r.files} 条` : '',
+                        r.files ? `清掉对不上号的记录 ${r.files} 条` : '',
                         r.recordOnly ? `${r.recordOnly} 本留成「只有记录」（评价进度都在）` : '',
                         r.removedBooks ? `${r.removedBooks} 本空书整条移走` : '',
                       ].filter(Boolean);
@@ -1792,7 +1797,7 @@ export function App() {
               <button
                 className="chip"
                 disabled={!matched}
-                style={{ fontSize: '.82rem' }}
+                style={{ fontSize: '0.82rem' }}
                 title="文件是你在应用外删掉的那种，扫描和「整理数据库」都清不掉。一次清掉：写过评价/进度的留成「只有记录」，空书整条移走"
                 onClick={() => setCleanupArmed(true)}
               >
@@ -1806,7 +1811,7 @@ export function App() {
             onClick={() => setDialog('batchTag')}
             disabled={!matched}
             title="给当前筛选出的全部书打标签，不只是屏幕上这一页"
-            style={{ fontSize: '.82rem' }}
+            style={{ fontSize: '0.82rem' }}
           >
             批量打标签
           </button>
@@ -1821,7 +1826,7 @@ export function App() {
             onClick={() => setDialog('batchStatus')}
             disabled={!matched}
             title="把当前筛选出的全部书标成读过 / 弃坑 / 想读，不只是屏幕上这一页"
-            style={{ fontSize: '.82rem' }}
+            style={{ fontSize: '0.82rem' }}
           >
             批量改状态
           </button>
@@ -1847,7 +1852,7 @@ export function App() {
             })()}
             disabled={!matched}
             title="按模板改这些书的文件名（不是书名）。会先摆预览、标出冲突，改完还能撤"
-            style={{ fontSize: '.82rem' }}
+            style={{ fontSize: '0.82rem' }}
           >
             批量改名
           </button>
@@ -1927,7 +1932,7 @@ export function App() {
             <button
               className="chip"
               onClick={() => setEditCat({ id: 0, name: '', filter: {} })}
-              title="按文件夹、评分、标签、阅读状态组合出一个分类"
+              title={筛选提示}
             >
               ＋ 新建分类
             </button>
@@ -2009,7 +2014,7 @@ export function App() {
           */}
         <div className="main-scroll">
         {shelf === 'excluded' && books.length > 0 && (
-          <p className="muted" style={{ fontSize: '.85rem', marginTop: 0 }}>
+          <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
             这些书<strong>没有被删除</strong>，只是不在书架上显示、扫描时也跳过。
             来由有两种：被屏蔽规则挡到，或者它所在的书库文件夹被移除了。
             去掉那条规则、或者把文件夹加回来重新扫描，它们连着阅读进度会原样回来。
@@ -2106,7 +2111,7 @@ export function App() {
               * 而真正该做的事（把硬盘插回去）没人告诉他。
               */}
             {report.skipped.unreadableDir ? (
-              <div className="muted" style={{ fontSize: '.82rem' }}>
+              <div className="muted" style={{ fontSize: '0.82rem' }}>
                 有文件夹读不到，所以这次一本都没标成「文件不见了」——
                 多半是移动硬盘没插、网络盘断了，或者权限被改了。接回去再扫一次就行。
               </div>
@@ -2120,7 +2125,7 @@ export function App() {
               * 只列书名，不给按钮：这不是个待办，是一句交代。
               */}
             {report.progressGuessed?.length > 0 && (
-              <div className="muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>
+              <div className="muted" style={{ fontSize: '0.82rem', marginTop: '.2rem' }}>
                 有 {report.progressGuessed.length} 本书重新切过章之后章节变少了，
                 阅读进度只能估个位置（
                 {report.progressGuessed.slice(0, 3).map((g) => `《${g.title}》第 ${g.from + 1} 章 → 第 ${g.to + 1} 章`).join('、')}
@@ -2135,7 +2140,7 @@ export function App() {
               * slice(0,3) 是同一处的惯例，多了就「等 N 本」。
               */}
             {report.grew?.length > 0 && (
-              <div className="muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>
+              <div className="muted" style={{ fontSize: '0.82rem', marginTop: '.2rem' }}>
                 {report.grew.slice(0, 3).map((g) => `《${g.title}》多了 ${g.to - g.from} 章`).join('、')}
                 {report.grew.length > 3 && ` 等 ${report.grew.length} 本`}
               </div>
@@ -2156,7 +2161,7 @@ export function App() {
               * 而有意义的永远是最多的那两三种。
               */}
             {Object.keys(report.otherExts ?? {}).length > 0 && (
-              <div className="muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>
+              <div className="muted" style={{ fontSize: '0.82rem', marginTop: '.2rem' }}>
                 另有{' '}
                 {Object.entries(report.otherExts)
                   .sort((a, b) => b[1] - a[1])
@@ -2193,13 +2198,13 @@ export function App() {
             {报告要等人处理(report) && (
               <div className="toast-actions">
                 <button
-                  style={{ fontSize: '.75rem', padding: '.05em .45em' }}
+                  style={{ fontSize: '0.75rem', padding: '.05em .45em' }}
                   onClick={() => { setShelf('problem'); setReport(null); }}
                 >
                   去处理
                 </button>
                 <button
-                  style={{ fontSize: '.75rem', padding: '.05em .45em' }}
+                  style={{ fontSize: '0.75rem', padding: '.05em .45em' }}
                   // 只收起这次的扫描报告。**体检名单不清**——它现在是长期的，
                   // 收起来的话那几本切错的书又没人提了
                   onClick={() => setReport(null)}
@@ -2225,12 +2230,12 @@ export function App() {
             开机就杵在书架上方——用户的原话是「干扰」。这条只出现一次，
             细节收进 title，鼠标停上去看得全 */}
         {clearedWant > 0 && (
-          <div className="card toast muted" style={{ fontSize: '.8rem' }}>
+          <div className="card toast muted" style={{ fontSize: '0.8rem' }}>
             <span title="那些是扫描时留下的默认值，不是你标的——留着的话「想读」这一档等于整个书库。你自己标过、或者打开过的书一本都没动。">
               整理了 {clearedWant} 条「想读」（扫描留下的默认值，你标过的没动）
             </span>
             <button
-              style={{ marginLeft: '.4rem', fontSize: '.78rem', padding: '.1em .5em' }}
+              style={{ marginLeft: '.4rem', fontSize: '0.78rem', padding: '.1em .5em' }}
               onClick={() => void (async () => {
                 setClearedWant(0);
                 await rpc('setting.set', { key: 'migrate.clearedWant', value: '' }).catch(() => {});
@@ -2252,13 +2257,13 @@ export function App() {
           * 所以留一行，点「看看」再展开。
           */}
         {badSplits.length > 0 && !splitOpen && (
-          <div className="muted" style={{ fontSize: '.8rem', marginTop: '.4rem' }}>
+          <div className="muted" style={{ fontSize: '0.8rem', marginTop: '.4rem' }}>
             有 {badSplits.length} 本的章节可能切错了
             {splitCheckedAt && whenAgo(splitCheckedAt) && (
               <span title={whenAgo(splitCheckedAt)!.title}>（{whenAgo(splitCheckedAt)!.text}查的）</span>
             )}
             <button
-              style={{ marginLeft: '.4rem', fontSize: '.78rem', padding: '.1em .5em' }}
+              style={{ marginLeft: '.4rem', fontSize: '0.78rem', padding: '.1em .5em' }}
               onClick={() => setSplitOpen(true)}
             >
               看看
@@ -2267,10 +2272,10 @@ export function App() {
         )}
 
         {badSplits.length > 0 && splitOpen && (
-            <div style={{ marginTop: '.5rem', borderTop: '1px solid var(--line)', paddingTop: '.5rem' }}>
+            <div style={{ marginTop: '.5rem', borderTop: '1px solid var(--line)', paddingTop: '0.5rem' }}>
               <strong>有 {badSplits.length} 本的章节可能切错了</strong>
               <button
-                style={{ marginLeft: '.4rem', fontSize: '.78rem', padding: '.1em .5em' }}
+                style={{ marginLeft: '.4rem', fontSize: '0.78rem', padding: '.1em .5em' }}
                 onClick={() => setSplitOpen(false)}
               >
                 收起
@@ -2281,11 +2286,11 @@ export function App() {
                   （维护接口也能写它，我就从外面补写过一次），那时候那句话是假的。
                   只说什么时候查的，别替它声称是怎么来的。 */}
               {splitCheckedAt && whenAgo(splitCheckedAt) && (
-                <span className="muted" style={{ fontSize: '.78rem', marginLeft: '.4rem' }} title={whenAgo(splitCheckedAt)!.title}>
+                <span className="muted" style={{ fontSize: '0.78rem', marginLeft: '.4rem' }} title={whenAgo(splitCheckedAt)!.title}>
                   （{whenAgo(splitCheckedAt)!.text}查的）
                 </span>
               )}
-              <div className="muted" style={{ fontSize: '.8rem', margin: '.2rem 0 .4rem' }}>
+              <div className="muted" style={{ fontSize: '0.8rem', margin: '0.2rem 0 0.4rem' }}>
                 {badSplits.slice(0, 4).map((b) => (
                   <div key={b.bookId}>《{b.title}》{b.detail}</div>
                 ))}
@@ -2317,8 +2322,8 @@ export function App() {
               >
                 按现在的规则重新切分{badSplits.length > SPLIT_BATCH ? `前 ${SPLIT_BATCH}` : `这 ${badSplits.length}`} 本
               </button>
-              {splitMsg && <span style={{ color: 'var(--accent)', fontSize: '.8rem', marginLeft: '.5rem' }}>{splitMsg}</span>}
-              <div className="muted" style={{ fontSize: '.78rem', marginTop: '.3rem' }}>
+              {splitMsg && <span style={{ color: 'var(--accent)', fontSize: '0.8rem', marginLeft: '.5rem' }}>{splitMsg}</span>}
+              <div className="muted" style={{ fontSize: '0.78rem', marginTop: '.3rem' }}>
                 只重算章节、不动磁盘上的文件。阅读进度、书签、划线都会按标题跟着搬；
                 <strong>标题在新目录里找不到时只能按序号落位，可能对不上</strong>——
                 划线还会在阅读器里如实标出来。
@@ -2339,7 +2344,7 @@ export function App() {
                   选一个文件夹
                 </button>
                 <br />
-                <span className="muted" style={{ fontSize: '.85rem' }}>
+                <span className="muted" style={{ fontSize: '0.85rem' }}>
                   {/* ⚠️ **三档都从常量推出来，别手写。** 这句话原来写着
                       「txt 能在书斋里读，其余的交给系统程序打开」——两处都过期了：
                       md 也能读，而 PDF / EPUB 有内置查看器、不交给系统程序。
@@ -2412,6 +2417,7 @@ export function App() {
                 只有记录: kind === 'manual',
                 笔记: (b.note_count ?? 0) > 0,
                 读完: b.reading_status === 'finished',
+                重读: (b.reread_count ?? 0) > 0,
                 弃坑: b.reading_status === 'dropped',
                 连载中: b.serial_status === 'ongoing',
                 网上有更新: updateIds.has(b.id),
@@ -2435,6 +2441,17 @@ export function App() {
               if (角标.格式) 事实标.push({ text: 角标.格式 });
               if (角标.笔记) 事实标.push({ text: `✎ ${b.note_count}`, title: `划线和书签一共 ${b.note_count} 条` });
               if (角标.只有记录) 事实标.push({ text: '只有记录' });
+              /*
+               * **重读过就摆一枚。**「别再翻开它」这一屏最要紧的那句话，
+               * 遇到「我其实翻回来过」正好是反证——不说出来，那一档的账就是错的。
+               * ⚠️ 数的是**重读的次数**（`status.ts` 里读完之后再开读才自增），
+               * 不是「一共读了几遍」，所以 1 的意思是「读完又翻回来过一次」。
+               * 说法里的「一次算一遍」由悬停那句话交代，不占卡面。
+               */
+              if (角标.重读) 事实标.push({
+                text: `重读 ${b.reread_count} 次`,
+                title: '读完之后又翻开过。重新开读会把进度归零，所以「读到第几章」是从头算的',
+              });
               return (
               /*
                * `data-book-id` 是给走查用的：书库里**同名的书是常态**
@@ -2692,7 +2709,7 @@ export function App() {
 
         {/* 滚到这儿就自动加载下一页，不用点 */}
         {!atEnd && books.length > 0 && (
-          <div ref={attachSentinel} className="muted" style={{ textAlign: 'center', padding: '1.6rem 0', fontSize: '.85rem' }}>
+          <div ref={attachSentinel} className="muted" style={{ textAlign: 'center', padding: '1.6rem 0', fontSize: '0.85rem' }}>
             正在加载更多…（已显示 {books.length} 本）
           </div>
         )}

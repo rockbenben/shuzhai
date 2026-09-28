@@ -177,7 +177,18 @@ export function ReviewTable({ books, sort, onSort, onOpen, editing, onEdit, onCh
                     );
                   })()}
                 </td>
-                <td className="muted col-status">{labelOf(READING_STATUS, b.reading_status)}</td>
+                {/* 状态那一格顺带说「重读过几次」。**不加列**：这张表已经十列，
+                    加一列要连带动 `min-width`（判据在 shell.css 的 `.booktable`），
+                    而这句话本来就是状态的一部分。
+                    ⚠️ 数的是重读次数（`status.ts` 里读完之后再开读才自增），1 ＝ 翻回来过一次 */}
+                <td className="muted col-status">
+                  {labelOf(READING_STATUS, b.reading_status)}
+                  {(b.reread_count ?? 0) > 0 && (
+                    <span title="读完之后又翻开过。重新开读会把进度归零，所以「读到」那一列是从头算的">
+                      {' · 重读 '}{b.reread_count}{' 次'}
+                    </span>
+                  )}
+                </td>
                 {/*
                   * **读到哪。** 封面墙上是压在封面下沿那条进度条，表格里给数字——
                   * 条形只能看个大概，而表格的用处正是一列上下比得出来。

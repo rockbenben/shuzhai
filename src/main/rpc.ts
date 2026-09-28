@@ -44,6 +44,8 @@ import {
   shelvesForBook,
   addShelfBooks,
   removeShelfBooks,
+  planShelfByFilter,
+  addShelfBooksByFilter,
   type Filter,
   formatCounts,
   finishedYears,
@@ -1410,6 +1412,31 @@ export function createRpc(
       const bookIds = nums(params, 'bookIds');
       return { removed: removeShelfBooks(db, num(params, 'shelfId'), bookIds) };
     },
+
+    /**
+     * 只读。**「把当前筛选结果都放进这一分类」的预览**：还差几本、样本是哪几本。
+     *
+     * 和 `reading.planStatusByFilter` 是同一条判据——按钮上那个数必须就是
+     * 待会真会动的本数。`addShelfBooksByFilter` 靠 `insert or ignore` 幂等，
+     * 所以「已经是手动成员」的那些既不该被数进预览，也不该进撤销名单。
+     */
+    'shelf.planAddByFilter': (params) => planShelfByFilter(
+      db,
+      num(params, 'shelfId'),
+      (asRecord(params).filter ?? {}) as Filter,
+    ),
+
+    /**
+     * **写库**：按筛选结果批量加入手动成员。返回这次真新加的书 id。
+     *
+     * 那个 id 名单就是撤销的全部依据（配 `shelf.removeBooks`）——
+     * 拿「筛选命中的全部」去撤销会把人家原来就在的成员一起摘掉。
+     */
+    'shelf.addBooksByFilter': (params) => addShelfBooksByFilter(
+      db,
+      num(params, 'shelfId'),
+      (asRecord(params).filter ?? {}) as Filter,
+    ),
 
     // ── 阅读状态 / 书签 / 会话（spec §5）───────────────────────────
 
