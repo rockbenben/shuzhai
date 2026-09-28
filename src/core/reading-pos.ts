@@ -30,6 +30,14 @@ export const END_SLACK_PX = 24;
 export const ANCHOR_SLACK_PX = 4;
 
 /**
+ * 卸章时留给视野的余量（像素）：一章要**整个儿**离开视野 400px 以上才许卸。
+ *
+ * 留余量而不是贴着顶边，是因为卸完要把正文放回原处（`Reader.tsx` 的锚点补偿）——
+ * 贴着顶边那一章一旦卸掉，补偿算的是「顶上那一章」，而顶上那一章刚被换掉。
+ */
+export const DROP_CLEAR_PX = 400;
+
+/**
  * 视口顶上那一段的字节偏移。
  *
  * `paras` 要按版面顺序给（DOM 顺序天然就是），`pos` 是这一段在**当前模式下的
@@ -67,6 +75,39 @@ export function atEndScrolling(scrollTop: number, clientHeight: number, scrollHe
  */
 export function atEndPaging(page: number, pages: number): boolean {
   return page > 0 && page >= pages - 1;
+}
+
+/**
+ * 无限下滑的窗口接满之后，从视野上方卸掉几章。
+ *
+ * `arts` 按版面顺序给（DOM 顺序天然就是），`top` 是那一章章首**离容器顶**多远。
+ *
+ * 两条约束，一条比一条要紧：
+ *
+ * 1. **只卸整章都在视野上方 400px 以外的**——卸到视野里等于当场把正文抽走。
+ * 2. **「正在读的那一章」一律不许卸**（`正在读`）。这一条是踩出来的：
+ *    `Reader.tsx` 的 `chapter` 是**按 `idx` 从窗口里找出来的**，找到了才是它；
+ *    一卸掉它，`chapter` 变成 null，而写进度那个滚动监听 effect 开头挡着
+ *    `!chapter`，**监听整个不下来**——从此进度不再记、下一章也再也不接，
+ *    底栏显示「第 1 / … 章」。屏幕上看着还好好的，什么都报不出来。
+ *
+ * 第 2 条的代价是窗口可能多挂一章。`MAX_WINDOW` 是安全绳而不是策略，值得。
+ */
+export function 该卸几章(
+  arts: Array<{ idx: number; top: number; height: number }>,
+  scrollTop: number,
+  want: number,
+  正在读: number,
+): number {
+  if (want <= 0) return 0;
+  let drop = 0;
+  while (drop < want && drop < arts.length - 1) {
+    const a = arts[drop];
+    if (a.idx === 正在读) break;
+    if (a.top + a.height > scrollTop - DROP_CLEAR_PX) break;
+    drop++;
+  }
+  return drop;
 }
 
 /**

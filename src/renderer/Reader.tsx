@@ -11,7 +11,7 @@ import { COLORS } from '../core/highlight.ts';
    而 `bookmark.list` 返回的是整行——`dup-decls.mjs` 当场报
    「同一个 rpc 两种返回类型」（查看器那半也要用它，两份必然分叉） */
 import type { Bookmark } from '../core/status.ts';
-import { anchorOffset, atEndScrolling, atEndPaging, 点到哪边, ANCHOR_SLACK_PX } from '../core/reading-pos.ts';
+import { anchorOffset, atEndScrolling, atEndPaging, 点到哪边, 该卸几章, ANCHOR_SLACK_PX } from '../core/reading-pos.ts';
 import type { Detail } from './BookEditor.tsx';
 import type { FontFile } from './Settings.tsx';
 import { rpc } from './rpc.ts';
@@ -92,7 +92,7 @@ function BodyImage({ src }: { src: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
-      <span className="muted" style={{ fontSize: '.8rem' }} title={src}>
+      <span className="muted" style={{ fontSize: '0.8rem' }} title={src}>
         〔这张图没能加载〕
       </span>
     );
@@ -526,19 +526,19 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
    * 所以「最多挂 N 章」就是「读到第 N 章之后再也接不下去」——屏幕上还挂着
    * 「下一章…」而它永远不会来。那是个死胡同，不是省事。
    *
-   * **只卸整章都在视野上方 400px 以外的**：卸到视野里等于当场把正文抽走。
+   * 判据在 `core/reading-pos.ts`（只卸离开视野够远的整章、**正在读那一章不许卸**、
+   * 怎么卸都留一章），这里只负责量几何。
    */
-  const 该卸几章 = (box: HTMLElement, want: number) => {
-    if (want <= 0) return 0;
-    const arts = [...box.querySelectorAll<HTMLElement>('article[data-chapter]')];
-    let drop = 0;
-    while (drop < want && drop < arts.length - 1) {
-      const a = arts[drop];
-      if (a.offsetTop - box.offsetTop + a.offsetHeight > box.scrollTop - 400) break;
-      drop++;
-    }
-    return drop;
-  };
+  const 窗口该卸几章 = (box: HTMLElement, want: number) => 该卸几章(
+    [...box.querySelectorAll<HTMLElement>('article[data-chapter]')].map((a) => ({
+      idx: Number(a.dataset.chapter),
+      top: a.offsetTop - box.offsetTop,
+      height: a.offsetHeight,
+    })),
+    box.scrollTop,
+    want,
+    idx,
+  );
 
   /**
    * 卸完之后把正文放回原处。
@@ -579,7 +579,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     try {
       const c = await rpc<ChapterText>('chapter.read', { bookId, idx: last.idx + 1 });
       const box = bodyRef.current;
-      const drop = box ? 该卸几章(box, chapters.length + 1 - MAX_WINDOW) : 0;
+      const drop = box ? 窗口该卸几章(box, chapters.length + 1 - MAX_WINDOW) : 0;
       if (drop > 0 && box) anchorRef.current = 当前锚点(box);
       // 期间窗口要是被重置过（跳章、换书），这一章就不属于这儿了
       setChapters((cs) => (cs[cs.length - 1]?.idx === last.idx ? [...cs.slice(drop), c] : cs));
@@ -588,7 +588,10 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     } finally {
       appending.current = false;
     }
-  }, [bookId, chapters]);
+    // ⚠️ **`idx` 要在依赖里**：「正在读哪一章」是卸章判据的一半（那一章不许卸），
+    // 少这一项，`appendNext` 揣着的还是上一次渲染的那个字面量——
+    // 进度已经滚过去三章了而它不知道，照样能把当前章卸掉。
+  }, [bookId, chapters, idx]);
 
   /**
    * 无限下滑接下一章有**两条**触发路径，缺一条都读不下去：
@@ -682,39 +685,80 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
    * 顺带判「读到最后一章的最底下」= 读完了。只看章号不行：
    * 从目录跳到最后一章看一眼就被判读完，那本书会从「在读」里消失。
    */
+  /**
+   * 「正文到没到」——**只这个布尔值进依赖，`chapter` 本身不进**。
+   *
+   * `chapter` 是按 `idx` 从窗口里找出来的对象，滚过一章就是一个新的，
+   * 拿它当依赖等于每认一次章重建一次监听。而监听要不要挂，
+   * 从来只取决于「盒子里有没有正文」。
+   */
+  const 有没有正文 = chapter != null;
+
+  /**
+   * 节流那 700ms 的定时器**放在 ref 里**，不放 effect 的局部变量里。
+   *
+   * 放局部变量的话，effect 每重建一次就顺手 `clearTimeout` 一次——而它有无数
+   * 个重建的理由（换章、`chapter` 换了对象、模式变了），于是「正滚着撞上
+   * 一次重建」就把那次还没落地的写库抹了。量出来的症状是**同样的条件跑两遍，
+   * 一次库里写成了、一次还是 0**，看着像走查偶发，其实是铁律 3 的数据在丢。
+   *
+   * 真正该拆的只有一件事：阅读器整个关掉（下面那条 `[]`）。
+   */
+  const 写进度定时器 = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(写进度定时器.current), []);
+
   useEffect(() => {
     const box = bodyRef.current;
-    if (!box || !chapter || settings.mode === 'page') return;
+    if (!box || !有没有正文 || settings.mode === 'page') return;
 
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    /** 顶着视口上沿的那一章 ——「现在读到哪一章」的唯一来源 */
+    const 顶上那一章 = () => {
+      const arts = [...box.querySelectorAll<HTMLElement>('article[data-chapter]')];
+      return arts.findLast((a) => a.offsetTop - box.offsetTop <= box.scrollTop + ANCHOR_SLACK_PX) ?? arts[0] ?? null;
+    };
+
     const onScroll = () => {
       // **接下一章不等那 700ms 的节流**：那个节流是给写库用的，
       // 而这一下要赶在用户真滚到底之前，不然章节交界处会顿一下
       if (settings.mode === 'flow'
         && box.scrollHeight - box.scrollTop - box.clientHeight < 1200) void appendRef.current();
-      clearTimeout(timer);
-      timer = setTimeout(() => {
+      /*
+       * **「读到哪一章了」也当场认，不等那 700ms。**
+       *
+       * `idx` 不只是进度：底栏、目录高亮，还有**卸章的判据**（`该卸几章` 里
+       * 「正在读那一章不许卸」）都靠它。让它滞后一整段，一路快滚时窗口就会
+       * 把「正在读的那一章」卸掉——`chapter` 当场变 null，而写进度那个监听
+       * 效果开头挡着 `!chapter`，**监听整个不下来**：从此进度不再记、下一章
+       * 再也不接，底栏成了「第 1 / … 章」。滚了 11691 像素而库里纹丝不动，
+       * 屏幕上看着还好好的一直在出字（这一条是走查复现出来的）。
+       *
+       * ⚠️ **这一句不能留在节流里。** 卸章那条「正在读那一章不许卸」认的就是
+       * `idx`：它滞后一整段，保护错了对象，实测窗口一路涨到 19 章、
+       * `MAX_WINDOW` 那条安全绳当场失效。也别把 `idx` 写回下面那个 effect
+       * 的依赖——那等于每认一次章重建一次监听，理由在 `有没有正文` 上面。
+       */
+      const art = 顶上那一章();
+      if (art) {
+        const ci = Number(art.dataset.chapter);
+        if (ci !== idxRef.current) { idxRef.current = ci; setIdx(ci); }
+      }
+      clearTimeout(写进度定时器.current);
+      写进度定时器.current = setTimeout(() => {
+        // 阅读器已经关掉了：那个盒子脱离了文档，量出来全是 0，别拿它写库
+        if (!box.isConnected) return;
         // 「顶上是哪一段」和「到底了吗」两条判据都在 `core/reading-pos.ts`，
         // 和翻页模式共用同一份——这两件事以前在两个 effect 里各写了一遍
+        const a = 顶上那一章();
+        if (!a) return;
         const top = box.scrollTop + ANCHOR_SLACK_PX;
-        // **「现在读到哪一章」得先认出来。** 无限下滑时屏幕上挂着好几章，
-        // `idx` 不再等于「屏幕上那一章」——顶上露出来的那一章才是。
-        // 认不出来的话，滚进下一章之后进度还记在上一章上，
-        // 下次打开退回去一整章（铁律 3 的数据）。
-        const arts = [...box.querySelectorAll<HTMLElement>('article[data-chapter]')];
-        const art = arts.findLast((a) => a.offsetTop - box.offsetTop <= top) ?? arts[0];
-        if (!art) return;
-        const ci = Number(art.dataset.chapter);
+        const ci = Number(a.dataset.chapter);
         const offset = anchorOffset(
-          [...art.querySelectorAll<HTMLElement>('p[data-offset]')].map((el) => ({
+          [...a.querySelectorAll<HTMLElement>('p[data-offset]')].map((el) => ({
             offset: Number(el.dataset.offset),
             pos: el.offsetTop - box.offsetTop,
           })),
           top,
         );
-        // 滚进下一章就把它记成「正在读的那一章」。**这一下不会重新取章**：
-        // 取章那个 effect 开头就挡住了已经在窗口里的
-        if (ci !== idx) setIdx(ci);
         const atEnd = atEndScrolling(box.scrollTop, box.clientHeight, box.scrollHeight);
         void rpc<{ finished: boolean }>('reading.save', { bookId, chapterIdx: ci, charOffset: offset, atEnd })
           .then((r) => r.finished && askReview());
@@ -722,15 +766,18 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     };
 
     box.addEventListener('scroll', onScroll, { passive: true });
-    return () => { box.removeEventListener('scroll', onScroll); clearTimeout(timer); };
-  }, [bookId, idx, chapter, settings.mode]);
+    // 清理里**不动那个定时器**：重建监听不该把还没落地的写库抹掉（理由见上）
+    return () => { box.removeEventListener('scroll', onScroll); };
+    // ⚠️ **依赖里既没有 `idx` 也没有 `chapter`**：认章改成当场做之后，这两个
+    // 每滚过一章就变一次，写进依赖等于每章重建一次监听。走 ref，同下面 `appendRef`。
+  }, [bookId, 有没有正文, settings.mode]);
 
   /**
    * ⚠️ **接下一章走 ref，不走依赖。**
    *
    * 第一版把 `appendNext` 和 `chapters` 写进了上面那个 effect 的依赖，于是
-   * **每接一章就把滚动监听重建一次**——而它的清理里有 `clearTimeout(timer)`，
-   * 把那 700ms 还没落地的进度连着掐掉了。症状是一路滚下去底栏一直写「第 1 章」、
+   * **每接一章就把滚动监听重建一次**——而那底下压着 700ms 还没落地的进度，
+   * 一次重建就抹掉一次。症状是一路滚下去底栏一直写「第 1 章」、
    * 库里的 `chapter_idx` 纹丝不动，**看起来像章号认不出来，其实是根本没写成**。
    * 而那是铁律 3 的数据。
    */
@@ -1377,7 +1424,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
         {/* ⚠️ **`nowrap`**：两列排下来每格只有约 130px，「行距 1.8 倍」会在
             数字和单位之间折成两行——一行里只要有一格折了，整行就是双高，
             两列省下的高度当场还回去 */}
-        <span className="muted" style={{ fontSize: '.8rem', minWidth: 0, whiteSpace: 'nowrap' }}>
+        <span className="muted" style={{ fontSize: '0.8rem', minWidth: 0, whiteSpace: 'nowrap' }}>
           {label} {show(v)}{unit}
           {hint && <span style={{ opacity: 0.75, display: 'block' }}>{hint(v)}</span>}
         </span>
@@ -1547,7 +1594,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
               ↓ 还有 {shown.length - tocTo} 章…
             </button>
           )}
-          {shown.length === 0 && <p className="muted" style={{ padding: '.5rem .8rem' }}>没有匹配的章节</p>}
+          {shown.length === 0 && <p className="muted" style={{ padding: '0.5rem 0.8rem' }}>没有匹配的章节</p>}
         </div>
       </aside>
       )}
@@ -1652,7 +1699,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
             className={scrolling ? 'on' : ''}
             disabled={settings.mode === 'page'}
             onClick={() => setScrolling((v) => !v)}
-            title="自动往下滚，读到底自动进下一章（空格）。左右翻页模式下用不上"
+            title={`自动往下滚，读到底自动进下一章（${键('autoScroll')}）。左右翻页模式下用不上`}
           >
             {ICO.auto}<span>自动滚</span>
           </button>
@@ -1783,12 +1830,12 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
               gap: '.4rem',
             }}
           >
-            <span className="muted" style={{ fontSize: '.8rem', maxWidth: '18rem', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+            <span className="muted" style={{ fontSize: '0.8rem', maxWidth: '18rem', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
               「{pending.text}」
             </span>
             {/* **四个色块前面要有个动词。** 光四个圆点谁也看不出点下去会发生什么——
                 颜色是次要的选择，「划线」才是这一行在干的事 */}
-            <span style={{ fontSize: '.82rem' }}>划线</span>
+            <span style={{ fontSize: '0.82rem' }}>划线</span>
             {/* **每个色块要说出它代表什么。** 原来四个 title 都是同一句
                 「用这个颜色划线」——那四个圆点对读屏就是四个一模一样的按钮，
                 而颜色恰恰是划线唯一的分类轴。名字用户自己定，见 `use色名` */}
@@ -1949,7 +1996,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
                 * 开关了正文净化、切了繁简。所以这句话要点出「正文变过」。
                 */}
               {mine.some((m) => !m.intact) && (
-                <p className="muted" style={{ fontSize: '.8rem', textAlign: 'center' }}>
+                <p className="muted" style={{ fontSize: '0.8rem', textAlign: 'center' }}>
                   这一章有 {mine.filter((m) => !m.intact).length} 条划线对不上原文了
                   （正文变过：换过章节规则、改过正文净化或繁简）。
                   没有画在正文上，免得标错地方——原文和笔记都还在「书签划线」里。
@@ -1998,7 +2045,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
                 * 提示还在，消息反而留得住。探针就是这么抓到的。
                 */}
               {对完 && (
-                <p className="muted" style={{ fontSize: '.8rem', textAlign: 'center' }}>{对完}</p>
+                <p className="muted" style={{ fontSize: '0.8rem', textAlign: 'center' }}>{对完}</p>
               )}
               {shown.map((para) => {
                 /*
