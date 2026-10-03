@@ -106,6 +106,49 @@ if (要的分辨率.length && RES.length !== 要的分辨率.length) {
 }
 
 /** 每个界面怎么打开、怎么关掉。名字要和侧栏上的字一致 */
+/*
+ * 「开设置 → 切到某一页（→ 再点里面一颗键）」这一串，四个页签各一屏要用四遍。
+ * 抽成一个函数而不是抄四遍：上一轮 `×` 改成「删掉」把 `find.mjs` 的出口识别改断，
+ * 就是同一串逻辑抄第二份、改了一份漏了另一份。**探针自己也是会分叉的代码。**
+ */
+const 开设置页 = (页签, 再点) =>
+  "(() => { const s=[...document.querySelectorAll('.nav-tool')].find(x=>x.textContent.trim()==='设置'); if(!s) return 0; s.click();"
+  + " let n=0; const t=setInterval(() => { const b=[...document.querySelectorAll('.tabs button')].find(x=>x.textContent.trim()==="
+  + JSON.stringify(页签) + ');'
+  + '   if (b) { b.click(); clearInterval(t);'
+  + (再点
+    ? "     let m=0; const t2=setInterval(() => { const a=[...document.querySelectorAll('.modal button')].find(x=>x.textContent.trim()==="
+      + JSON.stringify(再点) + '); if (a) { a.click(); clearInterval(t2); } else if (++m > 40) clearInterval(t2); }, 150);'
+    : '')
+  + '   } else if (++n > 40) clearInterval(t); }, 150); return 1; })()';
+
+/**
+ * 「我的笔记」那两屏共用的种子与收尾——**两屏各自种、各自收**。
+ *
+ * 原来只有第一屏种、两屏都不收尾，而第二屏的注释写着「不在这里再造笔记，
+ * 上一条每跑一遍就多两条，库里肯定已经有笔记了」：那是把**泄漏当成了依赖**。
+ * 于是每跑一档留两行，两趟全量之间那屏从 2005px 长到 4280px、控件 85 涨到 182，
+ * 正是这份清单自己那条老话——**同一个脚本重复跑，量的已经不是同一个东西**。
+ *
+ * 删的时候认**笔记正文的前缀**，不记 id：`open` 和 `close` 之间可能隔着别的屏，
+ * 而正文是这些东西唯一看得见的共同标记。
+ */
+const 种笔记 = " const q = (m, p) => window.novel.rpc(m, p);"
+  + " const bs = await q('book.list', { filter: {}, limit: 5 });"
+  + " for (const b of (bs.rows ?? bs).slice(0, 2)) {"
+  + "   const h = await q('highlight.add', { bookId: b.id, chapterIdx: 1, charOffset: 0, length: 4, excerpt: '走查用的摘录', color: 'blue' });"
+  + "   await q('highlight.setNote', { id: h.id, note: '走查用的笔记，用来把这一屏填满好量版面' }); }";
+const 收笔记 = " const q2 = (m, p) => window.novel.rpc(m, p);"
+  + " const 有 = await q2('highlight.notes', {});"
+  + " for (const h of (有.rows ?? 有 ?? [])) {"
+  + "   if (h.kind === 'highlight' && (h.note || '').startsWith('走查用的笔记')) await q2('highlight.remove', { id: h.id, confirmed: true }); }";
+const 开笔记 = (之后) => "(async () => {" + 种笔记
+  + " [...document.querySelectorAll('.nav-tool')].find(b=>b.textContent.trim()==='我的笔记')?.click();"
+  + 之后 + " return 1; })()";
+const 关笔记 = "(async () => {"
+  + " [...document.querySelectorAll('.modal button')].find(x=>x.textContent.trim()==='关闭')?.click();"
+  + 收笔记 + " return 1; })()";
+
 const SURFACES = [
   { name: '书架' },
   /*
@@ -291,7 +334,7 @@ const SURFACES = [
 
   /* 引擎管理。**一行四个元素**（名字 / POST / 试听 / 删），窄窗口下最容易挤，
      而且它是从阅读器里开的 modal——`.reader .modal` 那条宽度限制只作用在这儿 */
-  { name: '朗读引擎', wait: 12000, expect: '.tts-list',
+  { name: '朗读引擎', wait: 12000, expect: '.item-list',
     open: "(() => { const c=[...document.querySelectorAll('.book')].find(x => ((x.querySelector('.book-sub')||{}).textContent||'').includes('章') && !/文件缺失|未解析|PDF|EPUB/.test(x.textContent)); if(!c) return 0; c.querySelector('.book-art').click();"
       + " let n=0; const t=setInterval(() => {"
       + "   const b=[...document.querySelectorAll('.reader-tools button')].find(x=>/朗读/.test(x.title||''));"
@@ -394,32 +437,36 @@ const SURFACES = [
   { name: '批量改状态', wait: 1200, expect: '.modal',
     open: "(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='批量改状态'); if(!b||b.disabled) return 0; b.click(); return 1; })()" },
 
-  { name: '设置·书库', wait: 7500, expect: '.modal',
-    open: "(() => { const s=[...document.querySelectorAll('.nav-tool')].find(x=>x.textContent.trim()==='设置'); if(!s) return 0; s.click();"
-      + " let n=0; const t=setInterval(() => { const b=[...document.querySelectorAll('.tabs button')].find(x=>x.textContent.trim()==='书库');"
-      + "   if (b) { b.click(); clearInterval(t); } else if (++n > 40) clearInterval(t); }, 150); return 1; })()" },
+  /*
+   * 设置的四个页签各一屏。**原来只有「书库」这一页单开了一屏**，因为它是唯一
+   * 长得要滚的那页；这一轮把两页切成四页，只量默认那页等于没量——
+   * 键盘页有整张表和那十四颗小键，联网页有两段长说明和一颗会写库的键。
+   */
+  { name: '设置·书库', wait: 7500, expect: '.modal', open: 开设置页('书库') },
+  { name: '设置·键盘', wait: 7500, expect: '.modal', open: 开设置页('键盘') },
+  { name: '设置·联网', wait: 7500, expect: '.modal', open: 开设置页('联网') },
 
-  /* 自定义封面源在「设置 → 书库」里，点「加一个源」才长出那一行控件。
+  /* 自定义封面源在「设置 → **联网**」里（这一轮之前它在「书库」页，跟着那次
+   * 四页拆分挪了过来——挪的时候忘了改这里，这一屏就悄悄退化成「设置·书库」的
+   * 重复测量：两屏读数一模一样，而报告上 0 条，看不出任何异常）。
+   * 点「加一个源」才长出那一行控件。
    *
    * ⚠ **这一条会写库，所以必须自己收尾。** 它每跑一次就留下一行「新的搜索源」，
    * 一个分辨率留一行，一轮下来就是 `RES.length` 行。同一个档案目录上跑几轮之后，
- * 这个界面比第一次高一大截——
+   * 这个界面比第一次高一大截——
    * **同一个脚本重复跑，量的已经不是同一个东西了**，而报告上看不出任何异常。
    * `close` 里把自己加的那一行删掉，让每一轮的起点一样。
    *
    * ⚠ **认的是名字，不是位置。** 「最后一行」在正常情况下就是自己加的那行，
    * 但 `open` 那串 setInterval 万一没点着「加一个源」，最后一行就是**用户自己配的源**，
-   * 而 `×` 是直接落库的删除（`CoverSources.tsx` 里 `save(list.filter(...))`）。
+   * 而那颗删除键是直接落库的（`CoverSources.tsx` 里 `save(list.filter(...))`）。
    * `新的搜索源` 是 `blankSource()` 给的默认名（`src/core/cover-custom.ts`），
-   * 只删名字还没被改过的那行；一行都没有就什么都不做。 */
+   * 只删名字还没被改过的那行；一行都没有就什么都不做。
+   * ⚠ 那颗键**原来叫 `×`，2026-10-03 改成写着「删掉」**——收尾逻辑跟着改，
+   * 不然它静默失效，每轮往测试库里堆一行。 */
   { name: '自定义封面源', wait: 7500, expect: '.modal',
-    close: "(() => { const rows=[...document.querySelectorAll('.modal .row')].filter(r=>[...r.querySelectorAll('button')].some(b=>/试一下/.test(b.textContent||'')) && [...r.querySelectorAll('input')].some(i=>i.value==='新的搜索源')); const row=rows[rows.length-1]; if(row){ const x=[...row.querySelectorAll('button')].find(b=>b.textContent.trim()==='×'); if(x) x.click(); } return 1; })()",
-    open: "(() => { const s=[...document.querySelectorAll('.nav-tool')].find(x=>x.textContent.trim()==='设置'); if(!s) return 0; s.click();"
-      + " let n=0; const t=setInterval(() => { const b=[...document.querySelectorAll('.tabs button')].find(x=>x.textContent.trim()==='书库');"
-      + "   if (b) { b.click(); clearInterval(t);"
-      + "     let m=0; const t2=setInterval(() => { const a=[...document.querySelectorAll('.modal button')].find(x=>x.textContent.trim()==='加一个源');"
-      + "       if (a) { a.click(); clearInterval(t2); } else if (++m > 40) clearInterval(t2); }, 150);"
-      + "   } else if (++n > 40) clearInterval(t); }, 150); return 1; })()" },
+    close: "(() => { const rows=[...document.querySelectorAll('.modal .row')].filter(r=>[...r.querySelectorAll('button')].some(b=>/试一下/.test(b.textContent||'')) && [...r.querySelectorAll('input')].some(i=>i.value==='新的搜索源')); const row=rows[rows.length-1]; if(row){ const x=[...row.querySelectorAll('button')].find(b=>b.textContent.trim()==='删掉'); if(x) x.click(); } return 1; })()",
+    open: 开设置页('联网', '加一个源') },
 
   /* 在线地址：编辑弹窗里那个按钮。**这个界面在这一轮之前是够不到的**。
      挑「有章节的那本」而不是第一张卡——`walk.mjs` 往它身上写数据，
@@ -433,11 +480,14 @@ const SURFACES = [
       + " let n=0; const t=setInterval(() => { const b=[...document.querySelectorAll('.modal button')].find(x=>/在线地址/.test(x.textContent));"
       + "   if (b) { b.click(); clearInterval(t); } else if (++n > 60) clearInterval(t); }, 150); return 1; })()" },
 
+  // 探针按 title 找键，**只匹配「在这本书里」这一截**：整句话是界面文案，
+  // 改一次措辞（2026-10-02 把「在这本书里搜」统一成「在这本书里找一段话」）
+  // 就让这一屏报「没打开」，看起来像应用坏了。`find.mjs` 用的也是这个前缀。
   { name: '书内搜索', wait: 9500, expect: '.find-panel',
     open: "(() => { const c=[...document.querySelectorAll('.book')].find(x =>"
       + " ((x.querySelector('.book-sub')||{}).textContent||'').includes('章')"
       + " && !/文件缺失|未解析|PDF/.test(x.textContent)); if(!c) return 0; c.querySelector('.book-art').click();"
-      + " let n=0; const t=setInterval(() => { const b=[...document.querySelectorAll('.reader-tools button')].find(x=>/在这本书里搜/.test(x.title||''));"
+      + " let n=0; const t=setInterval(() => { const b=[...document.querySelectorAll('.reader-tools button')].find(x=>/在这本书里/.test(x.title||''));"
       + "   if (b) { b.click(); clearInterval(t); } else if (++n > 40) clearInterval(t); }, 200); return 1; })()",
     close: "(() => { const b=[...document.querySelectorAll('.reader-rail button')].find(x=>x.textContent.includes('书架')); if(b) b.click(); return 1; })()" },
 
@@ -460,20 +510,11 @@ const SURFACES = [
    *
    * ⚠️ **它得有笔记才有东西可量**——空面板只有一句提示，
    * 那正是「走查量的全是空壳」那条老毛病。`seedReviewData` 只塞标签和书评，
-   * 所以这里自己补两条带笔记的划线，`open` 里同步做完再点。
+   * 所以这里自己补两条带笔记的划线（`种笔记`），量完自己收掉（`关笔记`）。
    */
   { name: '我的笔记', wait: 2500, expect: '.modal',
-    open: "(async () => {"
-      + " const q = (m, p) => window.novel.rpc(m, p);"
-      + " const bs = await q('book.list', { filter: {}, limit: 5 });"
-      + " const rows = bs.rows ?? bs;"
-      + " for (const b of rows.slice(0, 2)) {"
-      + "   const h = await q('highlight.add', { bookId: b.id, chapterIdx: 1, charOffset: 0, length: 4, excerpt: '走查用的摘录', color: 'blue' });"
-      + "   await q('highlight.setNote', { id: h.id, note: '走查用的笔记，用来把这一屏填满好量版面' });"
-      + " }"
-      + " [...document.querySelectorAll('.nav-tool')].find(b=>b.textContent.trim()==='我的笔记')?.click();"
-      + " return 1; })()",
-    close: "(() => { const b=[...document.querySelectorAll('.modal button')].find(x=>x.textContent.trim()==='关闭'); if(b) b.click(); return 1; })()" },
+    open: 开笔记(''),
+    close: 关笔记 },
 
   /*
    * **多选那一屏是另一屏。**
@@ -485,20 +526,19 @@ const SURFACES = [
    */
   { name: '我的笔记·多选', wait: 3000, expect: '.modal',
     /*
-     * ⚠️ **不在这里再造笔记。** 上一条「我的笔记」每跑一遍就多两条，
-     * 这里再造就是每个分辨率四条——实测到 2560 那一档已经滞到
-     * `wait` 盖不住，报了一条假的「没打开」。它紧接在上一条后面跑，
-     * 库里肯定已经有笔记了，直接开就行。
+     * ⚠️ **这一屏自己种、自己收。** 原来它的注释写着「不在这里再造笔记——
+     * 上一条每跑一遍就多两条，库里肯定已经有笔记了」，那是把上一屏的**泄漏
+     * 当成了自己的数据来源**：泄漏一堵（`关笔记` 收了），这一屏就退回 2 个控件
+     * 的空壳，而报告照样 0 条——量的是空面板，看起来却像量过了。
+     * 种的和上一屏一样是两条，不加倍：原来加倍曾被实测到 2560 那一档
+     * 滞到 `wait` 盖不住，报出一条假的「没打开」。
      */
-    open: "(() => {"
-      + " [...document.querySelectorAll('.nav-tool')].find(b=>b.textContent.trim()==='我的笔记')?.click();"
-      + " let n = 0; const t = setInterval(() => {"
+    open: 开笔记(" let n = 0; const t = setInterval(() => {"
       + "   const chip = [...document.querySelectorAll('.modal .chip')].find(x=>x.textContent.trim()==='多选');"
       + "   if (chip) { chip.click();"
       + "     setTimeout(() => [...document.querySelectorAll('.modal button')].find(x=>x.textContent.trim()==='选这一屏')?.click(), 120);"
-      + "     clearInterval(t); } else if (++n > 16) clearInterval(t); }, 100);"
-      + " return 1; })()",
-    close: "(() => { const b=[...document.querySelectorAll('.modal button')].find(x=>x.textContent.trim()==='关闭'); if(b) b.click(); return 1; })()" },
+      + "     clearInterval(t); } else if (++n > 16) clearInterval(t); }, 100);"),
+    close: 关笔记 },
 
   /* 翻页模式。排版是存 localStorage 的，改完直接开书就生效（Reader 挂载时读一次）。
      `close` 里必须改回滚动模式——不然后面的界面全在翻页模式下量，而那不是默认 */
@@ -623,9 +663,37 @@ if (要的界面.length) {
 // 一个会过期的数，记在两处，当场就对不上了。所以改成记症状：**模板提前结束之后，
 // Node 报的是**注释那一行**的 ReferenceError（比如 art is not defined），
 // 看起来像判据写错了，而真正的原因在几行之前的一对反引号里。
+/*
+ * **「什么算一层浮层」只有一份说法**，在 `src/renderer/modal-a11y.ts` 的
+ * `浮层选择器` 上——那既是接名字的清单，也是这里查「每层有没有名字、有没有出口」的清单。
+ * 抄第二份类名清单就是本仓库开头那条老病：两份必然分叉，而且飘的那份通常是这份脚本。
+ *
+ * ⚠️ **取不到就当场停**，不许静静地拿空清单去量——「0 条」和「根本没量」长得一样。
+ */
+const 浮层选择器 = /export const 浮层选择器 = '([^']+)'/.exec(
+  readFileSync(new URL('../../src/renderer/modal-a11y.ts', import.meta.url), 'utf8'),
+)?.[1];
+if (!浮层选择器) {
+  console.error('✗ 读不到 src/renderer/modal-a11y.ts 的 export const 浮层选择器 —— 改名了？');
+  process.exit(1);
+}
+
 const PROBE = String.raw`
 (() => {
   const bad = [];
+  /*
+   * **弹窗有多高的读数**（尺子，不是判据——它不 push 到 bad 里，不改退出码）。
+   *
+   * 为什么要单列一个读数：这个文件对弹窗只有两条判据，一条量「超出视口**且不能滚**」
+   * （而 .modal 一律 overflow:auto，结构上永远不会成立），一条量「**出口键**要不要滚」
+   * （而 .modal-actions 是 sticky，也永远不要滚）。于是「编辑一本书」排成一条
+   * 1625 像素的纵列、1440x900 下要滚 790 像素，**五个分辨率报的都是 0 条**。
+   * 判据通过只证明它查的那件事没问题，不证明那件事是用户说的那件。
+   *
+   * 先量分布再画线：所以这里只把数报出来，不判对错。
+   * 这一行在 String.raw 里，**一个反引号都不能有**。
+   */
+  window.__弹窗 = [];
   const vw = innerWidth, vh = innerHeight;
   if (document.documentElement.scrollWidth > vw + 1) {
     bad.push({ 类: '整页横向滚动', 值: document.documentElement.scrollWidth + ' > ' + vw });
@@ -1112,6 +1180,12 @@ const PROBE = String.raw`
   for (const m of document.querySelectorAll('.modal, .reader-panel')) {
     const r = m.getBoundingClientRect();
     const s = getComputedStyle(m);
+    window.__弹窗.push({
+      类: '.' + String(m.className || '').split(/\s+/)[0],
+      内容: Math.round(m.scrollHeight), 可视: Math.round(m.clientHeight),
+      控件: m.querySelectorAll('input,textarea,select,button').length,
+      说明: Math.round([...m.querySelectorAll('.muted')].reduce((a, x) => a + x.getBoundingClientRect().height, 0)),
+    });
     if (r.height > vh - 8 && s.overflowY !== 'auto' && s.overflowY !== 'scroll') {
       push({ 类: '弹窗超高且不能滚', 元素: '.' + String(m.className).split(/\s+/).join('.'), 值: Math.round(r.height) + ' > ' + vh });
     }
@@ -1217,6 +1291,101 @@ const PROBE = String.raw`
       }
     }
   }
+  /*
+   * **浮层这一族：每一层得说自己叫什么、怎么关掉。**
+   *
+   * 阅读界面里点开的层分两族：有遮罩的 .modal 被 modal-a11y 一处管全，
+   * 没遮罩的浮层（设置 / 朗读 / 目录 / 搜索 / 评价卡 / 划线卡 / 书架上那个评价浮层）
+   * 原来**一处都不接**——实测七层里五层没有 role、没有可及名字，其中两层连出口都没有。
+   * 而这不是样式问题：屏幕阅读器念出来是一句光秃秃的「对话框」，不说是哪一个。
+   *
+   * 判据是**被动**的：只看此刻挂在 DOM 上的层，不点任何东西、不改任何状态。
+   * ⚠️ 这一段在 String.raw 里，一个反引号都不能有。
+   */
+  for (const 选 of (${JSON.stringify(浮层选择器)}).split(',').map((s) => s.trim())) {
+    for (const 层 of document.querySelectorAll(选)) {
+      if (!层.getClientRects().length) continue;   // 没画出来的不算
+      const 标 = (层.getAttribute('aria-labelledby') || '').split(/\\s+/)
+        .map((i) => document.getElementById(i)).filter(Boolean);
+      const 有名字 = !!层.getAttribute('aria-label') || 标.length > 0;
+      const 有出口 = [...层.querySelectorAll('button')].some(
+        (b) => /收起|关闭|不用了|退出/.test((b.textContent || '') + (b.getAttribute('aria-label') || '')),
+      );
+      const 谁 = (层.id || '') + ' ' + 选 + ' ' + String(层.className).slice(0, 22);
+      if (!有名字) push({ 类: '浮层没有名字', 元素: 谁 });
+      if (!有出口) push({ 类: '浮层没有出口', 元素: 谁 });
+    }
+  }
+
+  /*
+   * **表有几种列，就得有一行列头。**
+   *
+   * 快捷键那张表原来是裸的 tbody：三列里第一列是动作名、第三列是两颗单字键，
+   * 读屏在表格里只能报「单元格」，报不出「这是哪一行的哪一列」——于是七行的
+   * 「改」听起来一模一样。
+   * 单列表不报：它没有「哪一列」这个问题，硬要列头反而是凭空多一行。
+   * ⚠️ 这一段在 String.raw 里，一个反引号都不能有。
+   */
+  for (const 表 of document.querySelectorAll('table')) {
+    if (!表.getClientRects().length) continue;   // 没画出来的不算
+    const 最宽 = Math.max(0, ...[...表.querySelectorAll('tr')]
+      .map((r) => r.querySelectorAll('td').length));
+    if (最宽 < 2) continue;
+    if (表.querySelectorAll('th').length) continue;
+    const 头 = (表.querySelector('td')?.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 16);
+    push({ 类: '表没有列头', 元素: (表.id ? '#' + 表.id : '') + (表.className ? '.' + String(表.className).split(' ')[0] : 'table')
+      + ' ' + 最宽 + ' 列 · 首格「' + 头 + '」' });
+  }
+
+  /*
+   * **设了「开着」这个属性，就得真画得出来。**
+   *
+   * 两条竖轨原来是一套配方抄两份、只有「开着」那条各写各的：左轨认
+   * aria-current 改字色，右轨认 .on 填底。于是「设了属性但这条 CSS 不作用在这条轨上」
+   * 和「根本没设属性」在屏幕上长得一模一样，而单元测试只盖得住后者。
+   *
+   * ⚠️ **不点键**——点下去会开一层、会改阅读状态。这里直接把属性按上去再量，
+   * 量的是 CSS 认不认这个属性，和哪个状态机无关；量完原样收回，一次副作用都不留。
+   */
+  for (const 轨 of document.querySelectorAll('.reader-rail, .reader-tools')) {
+    for (const 键 of 轨.querySelectorAll('button')) {
+      const 原 = 键.getAttribute('aria-current');
+      const 读 = () => { const c = getComputedStyle(键); return c.backgroundColor + '|' + c.color; };
+      键.setAttribute('aria-current', 'false'); const A = 读();
+      键.setAttribute('aria-current', 'true'); const B = 读();
+      if (原 === null) 键.removeAttribute('aria-current'); else 键.setAttribute('aria-current', 原);
+      if (A === B) push({ 类: '开着这一格看不出来', 元素: 键.id || (键.textContent || '').trim().slice(0, 10) });
+    }
+  }
+
+  /*
+   * **浮层的出口也要够得到。**
+   *
+   * 上面那条遍历的是 \`.modal, .reader-panel\`，而它的**出口词表**是
+   * 关闭|取消|再看看|不用了|知道了|先不管——**「收起」不在里面**。
+   * 于是 2026-10-03 给浮层补的那颗「收起」，在 760x520 下要滚 4 屏才够得到
+   * （阅读设置层可视 233px、内容 913px），而 \`.reader-panel\` 明明在遍历范围内，
+   * 两档照样 0 条：**判据的容器清单扩了，词表没跟着扩，等于没扩**。
+   *
+   * 这里单独走一遍浮层清单，只做「出口够不够得到」这一件事——
+   * 主按钮那条不套到浮层上（浮层没有「改完必须点它才落库」那个形状）。
+   */
+  const 出口词 = /收起|关闭|取消|不用了|知道了/;
+  for (const 选 of (${JSON.stringify(浮层选择器)}).split(',').map((s) => s.trim())) {
+    for (const 层 of document.querySelectorAll(选)) {
+      if (层.scrollHeight <= 层.clientHeight + 1) continue;      // 不滚就够得到
+      const 出口 = [...层.querySelectorAll('button')].filter((b) => !b.closest('.card'))
+        .filter((b) => 出口词.test((b.textContent || '') + (b.getAttribute('aria-label') || ''))).pop();
+      if (!出口) continue;                                        // 没有出口由上面那条报
+      const q = 出口.getBoundingClientRect();
+      const need = Math.round(q.top - 层.getBoundingClientRect().top + 层.scrollTop + q.height - 层.clientHeight);
+      if (need > 8) {
+        // 元素带上**层是谁**：两个夹具的出口都叫「收起」，只报键名分不出钉没钉住
+        push({ 类: '浮层的出口要滚动才够得到', 元素: (层.id || 选) + '/' + (出口.textContent || '').trim().slice(0, 8), 值: need + 'px' });
+      }
+    }
+  }
+
   return JSON.stringify(bad);
 })()
 `;
@@ -1342,7 +1511,57 @@ await ev(`(() => {
     + '<div style="position:fixed;left:200px;bottom:0;display:flex;gap:12px;z-index:99998">'
     + '<button class="roomy" style="all:unset;display:block;width:36px;height:36px;background:#888">宽</button>'
     + '<button class="roomy2" style="all:unset;display:block;width:36px;height:36px;background:#888">宽</button>'
-    + '</div>';
+    + '</div>'
+    /*
+     * 「浮层有没有名字 / 有没有出口」和「设了 aria-current 画不画得出来」这三条的夹具。
+     * 同样是一正一反：只放该报的，判据写成「凡是浮层就报」也绿；
+     * 只放不该报的，反过来写成「一律不报」也绿。
+     *
+     * ⚠️ 那两个假键都放在 reader-rail 那条类名里（判据按类名找它们），
+     * 所以**真的规则会把它们一起画上**——__cur_no 靠下面那条注入的样式
+     * 把 true / false 两档钉成同一个样子，这才是「属性设了但画法不区分」那个负例。
+     * ⚠️ 颜色一律挑对比度够的：不然它会先被「对比度不足」那条抓走，
+     * 新判据到底有没有生效就永远看不出来（夹具因别的原因失败＝空转）。
+     * ⚠️ 这一段在一个模板串里，**一个反引号都不能写**（症状：整个文件语法错，
+     * 报的行号还是注释自己）。
+     */
+    + '<style>#__cur_yes{background:#fff;color:#222}'
+    + '#__cur_yes[aria-current="true"]{background:#5a4a2a;color:#fff}</style>'
+    + '<div class="reader-rail" style="all:unset;position:fixed;left:0;bottom:44px;display:flex;gap:10px;z-index:99998">'
+    /* ⚠️ 正例那颗**不能带 all:unset，也不能带内联的 background / color**：
+       unset 本身就是内联声明（它展开成除 unicode-bidi 外的所有属性），
+       谁都压得过，于是两档永远量出同一个值、「画法生效了」被报成「没生效」。
+       自检头两跑就是这么红的——红得对，只是红在夹具身上 */
+    + '<button id="__cur_yes" style="display:block;width:30px;height:30px">有</button>'
+    + '<button id="__cur_no" style="all:unset;display:block;width:30px;height:30px;background:#fff;color:#222">没</button>'
+    + '</div>'
+    + '<div id="__pop_bad" class="rate-pop" style="all:unset;position:fixed;left:0;top:40px;display:block;width:220px;height:60px;background:#fff;color:#222">这层没有名字也没有出口</div>'
+    + '<div id="__pop_ok" class="toc" aria-label="目录" style="all:unset;position:fixed;left:260px;top:40px;display:block;width:220px;height:60px;background:#fff;color:#222">'
+    + '这层两样都有<button style="all:unset;display:block;width:30px;height:30px;background:#fff;color:#222">收起</button></div>'
+    /*
+     * 「浮层的出口要滚才够得到」这一条的两个夹具：一样高、一样内容超高，
+     * 唯一差别是出口那颗钉没钉在底沿。**没有钉住的那颗必须报**——
+     * 上一轮就是缺这一条，760x520 下那颗「收起」要滚 4 屏，两档照样 0 条。
+     */
+    + '<div id="__pop_far" class="reader-panel" aria-label="甲" style="position:fixed;left:520px;top:40px;width:200px;height:120px;overflow:auto;background:#fff;color:#222;z-index:99998;padding:6px">'
+    /* ⚠️ 里面那块要 flex:none：.reader-panel 本身是 flex column，
+       不写的话 600px 那一块会被压缩到刚好装下，于是根本不溢出，
+       夹具静默失效——第一版就是这么「报不出来」的。
+       （这一段整个在一个模板串里，反引号一个都不能写） */
+    + '<div style="height:600px;flex:none">长得要滚</div><button style="display:block;width:60px;height:30px;flex:none;background:#fff;color:#222">收起</button></div>'
+    + '<div id="__pop_near" class="reader-panel" aria-label="乙" style="position:fixed;left:760px;top:40px;width:200px;height:120px;overflow:auto;background:#fff;color:#222;z-index:99998;padding:6px">'
+    + '<div style="height:600px;flex:none">长得要滚</div><button style="position:sticky;bottom:0;display:block;width:60px;height:30px;flex:none;background:#fff;color:#222">收起</button></div>'
+    /*
+     * 「表没有列头」的两个夹具：一样两列，差别只在有没有 th。
+     * 反着来的那半同样要紧——**单列表不许报**（它没有「哪一列」这个问题），
+     * 所以再加一个一列的 __tbl_one。
+     */
+    + '<table id="__tbl_bad" style="position:fixed;left:40px;top:640px;z-index:99998;background:#fff;color:#222"><tbody>'
+    + '<tr><td>上一章</td><td>改</td></tr><tr><td>下一章</td><td>改</td></tr></tbody></table>'
+    + '<table id="__tbl_ok" style="position:fixed;left:240px;top:640px;z-index:99998;background:#fff;color:#222">'
+    + '<thead><tr><th>动作</th><th>改绑</th></tr></thead><tbody><tr><td>上一章</td><td>改</td></tr></tbody></table>'
+    + '<table id="__tbl_one" style="position:fixed;left:440px;top:640px;z-index:99998;background:#fff;color:#222">'
+    + '<tbody><tr><td>只有一列的清单</td></tr><tr><td>不该报</td></tr></tbody></table>';
   document.body.appendChild(d);
   return 1;
 })()`);
@@ -1374,20 +1593,49 @@ const caughtTight = 挤.some((b) => /\.tight-[ab]/.test(b.元素 || ''));
 const tightFalse = 挤.some((b) => /\.roomy/.test(b.元素 || ''));
 const caughtCover = covers.some((b) => b.元素 === '目录');
 const coverFalse = covers.some((b) => b.元素 === '搜索');
+/*
+ * 这一轮新加的三条：浮层有名字 / 浮层有出口 / 设了 aria-current 要画得出来。
+ * 认**自己那两个夹具的 id**，不认「有没有报过任何东西」——界面上本来就可能
+ * 真有一层没名字（那是要报的真缺陷，不能拿它当自检的证据）。
+ */
+const 没名字 = self.filter((b) => b.类 === '浮层没有名字');
+const 没出口 = self.filter((b) => b.类 === '浮层没有出口');
+const 不区分 = self.filter((b) => b.类 === '开着这一格看不出来');
+const caughtNoName = 没名字.some((b) => /__pop_bad/.test(b.元素 || ''));
+const nameFalse = 没名字.some((b) => /__pop_ok/.test(b.元素 || ''));
+const caughtNoExit = 没出口.some((b) => /__pop_bad/.test(b.元素 || ''));
+const exitFalse = 没出口.some((b) => /__pop_ok/.test(b.元素 || ''));
+const caughtNoPaint = 不区分.some((b) => (b.元素 || '') === '__cur_no');
+const paintFalse = 不区分.some((b) => (b.元素 || '') === '__cur_yes');
+const 出口远 = self.filter((b) => b.类 === '浮层的出口要滚动才够得到');
+const caughtFar = 出口远.some((b) => /__pop_far/.test(b.元素 || ''));
+const farFalse = 出口远.some((b) => /__pop_near/.test(b.元素 || ''));
+const 无列头 = self.filter((b) => b.类 === '表没有列头');
+const caughtNoHead = 无列头.some((b) => /__tbl_bad/.test(b.元素 || ''));
+const headFalse = 无列头.some((b) => /__tbl_ok|__tbl_one/.test(b.元素 || ''));
 if (!caughtSmall || !caughtColor || !caughtOrphan || !caughtClamped || falsePositive || !caughtCover || coverFalse
-  || !caughtCoverText || coverTextFalse || !caughtTight || tightFalse) {
+  || !caughtCoverText || coverTextFalse || !caughtTight || tightFalse
+  || !caughtNoName || nameFalse || !caughtNoExit || exitFalse || !caughtNoPaint || paintFalse
+  || !caughtFar || farFalse || !caughtNoHead || headFalse) {
   console.error('✗ 自检没过——探针坏了，先修它：'
     + `小目标 ${caughtSmall}，低对比 ${caughtColor}，孤字 ${caughtOrphan}，`
     + `夹在 line-clamp 里的孤字 ${caughtClamped}，中英混排被误报 ${falsePositive}，`
     + `浮层盖键 ${caughtCover}，没被盖的键被误报 ${coverFalse}，`
     + `角标压住书名 ${caughtCoverText}，没被压的被误报 ${coverTextFalse}，`
-    + `挨着的小键 ${caughtTight}，间距够的被误报 ${tightFalse}`);
+    + `挨着的小键 ${caughtTight}，间距够的被误报 ${tightFalse}\n`
+    + `浮层没名字 ${caughtNoName}／被误报 ${nameFalse}，浮层没出口 ${caughtNoExit}／被误报 ${exitFalse}，`
+    + `aria-current 不区分 ${caughtNoPaint}／被误报 ${paintFalse}
+`
+    + `浮层出口够不到 ${caughtFar}／钉住的被误报 ${farFalse}，`
+    + `表没列头 ${caughtNoHead}／有列头或单列的被误报 ${headFalse}`);
   close();
   process.exit(1);
 }
 console.log('自检通过：该抓的抓住了，不该抓的没误报\n');
 
 const report = {};
+/** 弹窗高度的读数（尺子，不参与退出码）：键是「界面 .类」 */
+const 尺子 = {};
 for (const [W, H] of RES) {
   await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false });
   await reload();
@@ -1526,6 +1774,21 @@ for (const [W, H] of RES) {
     let bad = [];
     try { bad = JSON.parse(await ev(PROBE)); } catch { bad = [{ 类: '探针出错' }]; }
     if (bad.length) report[res][s.name] = bad;
+    /*
+     * 读数收在这儿：每个界面留「最挤的那一档」——同一屏在 760 下比在 2560 下长得多。
+     * ⚠️ **同时记下是哪一档**，否则这张表会把两件不同的事排在一起：
+     * 「只有窗口下限才滚」和「每一档都躲不开」在只有一列数字时长得一模一样。
+     * 实测过一次误读：编辑弹窗和筛选在表里都是「要滚 1.2～2.4 屏」，
+     * 分开量才发现 1440×900 只剩 0.1 屏、1920×1080 起一处都不滚
+     * （两条 1093 / 557 全来自 760×520 那一档）。
+     */
+    try {
+      const 弹 = JSON.parse(await ev('JSON.stringify(window.__弹窗 || [])'));
+      for (const x of 弹) {
+        const 键 = s.name + ' ' + x.类;
+        if (!尺子[键] || x.内容 > 尺子[键].内容) 尺子[键] = { ...x, 档: res };
+      }
+    } catch { /* 探针出错那一屏本来已经报了，不重复 */ }
     if (s.close) { await ev(s.close); await wait(900); }
   }
   /*
@@ -1548,6 +1811,37 @@ for (const [res, surfaces] of Object.entries(report)) {
   console.log(`${res}：${n} 条`);
   for (const [name, bad] of Object.entries(surfaces)) {
     for (const b of bad) console.log('   ', name, JSON.stringify(b));
+  }
+}
+/*
+ * **弹窗高度的读数**（尺子不是判据：永远不影响上面那个退出码）。
+ *
+ * 为什么要单加这一列读数：这个文件对弹窗只有两条判据，一条量「超出视口**且不能滚**」
+ * （而 .modal 一律 overflow:auto，结构上永远不会成立），一条量「**出口键**要不要滚」
+ * （而 .modal-actions 是 sticky，也永远不要滚）。于是「编辑一本书」排成一条
+ * 1625 像素的纵列、1440x900 下要滚 790 像素，**五个分辨率报的都是 0 条**。
+ * 判据通过只证明它查的那件事没问题，不证明那件事是用户说的那件。
+ *
+ * ⚠️ **最后一列（.muted 合计）在列表型界面里读不通**，别当「废话有多少」看：
+ * 全库搜索 788 / 标签管理 717 / 正文净化 897，全都**大于内容总高**——
+ * 因为列表行自己也带 `.muted` 类，而它们比可视框还长。
+ * 这一列只在**表单**上说得通（编辑一本书 797、阅读设置 293）。
+ * 想让它变成一条判据之前，得先有个能分清「提示」和「列表行」的标记。
+ *
+ * **先量分布再画线**：这里只读数、不判对错（同 `npm run font:scale` 那条尺子）。
+ */
+const 排 = Object.entries(尺子).sort((a, b) => b[1].内容 - a[1].内容);
+if (排.length) {
+  console.log('\n弹窗读数（按内容高度排，最挤的在上；档 = 那一屏最挤的是哪一档分辨率）：');
+  for (const [键, x] of 排) {
+    const 滚 = x.内容 - x.可视;
+    console.log('  ' + 键.padEnd(24)
+      + String(x.档 || '').padStart(9)
+      + ' 内容 ' + String(x.内容).padStart(5) + 'px'
+      + '　可视 ' + String(x.可视).padStart(4) + 'px'
+      + '　' + (滚 > 0 ? '要滚 ' + 滚 + 'px（' + (滚 / x.可视).toFixed(1) + ' 屏）' : '不滚')
+      + '　控件 ' + String(x.控件).padStart(3)
+      + '　.muted 合计 ' + x.说明 + 'px');
   }
 }
 process.exit(total > 0 ? 1 : 0);
