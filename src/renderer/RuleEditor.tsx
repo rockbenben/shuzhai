@@ -140,8 +140,7 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
             '正在看这本书现在切成几章…'
           ) : base.recognized && base.count > 1 ? (
             <>
-              这本书现在切成 <strong>{base.count} 章</strong>，标题也认出来了。
-              只有当你觉得下面这份目录不对，才需要动它——
+              这本书现在切成 <strong>{base.count} 章</strong>，标题也认出来了。只有当你觉得下面这份目录不对，才需要动它——
               <strong>换规则会先试算给你看，不满意就别点应用。</strong>
             </>
           ) : (
@@ -149,8 +148,7 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
               {/* 这句话必须和目录里**真正显示的**字一致。原来写「目录里都是
                   『第 N 段』」，而实际是「未识别章节 N」——对不上的说明比没有
                   说明更让人犯嘀咕：到底是我看错了还是它坏了 */}
-              <strong>没能认出这本书的章节标题</strong>——现在是按固定字数硬分的段，
-              目录里那些「未识别章节 N」就是这么来的。下面挑一个格式试试，
+              <strong>没能认出这本书的章节标题</strong>——现在是按固定字数硬分的段，目录里那些「未识别章节 N」就是这么来的。下面挑一个格式试试，
               <strong>试算满意了再点应用</strong>。
             </>
           )}
@@ -188,11 +186,11 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
                     切成 {s.hits} 章
                     {worse && (
                       <span className="muted" style={{ fontWeight: 400 }}>
-                        （比现在少 {base!.count - s.hits}）
+                        （比现在少 {base!.count - s.hits} 章）
                       </span>
                     )}
                   </span>
-                  <span className="suggest-eg">{s.samples.join('　·　')}</span>
+                  <span className="suggest-eg" title={s.samples.join('　·　')}>{s.samples.join('　·　')}</span>
                 </button>
               );
             })}
@@ -225,7 +223,7 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
           <input
             value={pattern}
             onChange={(e) => setPattern(e.target.value)}
-            placeholder="留空就用内置规则。拿去匹配的是每一行（首尾空白已去掉）"
+            placeholder="留空就用内置规则。正则匹配的是正文的每一行文字。"
             style={{ width: '100%', fontFamily: 'ui-monospace, monospace' }}
           />
         </details>
@@ -237,7 +235,8 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
             <strong>
               {/* 「将切出」对没改过任何东西的人是句怪话——那是现状不是「将」 */}
               {pattern === (saved ?? '') ? '现在切成' : '会切成'} {preview.count} 章
-              {!preview.recognized && '——一条标题都没认出来，这是按固定字数硬分的段'}
+              {/* 「按固定字数硬分的段」开场已经说过一次了，没改过规则就别在这里再说第二遍 */}
+              {pattern !== (saved ?? '') && !preview.recognized && '——一条标题都没认出来，这是按固定字数硬分的段'}
             </strong>
             <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.4rem', fontSize: '0.87rem', maxHeight: '13rem', overflowY: 'auto' }}>
               {preview.titles.map((t, i) => (

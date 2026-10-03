@@ -44,7 +44,7 @@ export function openHint(e: NodeJS.ErrnoException): string {
       // ⚠️ 真没了别再指「整理数据库」——自己删的唯一一份它清不掉（那只认「内容还在别处」的
       // 残留），指过去是死路。能清的是侧栏「需要处理」那档的「批量清理失效文件」。
       return '这本书的文件不见了（被删了，或者移到别处了）。'
-        + '扫描一次书库能把移过位置的认回来；真删了的，去侧栏「需要处理」那档点「批量清理失效文件」清掉记录。';
+        + '扫描一次书库能把移过位置的认回来；真删了的，去侧栏「需要处理」里点「批量清理失效文件」清掉记录。';
     case 'EACCES':
     case 'EPERM':
       return '没有权限读这个文件。它可能在一个受保护的文件夹里，或者被安全软件锁着。';
@@ -218,7 +218,8 @@ export async function readChapter(
     )
     .get(bookId, idx) as ChapterRow | undefined;
 
-  if (!row) throw new Error(`书 ${bookId} 没有第 ${idx} 章`);
+  // 库里那个 id 对用户没有意义（他看到的是「这本书」），所以报错里不摆它
+  if (!row) throw new Error(`这本书没有第 ${idx} 章（可能刚重新切过章节，回目录里挑一章）`);
 
   const total = chapterCount(db, bookId);
 

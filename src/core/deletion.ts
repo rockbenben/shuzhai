@@ -158,7 +158,7 @@ async function 说人话(path: string, e: unknown): Promise<string> {
   try {
     await stat(path);
   } catch {
-    return '这个文件已经不在磁盘上了，没什么可移的——它该走「需要处理」那一档，不是「重复的书」。';
+    return '这个文件已经不在磁盘上了，没什么可移的——它该去侧栏「需要处理」里清掉记录，不在「重复的书」。';
   }
   // UNC 路径以两个反斜杠开头。**用码点判，不在源码里敲反斜杠**——
   // 这一行第一版就是被转义咬掉的（同 AGENTS.md「源码里别放裸控制字符」那条的近亲）

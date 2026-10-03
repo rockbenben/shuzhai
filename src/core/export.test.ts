@@ -519,6 +519,6 @@ test('导图：不是 PNG 的一律报错，不当成文件写下去', () => {
     // 只看前缀的话，任何东西披上 `data:image/png` 都能写进磁盘
     'data:image/png;base64,' + Buffer.from('这不是图片').toString('base64'),
   ]) {
-    assert.throws(() => pngFromDataUrl(bad), /不是一段 PNG|不是 PNG/, `${JSON.stringify(bad).slice(0, 40)} 该报错`);
+    assert.throws(() => pngFromDataUrl(bad), /不是一张 PNG|不是图片/, `${JSON.stringify(bad).slice(0, 40)} 该报错`);
   }
 });

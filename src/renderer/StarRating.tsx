@@ -58,7 +58,9 @@ export function StarRating({ value, onChange, hover, onHover }: Props) {
           ★
         </button>
       ))}
-      <span className="muted">{value ? `${value} 星` : '未评分'}</span>
+      {/* 0 是合法评分（`status.ts` 只挡 <0 和 >5，0.4 会 round 成 0），
+          说成「未评分」就和旁边那列「—」和书评册那枚 0 印对不上 */}
+      <span className="muted">{value == null ? '未评分' : `${value} 星`}</span>
     </div>
   );
 }

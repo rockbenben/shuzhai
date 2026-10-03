@@ -98,8 +98,7 @@ export function TagManager({ onClose }: { onClose: (changed: boolean) => void })
               <strong>「{merging.into.name}」已经有了。</strong>
               <span className="muted">
                 　改成它就是把这两个标签并成一个：「{merging.from.name}」
-                {merging.from.count} 本 +「{merging.into.name}」{merging.into.count} 本，
-                两边都打过的书只算一次。<strong>合并不能撤销。</strong>
+                {merging.from.count} 本 +「{merging.into.name}」{merging.into.count} 本，两边都打过的书只算一次。<strong>合并不能撤销。</strong>
               </span>
             </div>
             <div className="row" style={{ gap: '.4rem' }}>

@@ -25,16 +25,26 @@ import type { SortBy } from '../core/library.ts';
  */
 
 /** 表头点一下按这一列排。**只给真有排序实现的那几列**——`ORDER` 里有什么就是什么 */
-const 列排序: Partial<Record<string, SortBy>> = {
-  书名: 'title',
-  评分: 'rating',
-  评价: 'rated',
-  读完: 'finished',
+/**
+ * 表头点一下按哪一列排，**以及那一列真排的方向**。
+ *
+ * ⚠️ 方向跟着 `core/library.ts` 的 `ORDER` 抄——那几条是写死方向的字符串，
+ * 而 `title` 恰恰是**升序**（`b.title collate nocase, b.id`，没有 desc）。
+ * 原来不分方向、正在生效的那一列一律画 `▾`，于是「书名」那一列箭头朝下、
+ * 数据却从小往大走（实测头两行「一本EPUB电子书」→「一本PDF电子书」）——
+ * **箭头在说一件没发生的事**。六列里只有这一列会撒这个谎，
+ * 恰好是最常被点的那一列。
+ */
+const 列排序: Partial<Record<string, { 键: SortBy; 向: 'asc' | 'desc' }>> = {
+  书名: { 键: 'title', 向: 'asc' },
+  评分: { 键: 'rating', 向: 'desc' },
+  评价: { 键: 'rated', 向: 'desc' },
+  读完: { 键: 'finished', 向: 'desc' },
   // 排的是这一列自己：读过的在前按最后阅读时间倒序、没读过的沉底。
   // 不能用「最新的在前」（time）——它取阅读/入库时间较新者，会让这一列空白
   // （没在应用里打开过）的行拿文件时间插进有日期的行中间
-  上次读: 'lastread',
-  '字数·章节': 'words',
+  上次读: { 键: 'lastread', 向: 'desc' },
+  '字数·章节': { 键: 'words', 向: 'desc' },
 };
 
 interface Props {
@@ -68,21 +78,27 @@ export function ReviewTable({ books, sort, onSort, onOpen, editing, onEdit, onCh
               * （整段记在 `docs/lessons.md`。）
               */}
             {['书名', '作者', '评分', '评价', '状态', '读到', '上次读', '读完', '题材', '字数·章节'].map((h) => {
-              const s = 列排序[h];
+              const c = 列排序[h];
+              const 生效 = !!c && sort === c.键;
               return (
-                <th key={h} className={h === '评价' ? 'col-say' : undefined}>
-                  {s ? (
+                <th
+                  key={h}
+                  className={h === '评价' ? 'col-say' : undefined}
+                  /* 方向本来就该由表格自己报出来，不该只画成一个给眼睛看的箭头 */
+                  aria-sort={生效 ? (c!.向 === 'asc' ? 'ascending' : 'descending') : undefined}
+                >
+                  {c ? (
                     <button
                       type="button"
                       className="th-sort"
-                      aria-pressed={sort === s}
-                      onClick={() => onSort(s)}
-                      title={`按${h}排`}
+                      aria-pressed={生效}
+                      onClick={() => onSort(c.键)}
+                      title={`按${h}排（${c.向 === 'asc' ? '从小到大' : '从大到小'}）`}
                     >
                       {h}
-                      {/* 箭头只画在正在生效的那一列上。**不画上下两个方向**：
-                          这里的排序是单向的，画个可切换的样子是在撒谎 */}
-                      {sort === s && <span aria-hidden="true"> ▾</span>}
+                      {/* 箭头只画在正在生效的那一列上，而且**跟着那一列真排的方向走**。
+                          单向仍然是真的——这里没有可切换的样子，画两个方向才是撒谎 */}
+                      {生效 && <span aria-hidden="true"> {c.向 === 'asc' ? '▴' : '▾'}</span>}
                     </button>
                   ) : (
                     h

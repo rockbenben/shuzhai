@@ -61,7 +61,7 @@ export function ExportDialog({ book, onClose }: Props) {
           {book ? (
             <>按章节读出来写一份新文件到你选的文件夹。<strong>原 txt 一个字节都不会动</strong>。</>
           ) : (
-            '把全库的书名、作者、字数、阅读状态、评分短评、标签导成一份表格。'
+            '把全库的书名、作者、字数、阅读状态、评分短评、标签导出来，表格或 JSON 二选一。'
           )}
         </p>
 

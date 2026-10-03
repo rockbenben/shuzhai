@@ -54,8 +54,7 @@ export function KeywordTags({ onPick, onClose }: Props) {
 
         {words && words.length === 0 && (
           <p className="muted" style={{ margin: '0.2rem 0 0' }}>
-            书名里没有反复出现的词，这一步帮不上忙——书名各不相同的库，
-            直接用上面的搜索框按关键词找，再「批量打标签」。
+            书名里没有反复出现的词，这一步帮不上忙——书名各不相同的库，关掉这个窗口，在书架顶上的搜索框里按关键词找，再点「批量打标签」。
           </p>
         )}
 
@@ -66,10 +65,9 @@ export function KeywordTags({ onPick, onClose }: Props) {
         {words && words.length > 0 && (
           <>
           <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
-            书名里反复出现的词，按出现次数排。<strong>点一个词</strong>就会搜出这些书、
-            并带着这个词去打标签——你在那一步还能改标签名、也能反悔。
+            书名里反复出现的词，按有几本书的书名里有它排。<strong>点一个词</strong>会搜出这些书，并把这个词填进「批量打标签」——你在那一步还能改标签名、也能反悔。
             <br />
-            已经建过同名标签的会标灰，方便你知道铺到哪儿了。
+            已经建过同名标签的会标灰，方便你知道哪些已经建过了。
           </p>
           <div className="kw-grid">
             {words.map((k) => (
@@ -77,7 +75,7 @@ export function KeywordTags({ onPick, onClose }: Props) {
                 key={k.word}
                 className={`chip${tags.has(k.word) ? ' used' : ''}`}
                 onClick={() => onPick(k.word)}
-                title={tags.has(k.word) ? `已经有「${k.word}」这个标签了` : `搜出这 ${k.count} 本并打上「${k.word}」`}
+                title={tags.has(k.word) ? `已经有「${k.word}」这个标签了` : `搜出书名里有「${k.word}」的 ${k.count} 本，下一步再打标签`}
               >
                 {k.word}
                 <span className="muted"> {k.count}</span>

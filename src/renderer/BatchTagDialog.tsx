@@ -140,7 +140,7 @@ export function BatchTagDialog({ filter, initialNames, onClose }: Props) {
             {names.length > 0 && (
               <div className="chip-row">
                 {names.map((n) => (
-                  <button key={n} className="chip on" onClick={() => setNames((x) => x.filter((y) => y !== n))}>
+                  <button key={n} className="chip on" title="从这个筛选结果里去掉这个标签" onClick={() => setNames((x) => x.filter((y) => y !== n))}>
                     {n} ×
                   </button>
                 ))}

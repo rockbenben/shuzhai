@@ -86,7 +86,7 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
           ? `收进来 ${report.added} 本`
           : skipped > 0
             // 「扫完还是空的」必须有解释，否则用户只能怀疑是程序坏了
-            ? `没收到书：跳过了 ${skipped} 个文件（太小、被屏蔽或读不了）`
+            ? `没收到书：跳过了 ${skipped} 个文件（太小、被屏蔽、读不了，或者格式不收）`
             : '这个文件夹里没有找到书',
       );
     } catch (e) {
@@ -127,6 +127,13 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
           <p className="muted">还没有文件夹。点右上角「添加文件夹」，选一个放 txt 的地方。</p>
         ) : (
           <table>
+            <thead>
+              <tr>
+                <th scope="col">启用</th>
+                <th scope="col">文件夹</th>
+                <th scope="col">动作</th>
+              </tr>
+            </thead>
             <tbody>
               {roots.map((r) => (
                 <tr key={r.id}>
@@ -208,8 +215,7 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
           </table>
         )}
         <p className="muted" style={{ fontSize: '0.82rem', marginTop: '.3rem' }}>
-          停用或移除都<strong>不会删书</strong>，也不动磁盘上的文件——只影响「还扫不扫这个文件夹」。
-          （阅读进度、书签、评分重新扫描也恢复不了，所以这里不碰它们。）
+          停用或移除都<strong>不会删书</strong>，也不动磁盘上的文件——只影响「还扫不扫这个文件夹」。（阅读进度、书签、评分重新扫描也恢复不了，所以这里不碰它们。）
         </p>
 
         <h3 style={{ fontSize: '0.95rem', margin: '1.1rem 0 0.3rem' }}>屏蔽规则</h3>
@@ -224,21 +230,29 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
         </div>
 
         <table>
+          <thead>
+            <tr>
+              <th scope="col">规则</th>
+              <th scope="col">动作</th>
+            </tr>
+          </thead>
           <tbody>
             {patterns.map((p) => (
               <tr key={p}>
                 <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.8rem' }}>{p}</td>
-                <td style={{ width: '3rem' }}>
-                  {/* 光一个「×」不说明删的是什么，而这条规则一删，
-                      被它挡住的书下次扫描就会全部收进来。title 说清楚，
-                      尺寸给够（24×24 是 WCAG 2.2 的下限） */}
+                <td style={{ width: '4rem' }}>
+                  {/* 这颗键原来光挂一个「×」，靠 title 补意思——上一轮定的答案是
+                      **屏上就写着「删掉」**（朗读引擎、封面源那两处已经这么改了）。
+                      `aria-label` 留着：它带着是哪一条规则，而且以可见文字开头，
+                      不犯「读屏念的名字和屏上的字对不上」那条。
+                      这条规则一删，被它挡住的书下次扫描就全收进来。 */}
                   <button
-                    style={{ fontSize: '0.9rem', minWidth: 24, height: 24, padding: 0, lineHeight: 1 }}
+                    className="mini"
                     title={`删掉这条屏蔽规则：${p}`}
                     aria-label={`删掉屏蔽规则 ${p}`}
                     onClick={() => void save(patterns.filter((x) => x !== p))}
                   >
-                    ×
+                    删掉
                   </button>
                 </td>
               </tr>
@@ -261,6 +275,7 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
           />
           <button
             disabled={!draft.trim()}
+            title="先写一条规则（例如 临时/** 或 **/*样章*/**）"
             onClick={() => {
               void save([...patterns, draft.trim()]);
               setDraft('');

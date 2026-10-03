@@ -86,8 +86,7 @@ export function AddBookDialog({ onAdded, onClose }: Props) {
         <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
           网上看的、纸质的、别的设备上读的——本地没有 txt 也能记一条。
           <br />
-          以后要是把这本书的 txt 拷进书库，扫描时会<strong>自动认领这条记录</strong>，
-          评价不会丢、也不会多出一本重复的。
+          以后要是把这本书的 txt 拷进书库，扫描时会<strong>自动认领这条记录</strong>，评价不会丢、也不会多出一本重复的。
         </p>
 
         <input
@@ -125,7 +124,8 @@ export function AddBookDialog({ onAdded, onClose }: Props) {
               去看看这本
             </button>
           ) : (
-            <button className="primary" onClick={() => void submit()} disabled={busy || !title.trim()}>
+            <button className="primary" onClick={() => void submit()} disabled={busy || !title.trim()}
+              title={busy ? undefined : '先填书名——它是这本书在书架上唯一的名字'}>
               添加
             </button>
           )}

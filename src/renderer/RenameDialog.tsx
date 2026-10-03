@@ -12,7 +12,7 @@ import { rpc } from './rpc.ts';
 import type { RowStatus, RenameRow as Row, RenameReport as Report } from '../core/rename.ts';
 // 模板预设也从 core 引：这里原来抄了一份一字不差的
 // （上一轮把这个文件的三个类型并掉时漏了它——**同一个文件里的第二份**）
-import { PRESETS } from '../core/rename.ts';
+import { PRESETS, UNDO_BATCHES } from '../core/rename.ts';
 
 
 /** 状态 → 颜色和说明。spec §3.3 要求预览表格里把这几种标出来 */
@@ -20,7 +20,7 @@ const STATUS_META: Record<RowStatus, { color?: string; text: string }> = {
   ok: { color: 'var(--accent)', text: '正常' },
   unchanged: { text: '无变化' },
   conflict: { color: 'var(--danger)', text: '冲突' },
-  sanitized: { color: 'var(--danger)', text: '含非法字符' },
+  sanitized: { color: 'var(--accent)', text: '换过非法字符' },
   'too-long': { color: 'var(--danger)', text: '路径过长' },
   missing: { color: 'var(--danger)', text: '文件缺失' },
 };
@@ -163,12 +163,10 @@ export function RenameDialog({ bookIds, onClose }: Props) {
             要给 {bookIds.length} 本书改文件名
           </h2>
           <p style={{ marginTop: 0 }}>
-            这个功能会<strong>真的修改磁盘上的文件名</strong>，不是只改程序里的显示。
-            下一步是<strong>试算预览</strong>，那时磁盘上还什么都没变。
+            这个功能会<strong>真的修改磁盘上的文件名</strong>，不是只改程序里的显示。下一步是<strong>试算预览</strong>，那时磁盘上还什么都没变。
           </p>
           <p className="muted" style={{ fontSize: '0.87rem' }}>
-            每次批量改名都会记录日志，最近 20 批可以整批撤销。程序不会删除或移动你的文件，
-            也不会在扫描等后台流程里自动改名——只有你在这里点下去才会动。
+            每次批量改名都会记录日志，最近 {UNDO_BATCHES} 批可以整批撤销。改名这一步只换文件名——不删、不搬，扫描等后台流程也不会自动改名。只有你在这里点下去才会动。
           </p>
           <div className="row modal-actions" style={{ justifyContent: 'flex-end' }}>
             <button onClick={() => onClose(false)}>取消</button>
@@ -205,7 +203,7 @@ export function RenameDialog({ bookIds, onClose }: Props) {
           <div className="card" style={{ marginBottom: '.7rem' }}>
             <strong style={{ fontSize: '0.9rem' }}>可以撤回的改名</strong>
             <span className="muted" style={{ fontSize: '0.82rem' }}>
-              　只留最近 {undoable.length} 批，再往前的撤不回来了
+              　这里列着现在还撤得动的 {undoable.length} 批（只留最近 {UNDO_BATCHES} 批，更早的撤不回来）
             </span>
             {undoable.map((b) => (
               <div key={b.batchId} className="row" style={{ alignItems: 'center', padding: '0.2rem 0' }}>
@@ -250,7 +248,7 @@ export function RenameDialog({ bookIds, onClose }: Props) {
           {rows && (
             <span className="muted" style={{ fontSize: '0.85rem' }}>
               正常 {counts.ok ?? 0} · 无变化 {counts.unchanged ?? 0} · 冲突 {counts.conflict ?? 0} ·
-              非法字符 {counts.sanitized ?? 0} · 已勾选 {picked.size}
+              换过非法字符 {counts.sanitized ?? 0} · 路径过长 {counts['too-long'] ?? 0} · 文件缺失 {counts.missing ?? 0} · 已勾选 {picked.size}
             </span>
           )}
         </div>
@@ -302,6 +300,7 @@ export function RenameDialog({ bookIds, onClose }: Props) {
                       <td>
                         <input
                           type="checkbox"
+                          aria-label={`勾选改名：${r.oldName}`}
                           checked={picked.has(r.fileId)}
                           disabled={r.status !== 'ok' && r.status !== 'sanitized'}
                           onChange={() => toggle(r.fileId)}

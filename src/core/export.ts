@@ -38,7 +38,8 @@ function bookMeta(db: DatabaseSync, bookId: number): BookMeta {
   const b = db.prepare('select id, title, author, intro from book where id = ?').get(bookId) as
     | BookMeta
     | undefined;
-  if (!b) throw new Error(`没有这本书：${bookId}`);
+  // 库里那个 id 对用户没有意义（他说的是「这本」），所以报错里不摆它
+  if (!b) throw new Error('没有这本书（记录可能已被合并或删除）');
   return b;
 }
 
@@ -286,7 +287,7 @@ export function exportNotes(db: DatabaseSync, bookId: number): string {
   const 书 = db
     .prepare('select title, author from book where id = ?')
     .get(bookId) as { title?: string; author?: string | null } | undefined;
-  if (!书) throw new Error(`没有这本书：${bookId}`);
+  if (!书) throw new Error('没有这本书（记录可能已被合并或删除）');
 
   const 主 = db
     .prepare('select path from book_file where book_id = ? and is_primary = 1')
@@ -488,12 +489,12 @@ export function freeName(dir: string, name: string): string {
  */
 export function pngFromDataUrl(dataUrl: string): Buffer {
   const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl.trim());
-  if (!m) throw new Error('不是一段 PNG 的 data URL');
+  if (!m) throw new Error('这张图没导出来：拿到的不是一张 PNG');
   const buf = Buffer.from(m[1], 'base64');
   // 一张页面截图几百 KB 到几 MB；封个顶，别让一句写错的 rpc 把磁盘填了
   if (buf.length > 40 * 1024 * 1024) throw new Error('这张图太大了（超过 40 MB）');
   // PNG 的头八个字节是固定的。字面能解码不等于内容是 PNG
   const 魔数 = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-  if (buf.length < 8 || 魔数.some((b, i) => buf[i] !== b)) throw new Error('解出来的不是 PNG');
+  if (buf.length < 8 || 魔数.some((b, i) => buf[i] !== b)) throw new Error('这张图没导出来：画出来的不是图片');
   return buf;
 }

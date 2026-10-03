@@ -873,6 +873,6 @@ test('不收的格式要按扩展名报出来，不是静默丢掉', async () =>
 
   assert.equal(收了.length, 1);
   assert.ok(收了[0].endsWith('.txt'));
-  assert.deepEqual(不收.sort(), ['(无扩展名)', 'chm', 'doc', 'jpg']);
+  assert.deepEqual(不收.sort(), ['', 'chm', 'doc', 'jpg']);
   rmSync(dir, { recursive: true, force: true });
 });

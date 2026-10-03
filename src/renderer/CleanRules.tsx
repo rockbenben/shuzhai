@@ -91,8 +91,7 @@ export function CleanRules({ sampleBookId, onClose }: Props) {
       <div className="modal" style={{ width: 'min(56rem, 100%)' }} onClick={(e) => e.stopPropagation()}>
         <h2>正文净化</h2>
         <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
-          净化是<strong>运行时套用</strong>的——原始 txt 一个字节都不会改，
-          随时可以关掉规则看原文。
+          净化是<strong>打开书的时候才套上去的</strong>——原始 txt 一个字节都不会改，随时可以关掉规则看原文。
         </p>
 
         {/*
@@ -154,6 +153,7 @@ export function CleanRules({ sampleBookId, onClose }: Props) {
                   {!r.builtin && (
                     <button
                       style={{ fontSize: '0.75rem', padding: '.1em .4em' }}
+                      title="删掉这条规则"
                       onClick={async () => {
                         await rpc('clean.remove', { id: r.id });
                         await reload();
@@ -202,14 +202,12 @@ export function CleanRules({ sampleBookId, onClose }: Props) {
           <>
         {whole.removed > 0 && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 0.4rem' }}>
-            整章规则删掉了 <strong>{whole.removed.toLocaleString()}</strong> 个字
-            （整段整段地删，下面那张按行对照的表里看不到它们）。
+            整章规则删掉了 <strong>{whole.removed.toLocaleString()}</strong> 个字（整段整段地删，下面那张按行对照的表里看不到它们）。
           </p>
         )}
         {whole.rejected.length > 0 && (
           <p className="danger" style={{ fontSize: '0.85rem', margin: '0 0 0.4rem' }}>
-            <strong>{whole.rejected.join('、')}</strong> 这一条会删掉超过四成正文，
-            已经当它没生效——多半是正则写宽了。
+            <strong>{whole.rejected.join('、')}</strong> {whole.rejected.length > 1 ? '这几条' : '这一条'}会删掉超过四成正文，已经当它没生效——多半是正则写宽了。
           </p>
         )}
         {diff.length === 0 ? (

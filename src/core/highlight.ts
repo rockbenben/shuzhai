@@ -231,7 +231,7 @@ export function setColor(db: DatabaseSync, id: number, color: string): void {
     throw new Error(`认不出这个颜色：${color}。只有 ${COLORS.join(' / ')}`);
   }
   const r = db.prepare('update highlight set color = ? where id = ?').run(color, id);
-  if (Number(r.changes) === 0) throw new Error(`没有这条划线：${id}`);
+  if (Number(r.changes) === 0) throw new Error('没有这条划线（可能刚被删掉，或重新解析过）');
 }
 
 /*

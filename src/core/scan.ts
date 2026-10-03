@@ -296,7 +296,7 @@ export async function* walk(
        *
        * 数的是扩展名不是文件名：要回答的是「要不要收这种格式」。
        */
-      else opts.onOther?.(extOf(entry.name) || '(无扩展名)');
+      else opts.onOther?.(extOf(entry.name));
     }
   }
 }

@@ -197,7 +197,7 @@ export async function applyCandidate(
   const local = db.prepare('select id, title, author, intro, cover_path, category_id from book where id = ?').get(bookId) as
     | { id: number; title: string; author: string | null; intro: string | null; cover_path: string | null; category_id: number | null }
     | undefined;
-  if (!local) throw new Error(`没有这本书：${bookId}`);
+  if (!local) throw new Error('没有这本书（记录可能已被合并或删除）');
 
   // 详情页路径身份由用户粘的链接负责，跳过书名+作者精确匹配；搜索路径仍必须过这道门
   if (!opts.trustIdentity) {

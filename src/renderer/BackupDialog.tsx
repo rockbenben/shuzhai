@@ -79,8 +79,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
       <div className="modal" style={{ width: 'min(44rem, 100%)' }} onClick={(e) => e.stopPropagation()}>
         <h2>备份与恢复</h2>
         <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
-          备份的是<strong>重新扫描恢复不了</strong>的东西：阅读进度、书签、评分短评、
-          标签分类、各种规则。txt 文件本身不在备份里，也不需要。
+          备份的是<strong>重新扫描恢复不了</strong>的东西：阅读进度、书签、评分短评、标签分类、各种规则。txt 文件本身不在备份里，也不需要。
         </p>
 
         <div className="row">
@@ -127,9 +126,13 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
               {pendingFile}
             </p>
             <p className="muted" style={{ margin: '0.3rem 0 0.5rem', fontSize: '0.82rem' }}>
-              备份里认得出的书，<strong>阅读进度、书签、评分短评会被备份里的那份替换</strong>——
-              这三样重新扫描恢复不了，覆盖了就是覆盖了。认不出的书不动，
-              书和 txt 文件也一个都不会动。
+              {/* 三句各说一条真实的恢复路径，**一句都不许多说或漏说**（判据与逐条核对见 `docs/lessons.md`）。
+                  每句写成一行：JSX 会把同一元素里两行文本用一个空格连起来，中文句子中间就多一道缝。 */}
+              <span>备份里认得出的书，<strong>会换成备份里那份</strong>：阅读进度、评分和短评，以及你为某本书单独设过的章节规则、自建目录、繁简设置、PDF / EPUB 读到第几页（备份里没有那项的不受影响）。</span>
+              <br />
+              <span><strong>只会补回来、不盖掉你现在的东西</strong>：书签、划线和上面的笔记——同一处已经有了就不再插一遍。</span>
+              <br />
+              <span>这些都重新扫描恢复不了，覆盖了就是覆盖了。认不出的书不动，书和 txt 文件也一个都不会动。</span>
             </p>
             <div className="row" style={{ justifyContent: 'flex-end' }}>
               <button onClick={() => setPendingFile(null)}>再看看</button>
@@ -208,8 +211,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
               */}
             <p className="muted" style={{ margin: '0.3rem 0', fontSize: '0.82rem' }}>
               这些书的进度还在备份文件里，但本地找不到对应的 txt——
-              多半是文件还没扫进来。<strong>先把书库文件夹加进来扫描一次，再恢复一遍</strong>，
-              这些就认得回来了；重复恢复不会让书签划线翻倍。
+              多半是文件还没扫进来。<strong>先把书库文件夹加进来扫描一次，再恢复一遍</strong>，这些就认得回来了；重复恢复不会让书签划线翻倍。
               <br />
               文件确实不在这台机器上的话，那几本就先留在备份里——
               <strong>程序不会凭空建条目</strong>，那样只会得到一堆点开就报错的幽灵。
@@ -283,8 +285,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
           * 这个能力一直都有，只是界面上**一个字都没提**，等于没有。
           */}
         <p className="muted" style={{ fontSize: '0.82rem', marginTop: '.4rem' }}>
-          选一个<strong>正在同步的文件夹</strong>（OneDrive、坚果云、网盘客户端的文件夹都行），
-          备份就跟着上了云——默认位置和书库在同一块盘上，盘坏了两份一起没。
+          选一个<strong>正在同步的文件夹</strong>（OneDrive、坚果云、网盘客户端的文件夹都行），备份就跟着上了云——默认位置和书库在同一块盘上，盘坏了两份一起没。
         </p>
         <p className="muted" style={{ fontSize: '0.82rem', marginTop: '.4rem' }}>
           {/* 原来是 `slice(0, 16).replace('T', ' ')`——那串是 `toISOString()` 的 **UTC**，
@@ -292,7 +293,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
           {cfg.lastAt
             ? <span title={whenAgo(cfg.lastAt)?.title}>上次备份：{whenAgo(cfg.lastAt)?.text}</span>
             : '还没有备份过'}
-          。按「距上次多久」算而不是固定时刻——好几天不开程序的话，固定时刻会一次都轮不到。
+          。每次打开程序都会看一眼该不该备，之后开着的时候再隔一段时间备一次。
         </p>
 
         <div className="row modal-actions" style={{ marginTop: '.9rem', justifyContent: 'flex-end' }}>

@@ -636,12 +636,11 @@ export function App() {
       );
     }
     if (shelf === 'excluded') return (
-      <>书架上没有藏起来的书。设一条屏蔽规则、或者移掉一个书库文件夹，被藏起来的书会到这里。</>
+      <>书架上没有藏起来的书。设一条屏蔽规则、或者在「书库文件夹」里停掉、移除一个文件夹，那些书会到这里。</>
     );
     if (shelf === 'updates') return (
       <>
-        还没有标「连载中」的书。在书的信息里能改连载状态，
-        或到「设置」里按目录名批量标记；抓封面时也会自动认出一部分。
+        还没有标「连载中」的书。在书的信息里能改连载状态，或到「设置」里按目录名批量标记；抓封面时也会自动认出一部分。
       </>
     );
     // 「我的书评」是这个应用的立身之本，空的时候要说清怎么写第一条
@@ -1494,7 +1493,10 @@ export function App() {
                 </>
               ) : (
                 <button className="nav-item nav-more" onClick={() => setMoreOpen(true)}>
-                  更多<span className="count">{次要档.length}</span>
+                  {/* 这一行的数字**不是几本**，是里面有几档——同一列其它行都是本数，
+                      光一个数字会被读成「还有 1 本藏起来了」（空库里它显示 1）。
+                      所以把单位写出来。 */}
+                  更多<span className="count">{次要档.length} 档</span>
                 </button>
               )}
             </>
@@ -2015,9 +2017,7 @@ export function App() {
         <div className="main-scroll">
         {shelf === 'excluded' && books.length > 0 && (
           <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-            这些书<strong>没有被删除</strong>，只是不在书架上显示、扫描时也跳过。
-            来由有两种：被屏蔽规则挡到，或者它所在的书库文件夹被移除了。
-            去掉那条规则、或者把文件夹加回来重新扫描，它们连着阅读进度会原样回来。
+            这些书<strong>没有被删除</strong>，只是不在书架上显示、扫描时也跳过。来由有两种：被屏蔽规则挡到，或者它所在的书库文件夹被移除了。去掉那条规则、或者把文件夹加回来重新扫描，它们连着阅读进度会原样回来。
           </p>
         )}
 
@@ -2126,8 +2126,7 @@ export function App() {
               */}
             {report.progressGuessed?.length > 0 && (
               <div className="muted" style={{ fontSize: '0.82rem', marginTop: '.2rem' }}>
-                有 {report.progressGuessed.length} 本书重新切过章之后章节变少了，
-                阅读进度只能估个位置（
+                有 {report.progressGuessed.length} 本书重新切过章之后章节变少了，阅读进度只能估个位置（
                 {report.progressGuessed.slice(0, 3).map((g) => `《${g.title}》第 ${g.from + 1} 章 → 第 ${g.to + 1} 章`).join('、')}
                 {report.progressGuessed.length > 3 && ` 等 ${report.progressGuessed.length} 本`}
                 ）。书签和划线也可能对不上，打开时会说。
@@ -2166,7 +2165,7 @@ export function App() {
                 {Object.entries(report.otherExts)
                   .sort((a, b) => b[1] - a[1])
                   .slice(0, 5)
-                  .map(([e, n]) => `${n} 个 .${e}`)
+                  .map(([e, n]) => (e ? `${n} 个 .${e}` : `${n} 个没有扩展名`))
                   .join('、')}
                 {Object.keys(report.otherExts).length > 5 && ' 等'}
                 {' '}没有收——这些格式不在收录名单里。真要把某一种收进来，说一声就行。
@@ -2231,7 +2230,7 @@ export function App() {
             细节收进 title，鼠标停上去看得全 */}
         {clearedWant > 0 && (
           <div className="card toast muted" style={{ fontSize: '0.8rem' }}>
-            <span title="那些是扫描时留下的默认值，不是你标的——留着的话「想读」这一档等于整个书库。你自己标过、或者打开过的书一本都没动。">
+            <span title="扫描时自动填的默认值，不是你标的。留着的话「想读」等于装着整个书库——你标过的、打开过的书一本都没动。">
               整理了 {clearedWant} 条「想读」（扫描留下的默认值，你标过的没动）
             </span>
             <button
@@ -2348,9 +2347,15 @@ export function App() {
                   {/* ⚠️ **三档都从常量推出来，别手写。** 这句话原来写着
                       「txt 能在书斋里读，其余的交给系统程序打开」——两处都过期了：
                       md 也能读，而 PDF / EPUB 有内置查看器、不交给系统程序。
-                      一句关于能力的文案，只要是手写的就一定会飘。 */}
-                  收 {BOOK_EXT.join('、')}；{TEXT_EXT.join(' / ')} 能在书斋里完整阅读，
-                  pdf / epub 有内置查看器，其余的交给系统程序打开。
+                      一句关于能力的文案，只要是手写的就一定会飘。
+                      但**首屏不该摊 16 个扩展名**（那是收录名单，不是介绍）：
+                      主体说「能不能读」，完整清单收进折叠，仍然从同一个常量推。 */}
+                  {`${TEXT_EXT.join(' / ')} 这类文本在书斋里完整阅读，pdf / epub 有内置查看器，其余的交给系统打开。`}
+                  <br />
+                  <details style={{ margin: '.25rem 0 0' }}>
+                    <summary style={{ cursor: 'pointer' }}>支持哪些文件格式</summary>
+                    {BOOK_EXT.join('、')}
+                  </details>
                   <br />
                   <strong>原文件一个字节都不会改。</strong>
                 </span>
@@ -2427,7 +2432,7 @@ export function App() {
               // 「网上有更新」本身就意味着它在连载，所以它出现时不再另出「连载中」。
               const 状态标 = 角标.网上有更新 ? {
                   text: '网上有更新', tone: 'danger',
-                  title: `对面最新章：${hints.find((h) => h.bookId === b.id)?.remoteLatest ?? ''}`,
+                  title: `网上更到：${hints.find((h) => h.bookId === b.id)?.remoteLatest ?? '还没查到'}`,
                 }
                 : 角标.文件坏了 ? { text: labelOf(FILE_STATUS, b.file_status), tone: 'danger' }
                 : 角标.未解析 ? { text: '未解析', tone: 'danger' }

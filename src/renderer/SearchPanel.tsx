@@ -231,15 +231,14 @@ export function SearchPanel({ onOpen, onClose }: Props) {
               ))}
             </div>
             <p className="muted" style={{ margin: '0.25rem 0 0.5rem', fontSize: '0.82rem' }}>
-              索引<strong>按本建</strong>——这个库有六百多万章，全库建一次要跑几小时。
-              建索引只<strong>读</strong> txt，把正文副本存进数据库；
+              索引<strong>按本建</strong>——这个库有六百多万章，全库建一次要跑几小时。建索引只<strong>读</strong> txt，把正文副本存进数据库；
               <strong>原文件一个字节都不会改</strong>，索引随时能删。
             </p>
 
             {books.length > 0 && (
               <div className="row" style={{ flexWrap: 'wrap', gap: '.3rem', marginBottom: '.5rem' }}>
                 {books.map((b) => (
-                  <span key={b.bookId} className="chip" aria-pressed="true">
+                  <span key={b.bookId} className="chip">
                     {b.title}
                     <span className="chip-n">{b.chapters}</span>
                     <button
@@ -287,7 +286,7 @@ export function SearchPanel({ onOpen, onClose }: Props) {
                       key={b.bookId}
                       className="chip"
                       disabled={busy !== null || 建过 || 没正文}
-                      title={没正文 ? '这本没有可搜的正文：PDF / EPUB 是只编目的，txt 则是还没解析出章节' : undefined}
+                      title={没正文 ? '只有 txt 的正文能搜。这本没有正文可搜，所以建不了' : undefined}
                       onClick={() => void buildFor(b.bookId, b.title)}
                     >
                       {建过 ? '已建 · ' : 没正文 ? '没有正文 · ' : '+ '}
@@ -308,6 +307,16 @@ export function SearchPanel({ onOpen, onClose }: Props) {
               q && <p className="muted">没有匹配的书。</p>
             ) : (
               <table className="search-meta">
+                {/* 列头跟着列一起条件渲染：「用评分」关掉时那一列整列收起，
+                    留一个没人对应的表头就是句假话 */}
+                <thead>
+                  <tr>
+                    <th scope="col">书名</th>
+                    <th scope="col">作者</th>
+                    {showRating && <th scope="col">评分</th>}
+                    <th scope="col">标签</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {meta.map((m) => (
                     <tr key={m.bookId}>

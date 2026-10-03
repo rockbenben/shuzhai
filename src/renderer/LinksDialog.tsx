@@ -86,8 +86,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
       <div className="modal" style={{ width: 'min(50rem, 100%)' }} onClick={(e) => e.stopPropagation()}>
         <h2>在线地址 · {bookTitle}</h2>
         <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
-          粘一个这本书的网址，可以<strong>一键把封面、简介、作者补进来</strong>；
-          地址也会记下，用来查死链、看对面更新到第几章。<strong>不抓正文也不在这里读</strong>。
+          粘一个这本书的网址，可以<strong>一键把封面、简介、作者补进来</strong>；地址也会记下，用来查死链、看对面更新到第几章。<strong>不抓正文也不在这里读</strong>。
         </p>
 
         {links.length === 0 ? (
@@ -121,6 +120,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
                         title={`把「${l.site || l.url}」设成主站`}
                       >
                         <input
+                          aria-label={`把「${l.site || l.url}」设成主站`}
                           type="radio"
                           name="primary-link"
                           style={{ width: '1.5rem', height: '1.5rem', margin: 0 }}
@@ -192,7 +192,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
             </tbody>
           </table>
           <p className="muted" style={{ fontSize: '0.75rem', marginTop: '.3rem' }}>
-            内置站点（起点、书旗、纵横、番茄、豆瓣）留空就自动识别最新章；其他网站可以填一个正则，第一个捕获组＝最新章标题。要浏览器把页面画得出来才有内容的陌生站，正则也取不到最新章，只能查到「这个地址还打得开」。
+            内置站点里除了豆瓣，留空就能自动认出最新章（起点、书旗、纵横、番茄、晋江、飞卢、独阅读）；豆瓣只查这个地址还打不打得开；其他网站可以填一个正则，第一个捕获组＝最新章标题。要浏览器把页面画得出来才有内容的陌生站，正则也取不到最新章，只能查到「这个地址还打得开」。
           </p>
           </>
         )}
@@ -234,8 +234,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
 
             {detail!.titleMismatch && (
               <p className="danger" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
-                对面书名「{c.title}」和本地「{bookTitle}」对不上——只会补本地还空着的字段
-                （封面、简介、作者），<strong>不会改你的书名</strong>。确认这是同一本书再应用。
+                对面书名「{c.title}」和本地「{bookTitle}」对不上——只会补本地还空着的字段（封面、简介、作者），<strong>不会改你的书名</strong>。确认这是同一本书再应用。
               </p>
             )}
 
@@ -288,6 +287,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
         <div className="row modal-actions">
           <button
             disabled={!paste.trim() || busy !== null}
+            title={busy ? undefined : '先粘一个这本书的网址'}
             onClick={() => void run('正在导入…', async () => {
               const r = await rpc<{ added: number; urls: string[]; skipped: number }>('link.addBatch', { bookId, text: paste });
               setPaste('');
@@ -363,7 +363,7 @@ export function LinksDialog({ bookId, bookTitle, onClose }: Props) {
               await rpc('link.checkUpdates', { bookId });
               await reload();
             })}
-            title="逐个访问看还活不活着；内置站点（起点/书旗/纵横/番茄）顺带取回对面最新章。同域名串行间隔 2 秒"
+            title="逐个访问看还活不活着；内置站点（豆瓣除外）顺带取回对面最新章。同一个网站一次只查一个"
           >
             检查
           </button>

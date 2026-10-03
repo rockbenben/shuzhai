@@ -699,7 +699,7 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
   if (backup.version > BACKUP_VERSION) {
     throw new Error(`备份文件版本 ${backup.version} 比当前程序还新，无法导入`);
   }
-  if (!Array.isArray(backup.books)) throw new Error('备份文件格式不对：缺少 books');
+  if (!Array.isArray(backup.books)) throw new Error('备份文件格式不对：里面没有书的记录');
 
   // 同 `restoreUserData`：建标签取 id 只有 `library.ts` 的 `tagIdFor` 那一份
   const idOf = tagIdFor(db);

@@ -75,7 +75,15 @@ export function writeOutline(db: DatabaseSync, bookId: number, items: OutlineIte
   for (const it of items) {
     const page = Number(it?.page);
     const title = String(it?.title ?? '').trim();
-    if (!Number.isInteger(page) || page <= 0) throw new Error(`页码不对：${String(it?.page)}`);
+    if (!Number.isInteger(page) || page <= 0) {
+      // 这一层是用户在填的表，报错要指到**哪一条**、说清**要填什么**——
+      // 「页码不对：undefined」原样上屏（`FileViewer.tsx` 是 `catch (e) setErr(e.message)`），
+      // 而填进去的东西本来就不是页码时，那个值就是句噪音
+      const 第几条 = items.indexOf(it) + 1;
+      throw new Error(
+        `第 ${第几条} 条的页码要填 1 以上的整数（现在填的是「${String(it?.page) || '空'}」）`,
+      );
+    }
     if (!title) throw new Error('目录条目得有个名字');
     if ([...title].length > TITLE_MAX) {
       throw new Error(`名字太长了（${[...title].length} 个字，最多 ${TITLE_MAX} 个）`);

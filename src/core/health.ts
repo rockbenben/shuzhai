@@ -166,7 +166,7 @@ export async function suspiciousSplits(
       title: r.title,
       chapterCount: r.chapterCount,
       kind: 'tiny' as const,
-      detail: `${r.chapterCount} 章里有 ${r.small} 章不到 200 字节——多半是把正文里的列表当成了标题`,
+      detail: `${r.chapterCount} 章里有 ${r.small} 章不到 ${MIN_MEDIAN_CHAPTER_BYTES} 字节——多半是把正文里的列表当成了标题`,
     })),
     ...repHits.map((r) => ({
       bookId: r.bookId,

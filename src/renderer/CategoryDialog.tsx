@@ -357,6 +357,7 @@ export default function CategoryDialog(
               minRating === '' ? [] : [String(minRating)],
               (id) => setMinRating(minRating === Number(id) ? '' : Number(id)),
               () => setMinRating(''),
+              '只能选一个',
             )}
 
             {/*
@@ -411,6 +412,7 @@ export default function CategoryDialog(
               year === '' ? [] : [year],
               (id) => setYear((p) => (p === id ? '' : id)),
               () => setYear(''),
+              '只能选一年',
             )}
 
             {/* 连载状态是**书自己的属性**，不是我和它的关系——和阅读状态是两回事。
@@ -421,7 +423,7 @@ export default function CategoryDialog(
               serial,
               (id) => setSerial((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id])),
               () => setSerial([]),
-              '选几个＝任意一档',
+              '选几个＝任意一种',
             )}
 
             {一组(
@@ -430,7 +432,7 @@ export default function CategoryDialog(
               status,
               (id) => setStatus((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id])),
               () => setStatus([]),
-              '选几个＝任意一档',
+              '选几个＝任意一种',
             )}
 
             {tags.length > 0 && 一组(
@@ -491,7 +493,9 @@ export default function CategoryDialog(
                   </p>
                 ) : (
                   <button className="mini" disabled={批量忙} onClick={() => void 批量加进去()}>
-                    把这 {批量?.total ?? '几'} 本都放进「{editing.name}」
+                    {批量
+                      ? <>把这 {批量.total} 本都放进「{editing.name}」</>
+                      : <>正在数会放进「{editing.name}」几本…</>}
                   </button>
                 )}
                 {批量话 && (

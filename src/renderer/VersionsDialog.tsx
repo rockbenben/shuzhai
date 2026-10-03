@@ -16,6 +16,7 @@ import type { DeleteLogRow } from '../core/deletion.ts';
 import { formatOf } from '../core/book-format.ts';
 // 库里的时间是 UTC，印之前必须走它——`no-raw-time.test.ts` 那条守着
 import { whenAgo } from '../core/format.ts';
+import { labelOf, FILE_STATUS } from '../core/labels.ts';
 
 /**
  * 文件大小。**不到 1 MB 的要按 KB 报**——原来一律 `.toFixed(1) MB`，
@@ -207,8 +208,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
             同名同作者的多个文件算一组。<strong>选中要留的那一份，其余移入系统回收站</strong>
             （不是真删，删错了能拖回来）。
             <br />
-            标<span className="danger">「完全重复」</span>的删了等于没删；
-            没标的是<strong>内容不一样的另一个版本</strong>（比如校对版 / 精校版），
+            标<span className="danger">「完全重复」</span>的删了等于没删；没标的是<strong>内容不一样的另一个版本</strong>（比如校对版 / 精校版），
             <strong>删掉那份内容就真的没了</strong>——先点「定位」比对一下再决定。
           </p>
         )}
@@ -292,7 +292,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
                             {v.mostWords && <span style={{ color: 'var(--accent)' }}>字数最多 </span>}
                             {v.newest && <span style={{ color: 'var(--accent)' }}>最新 </span>}
                             {v.exactDuplicate && <span className="danger">完全重复 </span>}
-                            {v.status !== 'ok' && <span className="danger">{v.status}</span>}
+                            {v.status !== 'ok' && <span className="danger">{labelOf(FILE_STATUS, v.status)}</span>}
                           </div>
                         </td>
                         <td style={{ fontSize: '0.82rem' }}>{v.wordCount?.toLocaleString() ?? '—'}</td>
@@ -342,7 +342,8 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
                           <br />
                         </>
                       )}
-                      <strong>是移入系统回收站，不是真删</strong>——删错了可以从回收站还原。
+                      <strong>是移入系统回收站，不是真删</strong>——删错了可以从回收站还原。<br />
+                      这两本书在书架上会<strong>并成一本</strong>：标签、划线、进度都并到留下的那本下，另一条记录不再单独存在。
                       {丢掉能读的
                         ? '评分和短评挂在书上，不会受影响；读到第几章还在库里，但没有正文可对了。'
                         : '阅读进度挂在书上而不是文件上，不会受影响。'}
@@ -411,16 +412,16 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
         {删过的.length > 0 && (
           <div className="card" style={{ marginTop: '.8rem', fontSize: '0.82rem' }}>
             <button className="mini" onClick={() => set看删除记录((v) => !v)}>
-              {看删除记录 ? '收起' : `删过的 ${删过的.length} 个`}
+              {看删除记录 ? '收起' : `最近删过的 ${删过的.length} 个`}
             </button>
             {看删除记录 && (
               <div style={{ marginTop: '.5rem' }}>
+              <div className="muted" style={{ fontSize: '0.78rem', margin: '.3rem 0' }}>再往前的不列在这里——要找回更早的，去系统回收站。</div>
                 {/* ⚠️ **「去哪儿找」比「删了什么」更要紧。** 回收站那一路人人会找，
                     暂存区那一路不说就没人找得到——路径带时间戳，猜不出来。
                     `reason` 里 core 已经把去处写全了，这里原样摆出来，界面不另编一句 */}
                 <p className="muted" style={{ margin: '0 0 0.5rem' }}>
-                  文件都没有真删：进了系统回收站，或者（回收站用不了时）挪进了应用的暂存区。
-                  下面每条都写着去处。
+                  文件都没有真删：进了系统回收站，或者（回收站用不了时）挪进了应用的暂存区。下面每条都写着去处。
                 </p>
                 {删过的.map((d) => {
                   const 时 = whenAgo(d.deleted_at);
