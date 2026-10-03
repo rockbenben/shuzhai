@@ -394,14 +394,22 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
         if (dirty) { e.preventDefault(); setConfirmClose(true); }
       }}
     >
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal editor" onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: '0 0 0.8rem', fontSize: '1.1rem' }}>编辑《{d.title}》</h2>
 
+        {/*
+         * 封面压成**一行**：原来 92px 的书衣 + 一句两行的解释 + 三颗键，
+         * 整块 147px，而它是低频操作。现在 64px 的书衣、三颗键并排、
+         * 解释留一行（「拖进来」这件事键上那个 title 也说得出）。
+         * 拖放区还是整块这一行，判据没动：拿到路径才 `cover.set`，拿不到报错。
+         */}
         <div
           className="row"
           style={{
-            alignItems: 'flex-start',
+            alignItems: 'center',
+            gap: '.7rem',
             marginBottom: '.8rem',
+            flexWrap: 'wrap',
             outline: dragging ? '2px dashed var(--accent)' : 'none',
             outlineOffset: 4,
           }}
@@ -426,13 +434,9 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             })();
           }}
         >
-          <Cover bookId={bookId} title={d.title} version={coverVer} width={92} />
-          <div>
-            <div className="muted" style={{ fontSize: '0.85rem' }}>封面</div>
-            <p className="muted" style={{ fontSize: '0.8rem', margin: '0.2rem 0 0.4rem' }}>
-              把图片拖到这里，或者点下面的按钮。没有封面时用书名画一件素色书衣顶上。
-            </p>
-            <div className="row">
+          <Cover bookId={bookId} title={d.title} version={coverVer} width={64} />
+          <div style={{ flex: '1 1 12rem', minWidth: 0 }}>
+            <div className="row" style={{ gap: '.35rem', flexWrap: 'wrap' }}>
               {/* 联网补全是**点一下补一本**，不是后台自动跑全库。
                   书名作者会发到搜索源去，那是用户该自己决定的事 */}
               <button
@@ -484,11 +488,26 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
                 清除封面
               </button>
             </div>
+            <p className="muted" style={{ fontSize: '0.8rem', margin: '.25rem 0 0' }}>
+              这三下不用点「保存」，当场就生效。也可以把图片直接拖到这一行上。没有封面时用书名画一件素色书衣顶上。
+            </p>
             {fetchMsg && (
-              <p className="muted" style={{ fontSize: '0.8rem', margin: '0.35rem 0 0' }}>{fetchMsg}</p>
+              <p className="muted" style={{ fontSize: '0.8rem', margin: '.25rem 0 0' }}>{fetchMsg}</p>
             )}
           </div>
         </div>
+
+        {/*
+         * ── 两栏：左边点「保存」才生效，右边改了就生效 ──────────
+         *
+         * 这条分界不是排版选择。原来 43 个控件一条纵列排到底（1440×900 要滚
+         * 790px 才到底），「改了立刻生效、不跟着保存走」的标签／归类／阅读状态
+         * 和「填完要点保存」的书名作者混在一起，只有标签那一格自己说了一句。
+         * 现在这句话由栏目标题统一说，各块里就不重复了。
+         */}
+        <div className="editor-grid">
+          <div>
+            <p className="muted editor-col-hint">下面这些改完要点「保存」才生效</p>
 
         {field('书名', 'title')}
         {field('作者', 'author')}
@@ -517,7 +536,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             </div>
           ) : (
             <div className="muted" style={{ marginTop: '.15rem', fontSize: '0.82rem' }}>
-              未记录——在下面「在线地址…」里添加，或点「联网补全」命中后自动带上
+              未记录——在「在线地址…」里添加，或由「联网补全」带上
             </div>
           )}
         </label>
@@ -525,94 +544,76 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             当前那一页（最多 120 本）里 find 一遍，翻页之后的书会找不到、
             标题落成空串 */}
         <p style={{ margin: '-.3rem 0 0.7rem' }}>
-          <button type="button" className="mini" onClick={() => onLinks(d.title)}>在线地址…</button>
+          <button type="button" className="mini" title="粘一个新网址进来，可以一键补全封面和信息"
+            onClick={() => onLinks(d.title)}>在线地址…</button>
           <span className="muted" style={{ fontSize: '0.8rem' }}>
-            　存多条网址、标主站、查打不打得开、粘网址一键补全封面/信息
+            　存多条网址、标主站、查打不打得开
           </span>
         </p>
 
-        {/* 这本书的几件不常做的事。原来是卡片工具条上的三个按钮，
-            而那排乘以每张卡——一屏八张就是 40 个 */}
-        {/*
-          * ⚠️ **PDF / EPUB 这类只编目的书，三个键里只有「改文件名」成立。**
-          *
-          * 它们没有章节、也没有可导的正文：点「章节怎么切」开出来的是一份
-          * **0 章**的规则编辑器（换条规则也白搭——`parseAndStore` 对只编目的格式
-          * 直接返回），点「导出」拿到的是一句「这个区间里没有章节」——
-          * 一句**听起来像章节切歪了**、而其实是「这种格式压根没有正文」的话。
-          *
-          * 判据是这个仓库早写着的那条：**摆一个点了必然出错的按钮，比没有更糟**
-          * （当年「只有记录」的书就是为此把这三个键藏掉的，只是那次的门槛是
-          * 「有没有文件」，而 PDF 是**有**文件的，所以从那道门槛底下漏了过去）。
-          * 改文件名照旧留着——给一个 PDF 改文件名完全成立。
-          */}
-        {d.path && (
-          <p style={{ margin: '-.3rem 0 0.9rem', display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-            {formatOf(d.path) !== 'catalog' && (
-              <button type="button" className="mini" title="这本书的章节怎么切——切得不对时可以换一条规则，先试算再决定"
-                onClick={() => onChapters(d.title)}>章节怎么切…</button>
-            )}
-            <button type="button" className="mini" title="按模板改这本书在磁盘上的文件名。先试算给你看，改完还能撤销"
-              onClick={() => onRename()}>改文件名…</button>
-            {formatOf(d.path) !== 'catalog' && (
-              <button type="button" className="mini" title="把这本书导成 EPUB 或 txt。原 txt 一个字节都不会动"
-                onClick={() => onExport(d.title)}>导出…</button>
-            )}
-          </p>
-        )}
+        {/* 两个短字段并一行：这两格原来各占一整行、各只装得下一个下拉框，
+            左栏就是被这种「一行一个、右边全空」撑长的 */}
+        <div className="editor-pair">
+          <label style={{ display: 'block', marginBottom: '.6rem' }}>
+            <span className="muted" style={{ fontSize: '0.85rem' }}>连载状态</span>
+            <select
+              value={form.serial_status ?? 'unknown'}
+              onChange={(e) => set('serial_status', e.target.value)}
+              style={{ width: '100%', marginTop: '.15rem' }}
+            >
+              {STATUS.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </label>
 
-        <label style={{ display: 'block', marginBottom: '.6rem' }}>
-          <span className="muted" style={{ fontSize: '0.85rem' }}>连载状态</span>
-          <select
-            value={form.serial_status ?? 'unknown'}
-            onChange={(e) => set('serial_status', e.target.value)}
-            style={{ width: '100%', marginTop: '.15rem' }}
-          >
-            {STATUS.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-        </label>
-
-        {/*
-          * **本地章数手填修正**：卡片上「连载中 · 到N章」的 N 是解析出来的，
-          * 切章切错（漏切、整章没识别）时 N 就是错的。手填一个数盖过它——
-          * 只改**显示**，不动解析结果（体检、更新判断仍用真实章数）。
-          * 留空 = 回到自动识别。
-          *
-          * ⚠️ **手填值要和自动值同时摆出来**：重新解析/同名文件替换会刷新自动值，
-          * 手填值不会被清掉（那是用户数据）。两者不一致时让用户看得见「漂移」，
-          * 他自己决定要不要清空——别悄悄替他改。
-          */}
-        <label style={{ display: 'block', marginBottom: '.6rem' }}>
-          <span className="muted" style={{ fontSize: '0.85rem' }}>本地章数（切错了手填，留空用自动）</span>
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={overrideText ?? ''}
-            onChange={(e) => setOverrideText(e.target.value)}
-            placeholder={d.chapter_count != null ? `自动识别：${d.chapter_count} 章` : '自动识别不到，可手填'}
-            style={{ width: '100%', marginTop: '.15rem' }}
-          />
-          {overrideText && overrideText.trim() && (
-            <span className="muted" style={{ fontSize: '0.8rem' }}>
-              自动识别为 {d.chapter_count ?? 0} 章；手填值只改书架显示，重新解析不会清掉它
-            </span>
-          )}
-        </label>
+          {/*
+            * **本地章数手填修正**：卡片上「连载中 · 到N章」的 N 是解析出来的，
+            * 切章切错（漏切、整章没识别）时 N 就是错的。手填一个数盖过它——
+            * 只改**显示**，不动解析结果（体检、更新判断仍用真实章数）。
+            * 留空 = 回到自动识别。
+            *
+            * ⚠️ **手填值要和自动值同时摆出来**：重新解析/同名文件替换会刷新自动值，
+            * 手填值不会被清掉（那是用户数据）。两者不一致时让用户看得见「漂移」，
+            * 他自己决定要不要清空——别悄悄替他改。
+            */}
+          <label style={{ display: 'block', marginBottom: '.6rem' }}>
+            <span className="muted" style={{ fontSize: '0.85rem' }}>本地章数（切错可手填）</span>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={overrideText ?? ''}
+              onChange={(e) => setOverrideText(e.target.value)}
+              placeholder={d.chapter_count != null ? `自动识别：${d.chapter_count} 章` : '自动识别不到，可手填'}
+              /* 「留空用自动」这句话原来写在标签上，标签因此折成两行、
+                 把右边那格的下拉框顶得比左边低一行。规则没删，换了个地方说 */
+              title="留空就用自动识别的数；手填只改书架上的显示，不动解析结果"
+              style={{ width: '100%', marginTop: '.15rem' }}
+            />
+            {overrideText && overrideText.trim() && (
+              <span className="muted" style={{ fontSize: '0.8rem' }}>
+                自动识别为 {d.chapter_count ?? 0} 章；手填值只改书架显示，重新解析不会清掉它
+              </span>
+            )}
+          </label>
+        </div>
 
         <label style={{ display: 'block', marginBottom: '.6rem' }}>
           <span className="muted" style={{ fontSize: '0.85rem' }}>简介</span>
           <textarea
             value={form.intro ?? ''}
             onChange={(e) => set('intro', e.target.value)}
-            rows={3}
+            rows={2}
             style={{ width: '100%', marginTop: '.15rem', font: 'inherit', color: 'var(--fg)', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 5, padding: '.25em .5em' }}
           />
         </label>
 
         {field('备注', 'note')}
+          </div>
+
+          <div>
+            <p className="muted editor-col-hint">下面这些改了就生效，不跟着「保存」走</p>
 
         <div className="card" style={{ marginBottom: '.6rem' }}>
           <div className="row">
@@ -653,8 +654,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             {rereadAsk && (
               <div className="card" style={{ marginTop: '.5rem' }}>
                 <div style={{ fontSize: '0.85rem' }}>
-                  这本书标着「已读完」，而库里还记着读到第 {reading.chapterIdx + 1} 章。
-                  改成「在读」是哪个意思？
+                  这本书标着「已读完」，而库里还记着读到第 {reading.chapterIdx + 1} 章。改成「在读」是哪个意思？
                 </div>
                 <div className="row" style={{ gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
                   <button
@@ -682,8 +682,16 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
               *
               * **已有的半星不会被弄丢**：`StarRating` 亮的是向下取整的颗数，
               * 旁边照旧写「4.5 星」，不点就不会写回去。要改刻度改那一个组件。
+              *
+              * ⚠️ **评分自己一行，不和「阅读状态」挤同一行。** 分栏之后这一卡只有
+              * 半屏宽（~500px），「阅读状态 + 下拉 + 评分 + 五颗星 + 未评分」
+              * 在一行里放不下，星会折到第二行而「未评分」孤零零挂在后面——
+              * 1440×900 的截图上就是这么看到的。
               */}
-            <span className="muted" style={{ fontSize: '0.85rem', marginLeft: '.5rem' }}>评分</span>
+          </div>
+
+          <div className="row" style={{ marginTop: '.4rem' }}>
+            <span className="muted" style={{ fontSize: '0.85rem' }}>评分</span>
             <StarRating
               value={reading.rating}
               onChange={(n) => {
@@ -730,8 +738,9 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
           */}
         <div className="card" style={{ marginBottom: '.6rem' }}>
           <div className="muted" style={{ fontSize: '0.85rem' }}>标签</div>
+          {/* 「改了就生效」这一句由栏目标题统一说，各块里不再重复 */}
           <p className="muted" style={{ fontSize: '0.8rem', margin: '0.15rem 0 0.4rem' }}>
-            点下面「用过的」直接打上，或者在框里打字回车新建。改了就生效，不跟着「保存」走。
+            点下面「用过的」直接打上，或者在框里打字回车新建。
           </p>
           <TagPicker
             bookId={bookId}
@@ -768,16 +777,14 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             </button>
           </div>
           <p className="muted" style={{ fontSize: '0.8rem', margin: '0.15rem 0 0.4rem' }}>
-            分类平时是一条规则，符合的书自己就进去；这里勾的是额外把它放进去。
-            标着「规则」的那些本来就命中，摘不掉——要去掉得改那条规则。
+            分类平时是一条规则，符合的书自己就进去；这里勾的是额外把它放进去。标着「规则」的那些本来就命中，摘不掉——要去掉得改那条规则。
           </p>
 
           {shelves === null ? (
             <span className="muted" style={{ fontSize: '0.82rem' }}>正在读取…</span>
           ) : shelves.length === 0 ? (
             <span className="muted" style={{ fontSize: '0.82rem' }}>
-              还没有分类。点上面的「＋ 新建分类」建一个；要建按规则自动收书的那种，
-              去侧栏的「＋ 新建分类」，那儿能一边改规则一边看圈中了谁。
+              还没有分类。点上面的「＋ 新建分类」建一个；要建按规则自动收书的那种，去侧栏的「＋ 新建分类」，那儿能一边改规则一边看圈中了谁。
             </span>
           ) : (
             <div className="chip-row">
@@ -791,7 +798,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
                   onClick={() => void 归类(s)}
                   title={
                     s.ruleHit
-                      ? '这条分类的规则本来就命中它——摘不掉，要去掉得改那条规则'
+                      ? '由规则命中，摘不掉'
                       : s.manual ? '点一下从这条分类里摘掉' : '点一下加进这条分类'
                   }
                 >
@@ -817,16 +824,34 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
                 }}
                 style={{ flex: 1, minWidth: '8rem' }}
               />
-              <button className="primary" disabled={!newCat.trim()} onClick={() => void 建分类()}>
+              <button className="primary" disabled={!newCat.trim()} onClick={() => void 建分类()}
+                title="先起个名字，才建得出分类">
                 建好并归类
               </button>
               <button onClick={() => setNewCat(null)}>取消</button>
             </div>
           )}
         </div>
+          </div>
+        </div>
 
-        {/* **没文件（手工添的、或清理后只剩记录的书）就没有这张卡**——编码、章数、
-            重新解析全是关于文件的，摆给一本没有文件的书只是噪音。 */}
+        {/*
+         * ── 文件与解析：默认收起 ──────────────────────────────
+         *
+         * 这一整块是这屏最长、也最少用的一段（用户自己点的：常改的是元数据、
+         * 归置、封面，不含文件与解析）。收起来省下 330px。
+         *
+         * ⚠️ **收起不许把状态一起收走**：编码 / 章数 / 字数写在 `<summary>` 上。
+         * 「我选的编码怎么又变了」和「我选的编码一直没变」在屏幕上必须看得出来，
+         * 所以正在生效的那几个数不藏进折叠里——这条是本仓库早就写着的判据。
+         *
+         * ⚠️ **文件真不见了的时候这一整块不折叠**：那是个要人处理的告警，
+         * 不是一个低频功能。收进默认关闭的折叠里等于把它藏起来。
+         *
+         * 「章节怎么切 / 改文件名 / 导出」三颗键从「来源站点」下面搬到这里——
+         * 它们和「打开文件 / 重新解析 / 按编码重解」说的是同一件事（这个文件），
+         * 原来被切成两段、中间隔着九格。
+         */}
         {d.path && d.file_status === 'missing' ? (
           /*
            * **文件没了：打开、重解都无从谈起，给一条能直接了结它的路。**
@@ -838,8 +863,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             <div className="danger" style={{ fontWeight: 600 }}>文件已经不在原位置了</div>
             <div className="muted" style={{ overflowWrap: 'anywhere', marginTop: '.2rem' }}>{d.path}</div>
             <div style={{ marginTop: '.4rem' }}>
-              你可能在应用外删了它、或挪走了文件夹。清理会删掉这条记录：你写过评价、进度、标签的，
-              书留着变成「只有记录」；一样没写过的，连书一起移走。
+              你可能在应用外删了它、或挪走了文件夹。清理会删掉这条记录：你写过评价、进度、标签的，书留着变成「只有记录」；你什么都没记过的，这条记录也一起删掉（文件本来就已经不在了）。
             </div>
             {confirmCleanup ? (
               <div className="row" style={{ marginTop: '.5rem', gap: '.4rem' }}>
@@ -853,20 +877,20 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             )}
           </div>
         ) : d.path ? (
-          <div className="card" style={{ fontSize: '0.85rem' }}>
-            <div className="muted" style={{ overflowWrap: 'anywhere' }}>{d.path}</div>
-            <div style={{ marginTop: '.3rem' }}>
-              {/* **锁住了要显示出来。** 不说的话，「我选的编码怎么又变了」和
-                  「我选的编码一直没变」在屏幕上长得一模一样——
-                  同本文件那条：界面必须显示正在生效的状态 */}
-              编码 <strong>{d.encoding ?? '未知'}</strong>
-              {d.encoding_locked ? <span className="muted">（你指定的）</span> : null} · {d.chapter_count ?? 0} 章 ·{' '}
-              {d.word_count ?? 0} 字
+          <details className="editor-more">
+            <summary>
+              文件与解析
+              {' · 编码 '}<strong>{d.encoding ?? '未知'}</strong>
+              {d.encoding_locked ? <span className="muted">（你指定的）</span> : null}
+              {' · '}{d.chapter_count ?? 0} 章 · {d.word_count ?? 0} 字
               {d.file_status && d.file_status !== 'ok' && (
                 <span className="danger"> · {labelOf(FILE_STATUS, d.file_status)}</span>
               )}
+            </summary>
+            <div className="muted" style={{ fontSize: '0.82rem', overflowWrap: 'anywhere', marginTop: '.35rem' }}>
+              {d.path}
             </div>
-            <div className="row" style={{ marginTop: '.5rem' }}>
+            <div className="row" style={{ marginTop: '.5rem', gap: '.35rem', flexWrap: 'wrap' }}>
               <button
                 title="用系统默认程序打开这个文件"
                 onClick={() => void rpc('ui.openFile', { path: d.path }).catch((e: Error) => setError(e.message))}
@@ -895,7 +919,32 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
                 {d.encoding_locked ? <option value="auto">回到自动探测</option> : null}
               </select>
             </div>
-          </div>
+            {/*
+              * ⚠️ **PDF / EPUB 这类只编目的书，三颗键里只有「改文件名」成立。**
+              *
+              * 它们没有章节、也没有可导的正文：点「章节怎么切」开出来的是一份
+              * **0 章**的规则编辑器（换条规则也白搭——`parseAndStore` 对只编目的格式
+              * 直接返回），点「导出」拿到的是一句「这个区间里没有章节」——
+              * 一句**听起来像章节切歪了**、而其实是「这种格式压根没有正文」的话。
+              *
+              * 判据是这个仓库早写着的那条：**摆一个点了必然出错的按钮，比没有更糟**
+              * （当年「只有记录」的书就是为此把这三个键藏掉的，只是那次的门槛是
+              * 「有没有文件」，而 PDF 是**有**文件的，所以从那道门槛底下漏了过去）。
+              * 改文件名照旧留着——给一个 PDF 改文件名完全成立。
+              */}
+            <div className="row" style={{ marginTop: '.5rem', gap: '.35rem', flexWrap: 'wrap' }}>
+              {formatOf(d.path) !== 'catalog' && (
+                <button type="button" className="mini" title="这本书的章节怎么切——切得不对时可以换一条规则，先试算再决定"
+                  onClick={() => onChapters(d.title)}>章节怎么切…</button>
+              )}
+              <button type="button" className="mini" title="按模板改这本书在磁盘上的文件名。先试算给你看，改完还能撤销"
+                onClick={() => onRename()}>改文件名…</button>
+              {formatOf(d.path) !== 'catalog' && (
+                <button type="button" className="mini" title="把这本书导成 EPUB 或 txt。原 txt 一个字节都不会动"
+                  onClick={() => onExport(d.title)}>导出…</button>
+              )}
+            </div>
+          </details>
         ) : null}
 
         {/*
