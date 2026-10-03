@@ -62,7 +62,7 @@ export type SleepTimer = ReturnType<typeof useSleepTimer>;
  * 所以这里收一个 `正文` 就够了，别的一个字都不用分叉。
  */
 export function TtsLayer(
-  { tts, settings, set, 正文, onManage, 计时 }: {
+  { tts, settings, set, 正文, onManage, 计时, 位 = '章', 收起 }: {
     tts: Tts;
     settings: ReadSettings;
     set: <K extends keyof ReadSettings>(k: K, v: ReadSettings[K]) => void;
@@ -71,6 +71,14 @@ export function TtsLayer(
     /** 点「管理引擎…」 */
     onManage: () => void;
     计时: SleepTimer;
+    /**
+     * **这一层里「一章」的那个量词**：txt 是「章」、PDF 是「页」、EPUB 是「节」。
+     * 面板是两个界面共用的，量词写死任何一个，另外两个界面上就是句假话
+     * （PDF 手里根本没有「章」）。判据和「位置名」同源，别在这儿另起一套。
+     */
+    位?: string;
+    /** 这一层的出口。判据同 `ReadSettingsPanel` 那个 `收起`：浮层要自己说清叫什么、怎么关 */
+    收起?: () => void;
   },
 ) {
   const { 睡到, set睡到, 定时分钟, set定时分钟, 自定义, set自定义, 现在 } = 计时;
@@ -104,7 +112,7 @@ export function TtsLayer(
         /* **这一页没有可念的字。** 扫描版 PDF 就是这样——一张图，没有文字层。
            说清楚比摆一个点了没反应的键强（本仓库那条老规矩） */
         <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>
-          这一页没有可念的文字。扫出来的 PDF 是一张图，取不到字。
+          这一{位}没有可念的文字。最常见的原因是扫描版 PDF——那是一张图，取不到字。
         </p>
       ) : !tts.speaking && !tts.paused ? (
         <button className="primary" style={{ width: '100%' }} onClick={() => tts.speak(正文)}>
@@ -132,7 +140,7 @@ export function TtsLayer(
           <div
             className="voice-line"
             role="progressbar"
-            aria-label="这一章念到哪儿了"
+            aria-label={`这一${位}念到哪儿了`}
             aria-valuenow={声线百分比}
             aria-valuemin={0}
             aria-valuemax={100}
@@ -149,12 +157,13 @@ export function TtsLayer(
 
       {/* **开它之前先把这边停掉**：那个组件自己带一份 useTts，
           两份同时念就是两个声音叠在一起 */}
-      <TtsPanel read={settings} set={set} tts={tts} onManage={() => { tts.stop(); onManage(); }} />
+      <TtsPanel read={settings} set={set} tts={tts} 位={位} onManage={() => { tts.stop(); onManage(); }} />
 
       {/* 定时。**一排快捷键 + 自定义分钟**，而不是一个下拉——躺着按的时候一下就
           点中最常用的那档；而「还剩多久」必须单独一行摆出来：塞进下拉的当前项，
           不展开就看不见。存的是**到点的时刻**不是「还剩几分钟」，
           所以浮层关掉再打开还算得准 */}
+      <h3 className="pop-title">朗读</h3>
       <h4 className="panel-group">定时</h4>
       <div className="tts-timer">
         <button aria-current={睡到 === null} onClick={() => set睡到(null)}>不定时</button>
@@ -164,11 +173,13 @@ export function TtsLayer(
             aria-current={typeof 睡到 === 'number' && 定时分钟 === m}
             onClick={() => { set定时分钟(m); set睡到(Date.now() + m * 60_000); }}
           >
-            {m}
+            {/* 原来只印一个数——「分」写在下一行「自定义」旁边，那是**那一行**的单位，
+                不是这一排的。芯片自己带上，读的人不用去别处找 */}
+            {m} 分
           </button>
         ))}
         <button aria-current={睡到 === 'chapter'} onClick={() => set睡到('chapter')}>
-          这一章念完
+          这一{位}念完
         </button>
       </div>
       <label className="row" style={{ gap: '.35rem', fontSize: '0.8rem', marginTop: '.3rem' }}>
@@ -198,10 +209,15 @@ export function TtsLayer(
         <div className="row" style={{ justifyContent: 'space-between', marginTop: '.3rem' }}>
           <span className="muted" style={{ fontSize: '0.78rem' }}>
             {睡到 === 'chapter'
-              ? '这一章念完就停'
+              ? `这一${位}念完就停`
               : Math.max(1, Math.round((睡到 - 现在) / 60_000)) + ' 分钟后停'}
           </span>
           <button className="mini" onClick={() => set睡到(null)}>取消</button>
+        </div>
+      )}
+      {收起 && (
+        <div className="pop-foot">
+          <button className="quiet" onClick={收起}>收起</button>
         </div>
       )}
     </>

@@ -545,7 +545,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
           <input
             value={找}
             onChange={(e) => set找(e.target.value)}
-            placeholder="搜摘录、笔记、章名"
+            placeholder={tab === 'all' ? '搜摘录、笔记、书名' : '搜摘录、笔记、章名'}
             aria-label="在笔记里搜"
             style={{ width: '100%', marginTop: '.4rem' }}
           />
@@ -577,8 +577,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
             {改用途 && (
               <div className="card" style={{ marginTop: '.4rem', display: 'grid', gap: '.4rem' }}>
                 <p className="muted" style={{ fontSize: '0.78rem', margin: 0 }}>
-                  写上它代表什么——比如黄＝好句、蓝＝待查、绿＝人物关系。
-                  写完之后划线时那排色块、上面的筛选、导出的笔记都用这个名字。留空就还叫原来的。
+                  写上它代表什么——比如黄＝好句、蓝＝待查、绿＝人物关系。写完之后划线时那排色块、上面的筛选、导出的笔记都用这个名字。留空就还叫原来的。
                 </p>
                 {COLORS.map((c) => (
                   <label key={c} className="row" style={{ gap: '.4rem', alignItems: 'center' }}>
@@ -745,7 +744,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
               <button
                 key={c}
                 className="chip"
-                aria-label={'都改成' + 色名[c] + '色'}
+                aria-label={'都改成' + 色名[c]}
                 onClick={() => void 批量改色(c)}
               >
                 {色名[c]}
@@ -817,7 +816,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                   <div style={{ flexShrink: 0, marginTop: '.2rem' }}>
                     <button
                       className="hl-dot"
-                      aria-label={'这条是' + (色名[r.color as HighlightColor] ?? '未知') + '色，点一下换颜色'}
+                      aria-label={'这条是' + (色名[r.color as HighlightColor] ?? '未知') + '，点一下换颜色'}
                       aria-expanded={调色 === r.id}
                       style={{ background: DOT[r.color as HighlightColor] ?? '#999', width: '.9rem', height: '.9rem' }}
                       onClick={() => set调色(调色 === r.id ? null : r.id)}
@@ -883,7 +882,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
              * 键名交给界面自己说（阅读器那颗键的 tooltip 用的是 `键('bookmark')`），
              * 这里只说「在哪儿能加」。
              */
-            <p className="muted">{词 ? '没有匹配的书签。' : '这本书还没有书签。打开阅读器，右轨那颗「书签」加一个。'}</p>
+            <p className="muted">{词 ? '没有匹配的书签。' : '这本书还没有书签。打开阅读器，点右轨那颗「加书签」。'}</p>
           ) : (
             显示的书签.map((m) => (
               <div key={m.id} className="card" style={{ marginBottom: '.45rem', padding: '0.5rem 0.7rem' }}>
@@ -899,8 +898,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                       */}
                     {m.intact === false && (
                       <div className="danger" style={{ fontSize: '0.78rem', marginTop: '.15rem' }}>
-                        正文变过，这条书签对不上原文了——跳过去多半不是原来那个位置。
-                        上面这段摘录还是当初存下来的，可以拿它去「书内搜索」。
+                        正文变过，这条书签对不上原文了——跳过去多半不是原来那个位置。上面这段摘录还是当初存下来的，可以拿它去「书内搜索」。
                       </div>
                     )}
                     {/* **书签也能记一句。** 这一列原来只显示不写——
@@ -1200,7 +1198,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
             style={{ width: '100%', marginTop: '.3rem' }}
             onClick={() => set铺((n) => n + 一屏)}
           >
-            还有 {显示的全库.length - 铺} 条，再铺 {Math.min(一屏, 显示的全库.length - 铺)} 条
+            还有 {显示的全库.length - 铺} 条没显示，再显示 {Math.min(一屏, 显示的全库.length - 铺)} 条
           </button>
         )}
 

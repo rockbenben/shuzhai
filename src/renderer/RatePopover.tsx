@@ -144,6 +144,29 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
     return () => document.removeEventListener('mousedown', onDown, true);
   }, [onClose]);
 
+  /*
+   * **开的时候焦点进得来，关的时候还给开它的那个键。**
+   *
+   * 阅读界面那几层靠 `anchor.ts` 的 `use浮层焦点` 做这件事，这一层不归它管
+   * （浮层是 CSS 挂在卡片下面的，不贴着某颗键量出来的位置开）。
+   * 实测原来这一层打开后 `activeElement` 还在卡片外——**打分和写短评是这个应用
+   * 唯一不可再生的内容**，键盘用户够不到它就是没做这件事。
+   *
+   * ⚠️ 归还只在焦点「无家可归」时做（浮层一摘掉 `activeElement` 就掉回 body）——
+   * 用户自己点到别处去了就别抢，同 `use浮层焦点` 那条。
+   */
+  useEffect(() => {
+    const 层 = box.current;
+    if (!层) return;
+    const 来处 = document.activeElement as HTMLElement | null;
+    const 第一个 = 层.querySelector<HTMLElement>('button, input, textarea');
+    if (第一个 && !层.contains(document.activeElement)) 第一个.focus();
+    return () => {
+      const 现在 = document.activeElement;
+      if ((!现在 || 现在 === document.body) && 来处?.isConnected) 来处.focus();
+    };
+  }, []);
+
   const save = useCallback(
     async (patch: Record<string, unknown>) => {
       try {
@@ -172,7 +195,15 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
 
   return (
     <div className="rate-pop" ref={box} onClick={(e) => e.stopPropagation()}>
-      <div className="rate-title" title={bookTitle}>{bookTitle}</div>
+      {/* 原来这一层第一行光是书名（一个 div，不是标题），整层没有一句说这是干什么的、
+          写完了要不要按什么。而阅读界面那张同动作的卡印的是「记一句《书名》」+
+          「记下来」/「不用了」两颗。**两台保存模型不同（这台失焦即落库），
+          但每一台都得自己说清自己**——所以这里补标题 + 一句自述，
+          不去加一颗假的「记下来」（那是骗人，它本来就是即时保存） */}
+      <h3 className="rate-title" title={bookTitle}>记一句《{bookTitle}》</h3>
+      <p className="muted" style={{ margin: '.1rem 0 .35rem', fontSize: '.74rem' }}>
+        点星、打完字就记下了，不用按保存。
+      </p>
 
       <StarRating value={stars} hover={hover} onHover={setHover} onChange={setStar} />
 
@@ -197,6 +228,14 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
       />
 
       {error && <p className="danger" style={{ margin: '0.4rem 0 0', fontSize: '0.82rem' }}>{error}</p>}
+
+      {/* 出口。这一层是**失焦即落库**，没有「保存」可按，但「收起」照样要写出来——
+          判据同目录那一层那句「只有写出来的那个才算入口」：Esc 和点外面是隐藏的，
+          而这一层原来一颗出口键都没有，用户写完不知道自己是站在哪儿的。
+          ⚠️ 它叫「收起」不叫「关闭」也不叫「不用了」：东西不会丢，只是把这层挪开 */}
+      <div className="pop-foot">
+        <button className="quiet" onClick={onClose}>收起</button>
+      </div>
     </div>
   );
 }

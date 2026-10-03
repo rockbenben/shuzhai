@@ -300,6 +300,73 @@ export function 闪一下(c: 画布, r: Range): void {
 export const RECT_CLASS = 'hl-rect';
 
 /**
+ * **在给定的一截 DOM 里数出第 n 处文字，换成一个 Range。**
+ * 搜索结果「跳过去」用的是它（`FindInBook` 把 `ordinal` 一路递到这儿）。
+ *
+ * ── 为什么不带着字符偏移跳 ──────────────────────────
+ *
+ * 那个偏移得在「搜它时用的那份文本」和「画出来的那份」之间对得上，
+ * 而这个仓库里有**两把尺**：`pdf-text.ts` 顶上明写着它的偏移认的是
+ * 「文字层里所有文本节点拼起来」，而搜 PDF 正文用的是
+ * `getTextContent().items` 拼的那串——`hasEOL` 和 marked content 会让两者
+ * **差几个字**。差几个字不报错，只是落到别处去
+ * （`lessons.md`「偏移量是字节，不是字符」是同一族）。txt 那边更绕：
+ * 搜的时候手里是**文件字节**偏移，屏幕上要的是**清洗后、剥掉标题的正文里的
+ * 字符**偏移，中间还隔着解码、净化规则改长度、繁简字形三道。
+ *
+ * 「第几处」是**维度为零**的：两边各自在自己那份文本里按顺序数同一个词，
+ * 数到第 n 个就落在第 n 个。所以搜法那边只需要多带一个整数。
+ *
+ * ⚠️ **数不上就回 `null`，别夹、别猜第一处。** 同 `造Range` 那句
+ * 「越界要回 null」：落到章首只是「今天的样子」，落到别处是新添的错。
+ *
+ * ⚠️ **`根` 必须圈到只盖住正文**。两处都会踩到：find 面板自己就写着那个词
+ * （不圈住等于搜到搜索结果那一列上），而 txt 的无限下滑一屏挂着好几章
+ * （`Reader.tsx` 为同一件事写过一段「只在这一章里面找」）。
+ */
+export function 找第几处(根: ParentNode, 词: string, 第几: number): Range | null {
+  if (!词 || 第几 < 1) return null;
+  const 头 = 根.nodeType === Node.DOCUMENT_NODE ? (根 as Document).documentElement : (根 as Node);
+  const doc = 头?.ownerDocument;
+  if (!doc || !头) return null;
+
+  const 表: Text[] = [];
+  let 全文 = '';
+  const 走 = doc.createTreeWalker(头, NodeFilter.SHOW_TEXT);
+  for (let x = 走.nextNode(); x; x = 走.nextNode()) {
+    const t = x as Text;
+    if (t.nodeValue) { 表.push(t); 全文 += t.nodeValue; }
+  }
+
+  let 起 = -1;
+  let 数 = 0;
+  for (let at = 全文.indexOf(词); at >= 0; at = 全文.indexOf(词, at + 词.length)) {
+    if (++数 === 第几) { 起 = at; break; }
+  }
+  if (起 < 0) return null;
+
+  /** 全文里的第几位 → (哪个文本节点, 节点内第几位) */
+  const 定 = (位: number): { n: Text; off: number } | null => {
+    let 累 = 0;
+    for (const t of 表) {
+      const 长 = t.nodeValue?.length ?? 0;
+      if (位 <= 累 + 长) return { n: t, off: 位 - 累 };
+      累 += 长;
+    }
+    return null;
+  };
+  const a = 定(起);
+  const b = 定(起 + 词.length);
+  if (!a || !b) return null;
+  const r = doc.createRange();
+  try {
+    r.setStart(a.n, a.off);
+    r.setEnd(b.n, b.off);
+  } catch { return null; }
+  return r;
+}
+
+/**
  * **PDF 的矩形摘录怎么画。**
  *
  * 文字划线那套（`画划线`）用的是原生 `CSS.highlights`，而它需要一个 `Range`——

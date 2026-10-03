@@ -5,6 +5,14 @@ export interface Hit {
   chapterTitle: string;
   /** 上下文片段，命中词用 【】 包起来（格式见 `core/snippet.ts`） */
   snippet: string;
+  /**
+   * 这是**本节**（txt 的一章 / PDF 的一页 / EPUB 的一节）里的第几处，从 1 起。
+   * 正本是 `core/search.ts` 的 `SearchHit.ordinal`，理由写在那儿。
+   *
+   * ⚠️ **可选。** 全库那一档（FTS5 的 `snippet()`）给不出位置；PDF / EPUB 的
+   * 搜法在渲染进程里，得自己数。给不出就照老样子落到节首。
+   */
+  ordinal?: number;
 }
 
 interface Props {
@@ -19,8 +27,19 @@ interface Props {
    * 界面（输入、回车、命中列表、`【】` 高亮、跳转）三种格式一个字都不用改。
    */
   搜: (query: string) => Promise<Hit[]>;
-  onJump: (chapterIdx: number) => void;
+  /**
+   * 跳到这一处。**连着「搜的是哪个词」一起给**——落点那边要在已经画出来的
+   * 正文里数出第 `ordinal` 处（见 `highlight-view.ts` 的 `找第几处`），
+   * 而那个词只有这一层知道。
+   */
+  onJump: (hit: Hit, 词: string) => void;
   onClose: () => void;
+  /**
+   * 这一层的根元素。**为的是关掉之后把焦点还给开它那颗键**——
+   * 另外几层靠 `useAnchored` 顺带拿到了这条，这一层不贴着键开，
+   * 于是实测关掉后焦点掉在 `BODY`：键盘用户再按 Tab 是从页面最开头重新走。
+   */
+  层Ref?: React.RefObject<HTMLDivElement | null>;
   /**
    * 结果封顶在多少处。
    *
@@ -35,7 +54,7 @@ interface Props {
  * 书内搜索（spec §6）。**不依赖全文索引**——只有一本书，逐章逐页读就够快，
  * 而且没建索引的人也能用。
  */
-export function FindInBook({ 搜, onJump, onClose, 上限 }: Props) {
+export function FindInBook({ 搜, onJump, onClose, 上限, 层Ref }: Props) {
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<Hit[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,7 +73,7 @@ export function FindInBook({ 搜, onJump, onClose, 上限 }: Props) {
   };
 
   return (
-    <div className="reader-pop find-panel" onClick={(e) => e.stopPropagation()}>
+    <div className="reader-pop find-panel" aria-label="书内搜索" ref={层Ref} onClick={(e) => e.stopPropagation()}>
       <div className="row">
         <input
           ref={input}
@@ -64,15 +83,19 @@ export function FindInBook({ 搜, onJump, onClose, 上限 }: Props) {
             if (e.key === 'Enter') void search();
             if (e.key === 'Escape') onClose();
           }}
-          placeholder="在这本书里搜"
+          placeholder="在这本书里找一段话"
           style={{ flex: 1 }}
         />
-        <button onClick={() => void search()} disabled={busy || !q.trim()}>
+        <button onClick={() => void search()} disabled={busy || !q.trim()}
+          title={busy ? undefined : '先打几个字'}>
           {busy ? '搜索中…' : '搜索'}
         </button>
         {/* 裸一个 × 的话，读屏念出来是「×」——这个仓库有条通则：
             **能点的图形要带名字**（`docs/lessons.md`「色块按钮要带名字」那一节） */}
-        <button onClick={onClose} title="关闭" aria-label="关闭在书里搜索" style={{ padding: '.2em .5em' }}>×</button>
+        {/* ⚠️ `aria-label` 不能省：`find.mjs` 靠「面板里那颗带 aria-label 的键」认出口
+            （改文案那次飘的是 title，这一轮飘的是它——**探针按界面属性匹配，属性就是接口**）。
+            可见文字是「收起」，和另外几层同一个词。 */}
+        <button className="quiet" onClick={onClose} aria-label="收起书内搜索" title="收起这一层">收起</button>
       </div>
 
       {hits !== null && (
@@ -86,7 +109,7 @@ export function FindInBook({ 搜, onJump, onClose, 上限 }: Props) {
       )}
 
       {hits?.map((h, i) => (
-        <button key={i} className="find-hit" onClick={() => { onJump(h.chapterIdx); onClose(); }}>
+        <button key={i} className="find-hit" onClick={() => { onJump(h, q.trim()); onClose(); }}>
           <div className="muted" style={{ fontSize: '0.75rem' }}>{h.chapterTitle}</div>
           <div>
             {h.snippet.split(/(【[^】]*】)/).map((part, j) =>

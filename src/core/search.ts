@@ -13,6 +13,9 @@ import { getSetting, setSetting } from './db.ts';
 import { readChapter, openBook, type FileCache } from './reader.ts';
 import { splitLines } from './chapter.ts';
 import { loadCleanRules } from './clean.ts';
+// 繁简转换。**这里可以 import `convert.ts`**（它带着 opencc——本仓库唯一的运行时依赖）
+// 正因为 `search.ts` 带着 `node:sqlite`，渲染进程从来不引它——同 `snippet.ts` 抽出去的理由。
+import { convertText, bookConvertMode, type ConvertMode } from './convert.ts';
 import type { Encoding } from './encoding.ts';
 
 /** trigram 能用的最短查询长度 */
@@ -53,6 +56,18 @@ export interface SearchHit {
   chapterTitle: string;
   /** 命中处的上下文片段，命中词用 【】 包起来 */
   snippet: string;
+  /**
+   * 这是**这一节**（txt 的一章 / PDF 的一页 / EPUB 的一节）里的第几处，从 1 起。
+   *
+   * 它是「跳到那一处」唯一的锚：一个字符偏移要在两条链之间对得上，得先过了
+   * 字节↔字符、净化规则改长度、剥标题、繁简字形那几道，而**每一道偏了都不报错**
+   * （`lessons.md`「偏移量是字节，不是字符」、`paragraphs.ts` 顶上那段）。
+   * 序号是维度为零的：搜法本来就在数，界面那边数到第 n 处就落在第 n 处。
+   *
+   * ⚠️ **可选。** 全库那一档（`searchFullText`）给不出来——FTS5 的 `snippet()`
+   * 只回文本不回位置。给不出就按今天的老样子落到节首，别猜一个。
+   */
+  ordinal?: number;
 }
 
 // `makeSnippet` 搬去 `snippet.ts` 了——渲染进程也要用它，而这个文件带着 node:sqlite
@@ -206,7 +221,7 @@ export function searchFullText(db: DatabaseSync, query: string, limit = 200): Se
   const q = query.trim();
   if (!q) return [];
   if (!isIndexed(db)) {
-    throw new Error('还没有任何书建过正文索引。切到「正文全文」那一档，挑一本书建');
+    throw new Error('还没有任何书建过正文索引。在搜索面板选「正文内容」，按书名给一本建好');
   }
 
   const titleOf = db.prepare(
@@ -255,8 +270,34 @@ export function searchFullText(db: DatabaseSync, query: string, limit = 200): Se
 }
 
 /**
+ * **预筛用的词表**（见 `searchInBook` 里那句「先在原始行上找」）。
+ *
+ * 顺序扫是靠对**原始行** `indexOf` 筛的——那是这一段的性能根基。而屏幕上摆的是
+ * **转过字形**的那份，所以「原始行里有没有」和「屏幕上有没有」不是同一件事：
+ * 一个繁体文件开着「显示简体」，用户照屏幕打的是简体，可原始行里躺着的是繁体。
+ *
+ * 所以开着转换时把查询的两个方向都拿来预筛。**预筛只许偏宽、不许偏窄**：
+ * 多放进来的行由后面那一步（在显示字形里找 `q`）判掉，放宽不会让结果变多，
+ * 只会让少数几行多洗一遍。
+ *
+ * 「原文」模式不转任何东西，这时预筛就得和判定用同一个词——放宽它等于让
+ * 五十万行里多洗一批行，而一行也搜不中（`search.test.ts` 那条「不擅自换字形」钉着）。
+ */
+function 预筛词(q: string, 显示: ConvertMode): string[] {
+  if (显示 === 'off') return [q];
+  const 出 = [q, convertText(q, 'to-simplified'), convertText(q, 'to-traditional')];
+  return 出.filter((w, i) => w !== '' && 出.indexOf(w) === i);
+}
+
+/**
  * 书内搜索（spec §6）。**不依赖全文索引**——只有一本书，直接逐章读就够快，
  * 而且没建索引的人也能用。
+ *
+ * ⚠️ **搜的是「屏幕上那份字」。** 命中行的文本要和阅读器里看到的是同一份，
+ * 所以清洗之后**再套一次这本书的繁简模式**——和 `readChapter` 同一个顺序
+ * （reader.ts:228-233：先清洗再转换）。原来这一步整个缺着，于是「显示繁体」的
+ * 一本简体书里照着屏幕打词，得到的是「没有找到」，而那句话是假话。
+ * 章名同理，见 `reader.ts:236-248` 那段（章名不转的后果是偏移集体挪一个标题长）。
  */
 export async function searchInBook(
   db: DatabaseSync,
@@ -266,6 +307,9 @@ export async function searchInBook(
 ): Promise<SearchHit[]> {
   const q = query.trim();
   if (!q) return [];
+
+  const 显示 = bookConvertMode(db, bookId);
+  const 预筛 = 预筛词(q, 显示);
 
   const file = db
     .prepare(
@@ -312,6 +356,8 @@ export async function searchInBook(
   };
 
   const hits: SearchHit[] = [];
+  /** 每一节各自数到第几处（跨节累加对落点没有意义，见 `SearchHit.ordinal`） */
+  const 数到第 = new Map<number, number>();
   const fh = await openBook(file.path);
   try {
     // 顺序扫一遍，窗口对齐到行边界。
@@ -367,7 +413,7 @@ export async function searchInBook(
         //
         // 代价：清洗**拼接**出来的匹配会漏（比如「他说<br/>道」清洗后变成
         // 「他说道」）。这种情况罕见，换回三四倍的速度值得。
-        if (line.text.indexOf(q) < 0) continue;
+        if (!预筛.some((w) => line.text.indexOf(w) >= 0)) continue;
 
         let text = line.text;
         for (const r of compiled) {
@@ -377,17 +423,26 @@ export async function searchInBook(
             /* 坏规则不该让搜索崩掉 */
           }
         }
+        // **清洗之后、找命中之前，补上繁简这一道**——只有这几行要转（预筛已经筛掉
+        // 五十万里的一切），所以这是几十次短串转换，不是五十万次。转完 `q` 和
+        // `text` 就是屏幕上那两份字，片段自然和阅读器里逐字对得上。
+        text = convertText(text, 显示);
+
         let from = 0;
         for (;;) {
           const at = text.indexOf(q, from);
           if (at < 0) break;
           const c = chapterAt(base + line.byteOffset);
+          const 第几处 = (数到第.get(c.idx) ?? 0) + 1;
+          数到第.set(c.idx, 第几处);
           hits.push({
             bookId,
             bookTitle,
             chapterIdx: c.idx,
-            chapterTitle: c.title,
+            // 章名转的是目录里显示的那一份（`reader.ts:236-248` 为同一个理由）
+            chapterTitle: convertText(c.title, 显示),
             snippet: makeSnippet(text.slice(Math.max(0, at - 20), at + q.length + 20), q),
+            ordinal: 第几处,
           });
           from = at + q.length;
           if (hits.length >= 500) return hits;

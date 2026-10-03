@@ -13,6 +13,7 @@ import {
   searchFullText, searchMeta, searchInBook, MIN_TRIGRAM,
 } from './search.ts';
 import { tagBooks } from './library.ts';
+import { setBookConvertMode } from './convert.ts';
 
 let dir: string;
 let db: DatabaseSync;
@@ -340,4 +341,105 @@ test('% 和 _ 是字面量，不是通配符——三处 like 都要转义', asy
   await buildIndex(db, cache);
   assert.equal(searchFullText(db, '%').length, 0);
   assert.equal(searchFullText(db, '_').length, 0);
+});
+
+/*
+ * **书内搜索搜的是「屏幕上那份字」。**
+ *
+ * `readChapter` 走的是清洗 + 繁简转换两道（reader.ts:228-233，顺序是先清洗再转换），
+ * 而书内搜索原来只套清洗——整个 `search.ts` 不 import `convert.ts`。于是打开
+ * 「显示繁体」的一本简体书，满屏是繁体，用户照着屏幕打「客棧」得到的是
+ * **「没有找到」**，而那句话是假话：词就在眼前，只是文件里存的是简体。
+ * 这一族本仓库记过很多回——「没找到」和「不存在」长得一模一样。
+ *
+ * 所以判据是**跟着这一本书的模式走**，而不是把两个方向都搜一遍：
+ * 搜的就该是看得见的字形。片段和章名同理——`convert.preview` 转的是渲染进程
+ * 看到的节点文字，`reader.ts:236-248` 那段记着章名不转的后果（`text.startsWith(title)`
+ * 不成立，整章偏移集体挪一个标题的长度）。
+ */
+test('书内搜索：显示繁体时搜繁体词得搜得到，片段也是看得见的字形', async () => {
+  const id = idOf('雪中悍刀行');
+  setBookConvertMode(db, id, 'to-traditional');
+
+  const hits = await searchInBook(db, cache, id, '客棧');
+  assert.ok(hits.length >= 1, '文件是简体、界面是繁体，搜繁体却一处都没有');
+  assert.match(hits[0].snippet, /【客棧】/, `片段要用看得见的字形，拿到的是 ${hits[0].snippet}`);
+  assert.match(hits[0].chapterTitle, /客棧/, '章名也得跟着转');
+});
+
+/**
+ * 反面的一半：**「原文」模式一个方向都不转**，所以照屏幕打的繁体词在简体文件里
+ * 本来就不该命中。这一条现在就是绿的——它钉的不是「修好」，是**别修过头**：
+ * 将来谁把搜法改成「两个方向都试一遍」（看起来更宽松、更搜得到），
+ * 搜出来的会是屏幕上根本没有的那几个字，片段和落点都对不上用户看到的正文。
+ */
+test('书内搜索：原文模式不擅自换字形', async () => {
+  const id = idOf('雪中悍刀行');
+  setBookConvertMode(db, id, 'off');
+  assert.equal((await searchInBook(db, cache, id, '客棧')).length, 0, '原文模式搜繁体不该命中');
+  assert.ok((await searchInBook(db, cache, id, '客栈')).length >= 1, '简体原样搜仍然成立');
+});
+
+/*
+ * **清洗和转换的先后是判据，不是排版。** `reader.ts:229-230` 写着理由：
+ * 净化规则是按**原文字形**写的，先转换就让它们匹配不上了。
+ * 当场量的这一条：那句广告行「先洗后转」得到空串，「先转后洗」得到
+ * 「手機站閱讀 m.example.com」——规则整个失效，广告原样印在屏幕上。
+ * 书内搜索补上转换时如果排错了序，搜出来的就是这条**已经被用户剥掉**的垃圾。
+ */
+test('书内搜索：先清洗再转换，顺序反了净化规则就匹配不上', async () => {
+  const lib = join(dir, 'books');
+  writeFileSync(
+    join(lib, '《带广告的繁体显示》佚名.txt'),
+    `第一章 起\n正文第一句。\n手机站阅读 m.example.com\n${filler}`,
+    'utf8',
+  );
+  const rootId = (db.prepare('select id from library_root limit 1').get() as { id: number }).id;
+  await scanRoot(db, { id: rootId, path: lib });
+
+  const id = idOf('带广告的繁体显示');
+  setBookConvertMode(db, id, 'to-traditional');
+  assert.equal(
+    (await searchInBook(db, cache, id, '手機站')).length,
+    0,
+    '搜到了转换后才成形的广告行——清洗没跑在转换前面',
+  );
+  // 而这一行确实被剥掉了：整行洗成空串，屏幕上根本没有那句话
+  assert.equal((await searchInBook(db, cache, id, '手机站')).length, 0);
+});
+
+/*
+ * **命中得说清是「本节的第几处」，只说「在哪一节」不够。**
+ *
+ * 界面上每一行结果都是一处，点开却都落到章首——一章动辄几万字，
+ * 「他笑了笑。」在屏幕上哪儿，用户还得自己找。而**「第几处」这个数是维度为零的**：
+ * 搜法本来就在一处一处地数（同一条循环里 `from = at + 词.length`），
+ * 拿它当锚就不必把「文件字节偏移」换算成「清洗后、剥掉标题的正文里的字符偏移」——
+ * 那中间隔着字节↔字符（GBK/UTF-16 下两者不等，`lessons.md`「偏移量是字节，不是字符」）、
+ * 净化规则改长度、标题前缀（`paragraphs.ts:80-98`）、繁简字形五道，
+ * 每一道都能偏，而**偏了不报错，只是跳到别处去**。
+ *
+ * 计数**按节分开数**，因为落点是「在这一节里找第 n 处」，跨节累加没有意义。
+ */
+test('书内搜索：命中带上这是本节里的第几处', async () => {
+  const lib = join(dir, 'books');
+  writeFileSync(
+    join(lib, '《两处》佚名.txt'),
+    [
+      `第一章 起\n他笑了笑。\n中间一句不相干的话。\n他笑了笑。\n${filler}`,
+      `第二章 承\n她摇了摇头。\n${filler}`,
+    ].join('\n'),
+    'utf8',
+  );
+  const rootId = (db.prepare('select id from library_root limit 1').get() as { id: number }).id;
+  await scanRoot(db, { id: rootId, path: lib });
+
+  const id = idOf('两处');
+  const 位置 = (r: Awaited<ReturnType<typeof searchInBook>>) =>
+    r.map((h) => [h.chapterIdx, h.ordinal]);
+
+  assert.deepEqual(位置(await searchInBook(db, cache, id, '他笑了笑')), [[0, 1], [0, 2]],
+    '同一章里两处要数出 1、2——否则两条结果跳回去落在同一个地方');
+  assert.deepEqual(位置(await searchInBook(db, cache, id, '她摇了摇头')), [[1, 1]],
+    '换一章从 1 重新数');
 });

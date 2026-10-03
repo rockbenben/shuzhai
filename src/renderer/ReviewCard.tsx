@@ -118,9 +118,9 @@ export function ReviewCard({ bookId, bookTitle, value, onChange, onDone, boxRef,
           （「读不下去了也算——下次在书架上就能看见，不用再翻一遍」），
           而这张卡的活儿只是「写一句话」：说明比要写的东西还长。
           那句话没删，挪到底下去了——**它在那儿是提示，在这儿是障碍**。 */}
-      <strong className="review-head">
+      <h3 className="review-head">
         {value.done ? `《${bookTitle}》读完了` : `记一句《${bookTitle}》`}
-      </strong>
+      </h3>
 
       {/*
         * ⚠️ 这里曾经是**手写的第五份五颗星**——而 `StarRating` 当初正是为了防这个
@@ -168,6 +168,7 @@ export function ReviewCard({ bookId, bookTitle, value, onChange, onDone, boxRef,
           <button
             className="primary"
             disabled={value.rating == null && !value.comment.trim()}
+            title="打个分，或者写一句，才记下来"
             onClick={() => void (async () => {
               /*
                * 两个字段都发。原来只发填了的那个——读完那次无所谓（那本书按定义还没评过），

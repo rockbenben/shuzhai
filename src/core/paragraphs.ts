@@ -43,6 +43,36 @@ export interface Piece {
 }
 
 /**
+ * 搜索结果「跳过去」落在哪一段。
+ *
+ * `第几` 是 `SearchHit.ordinal`——这一章里第几处命中。**在这份屏幕上按看到的
+ * 顺序数**：标题排第 1（阅读器把章节名画成一个独立的 `<h2>`，搜的时候那一行
+ * 同样被数进去了），之后是各段。
+ *
+ * @returns 要滚到的**段落偏移**（直接喂 `pendingScroll`，和划线的 `char_offset`
+ *   同一个口径）；落在标题上给 `0`＝章首；数不到给 `null`。
+ *
+ * ⚠️ **数不到必须 `null`，不许夹到第一段或者猜一处。** 数不到就是两边那两份文本
+ * 对不上（净化里有 `whole` 规则、章节刚重切过、命中跨了行）。这时候落回章首只是
+ * 「今天的样子」，而随便落一处是**新添的、看不见的**错——同 `highlight.reanchor`
+ * 那句「猜错了是把笔记贴到另一句话上，比画不出来难看得多而且看不出来」。
+ */
+export function 第n处(标题: string, paras: Paragraph[], 词: string, 第几: number): number | null {
+  if (!词 || 第几 < 1) return null;
+  let 数 = 0;
+  /** 数一遍这一段里有几处；数到目标那处就停 */
+  const 过 = (文: string): boolean => {
+    for (let at = 文.indexOf(词); at >= 0; at = 文.indexOf(词, at + 词.length)) {
+      if (++数 === 第几) return true;
+    }
+    return false;
+  };
+  if (过(标题)) return 0;
+  for (const p of paras) if (过(p.text)) return p.offset;
+  return null;
+}
+
+/**
  * 把一段文字按落在它身上的划线切成若干片段。
  * 重叠的划线只认先开始的那条——真去做区间合并的话，一段文字会属于多条划线，
  * 点它该弹哪条笔记就没有答案了。

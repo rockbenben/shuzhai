@@ -56,7 +56,9 @@ export function TtsEnginesModal({ settings, setSettings, onClose }: {
   return (
     <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-        <h3 style={{ marginTop: 0 }}>朗读引擎</h3>
+        {/* 对话框标题一律 h2：同族里「书签与划线」是 h2，这里原来是 h3，
+            文档大纲跳了一级。`modal-a11y` 认 h1-h3，两个都接得到名字，所以只有大纲受影响 */}
+        <h2 style={{ marginTop: 0 }}>朗读引擎</h2>
         <TtsEngines
           read={settings}
           applyRead={(patch) => setSettings((prev) => ({ ...prev, ...patch }))}
@@ -88,7 +90,9 @@ export function TocHead({ bookTitle, filter, setFilter, onClose, children }: {
   return (
     <div className="toc-head">
       <div className="toc-title">
-        <span style={{ fontWeight: 600 }}>{bookTitle}</span>
+        {/* 原来这里只印书名——那一层里「目录」两个字一处都没有，而开它那颗键写的
+            是「目录」。层名同时是可见标题和可及名字（`modal-a11y` 接 h1/h2/h3） */}
+        <h3 className="pop-title" style={{ fontWeight: 600 }}>目录 · {bookTitle}</h3>
         <button className="toc-close" onClick={onClose}>收起</button>
       </div>
       <input

@@ -28,7 +28,7 @@ import type { FontFile } from './Settings.tsx';
  * 纸色那组照旧摆：它至少管着四周的壳。
  */
 export function ReadSettingsPanel(
-  { settings, set, 能改正文, 模式, 繁简 }: {
+  { settings, set, 能改正文, 模式, 繁简, 位 = '章', 可滚轮翻 = true, 收起 }: {
     settings: ReadSettings;
     set: <K extends keyof ReadSettings>(k: K, v: ReadSettings[K]) => void;
     能改正文: boolean;
@@ -40,6 +40,24 @@ export function ReadSettingsPanel(
      * 「按章」——摆一个点了和另一个一模一样的按钮，比少一个更糟。
      */
     模式?: Array<ReadSettings['mode']>;
+    /**
+     * 「一章」「下一章」的那个量词：txt 是「章」、PDF 是「页」、EPUB 是「节」。
+     * 这个面板三个界面共用，量词写死一个，另外两个界面上就是句假话。
+     */
+    位?: string;
+    /**
+     * 「左右翻」那一档能不能用滚轮翻。**只有 txt 成立**——查看器整个文件
+     * 一个滚轮监听都没有（PDF 的翻页是点两侧 / 键，EPUB 靠 epub.js 自己管），
+     * 那句话在它俩屏上是假承诺，而症状正是「以为卡了」。
+     */
+    可滚轮翻?: boolean;
+    /**
+     * 这一层的出口。**浮层必须把自己叫什么、怎么关掉都写在层上**——
+     * 原来这一层 38 个可点的东西，没有一句说这是「阅读设置」，也没有一颗出口键，
+     * 要关掉只有「再点一次那颗键」和按 Esc 两条路，而 Esc 只在悬停里出现过。
+     * 同 `ReaderChrome.tsx` 那句「只有写出来的那个才算入口」。
+     */
+    收起?: () => void;
     /**
      * 繁简。`改` 由调用方给——txt 那边要重新取一遍章节正文，
      * EPUB 那边是把 iframe 里的文字节点就地换掉，两件事不一样。
@@ -113,6 +131,7 @@ export function ReadSettingsPanel(
 
   return (
     <>
+      {收起 && <h3 className="pop-title">阅读设置</h3>}
       {/*
         * **纸色用色块，不用下拉。**
         *
@@ -127,7 +146,7 @@ export function ReadSettingsPanel(
         * 十个一模一样的「按钮」（`keyboard.mjs` 那条「每个控件都要有能读的名字」
         * 就是为这种情况设的，五颗星当年栽过一次）。
         */}
-      <h4 className="panel-group">纸</h4>
+      <h4 className="panel-group">纸质</h4>
       <div className="paper-row">
         {colorThemes().map((t) => (
           <button
@@ -196,7 +215,7 @@ export function ReadSettingsPanel(
         */}
       {能改正文 && (
         <>
-          <h4 className="panel-group">字</h4>
+          <h4 className="panel-group">文字</h4>
           <div className="step-grid">
             {step('字号', 'size', 12, 32, 1, 'px')}
             {step('行距', 'line', 1, 3, 0.1, ' 倍')}
@@ -291,7 +310,7 @@ export function ReadSettingsPanel(
         * **叫「每行」不叫「版口」**——版口是排版行话，这个应用是给普通人用的。
         * 上限 120 不是 80：2560 的屏上 80 字只占 1680px，剩下八百多是空桌子。
         */}
-      <h4 className="panel-group">版</h4>
+      <h4 className="panel-group">版面</h4>
       {能改正文
         ? step('每行', 'width', 20, 120, 1, ' 字', String,
           (n) => `　约 ${Math.round(n * settings.size)}px`)
@@ -314,20 +333,20 @@ export function ReadSettingsPanel(
             * ⚠️ **档位由调用方给，不在这儿写死。** PDF 只有两档，而且那时候
             * `scroll` 的名字要跟着变——一本 PDF 没有章，「按章」对它不成立。
             */}
-          <h4 className="panel-group">读</h4>
+          <h4 className="panel-group">阅读</h4>
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <span className="muted" style={{ fontSize: '0.8rem' }}>阅读方式</span>
             <div className="tabs">
               {([
                 {
                   m: 'scroll' as const,
-                  名: 模式.includes('flow') ? '按章' : '下滑',
+                  名: 模式.includes('flow') ? `按${位}` : '下滑',
                   说: 模式.includes('flow')
-                    ? '一次读一章，滚到底按「下一章」'
+                    ? `一次读一${位}，滚到底按「下一${位}」`
                     : '整本连着往下滚，滚轮一路到底',
                 },
-                { m: 'flow' as const, 名: '无限下滑', 说: '滚到章尾自动接上下一章，一路往下不用点' },
-                { m: 'page' as const, 名: '左右翻', 说: '像纸书一样一页页翻，点正文两侧或用滚轮' },
+                { m: 'flow' as const, 名: '无限下滑', 说: `滚到${位}尾自动接上下一${位}，一路往下不用点` },
+                { m: 'page' as const, 名: '左右翻', 说: `像纸书一样一页页翻，点正文两侧${可滚轮翻 ? '或用滚轮' : ''}` },
               ]).filter((d) => 模式.includes(d.m)).map((d) => (
                 <button
                   key={d.m}
@@ -339,7 +358,7 @@ export function ReadSettingsPanel(
             </div>
           </div>
           <label className="row" style={{ justifyContent: 'space-between', gap: '.4rem' }}>
-            <span className="muted" style={{ fontSize: '0.8rem' }} title={`${settings.autoScroll} px/s`}>自动滚</span>
+            <span className="muted" style={{ fontSize: '0.8rem' }}>自动滚</span>
             <input
               type="range"
               min={10}
@@ -360,6 +379,11 @@ export function ReadSettingsPanel(
         </>
       )}
 
+      {收起 && (
+        <div className="pop-foot">
+          <button className="quiet" onClick={收起}>收起</button>
+        </div>
+      )}
     </>
   );
 }

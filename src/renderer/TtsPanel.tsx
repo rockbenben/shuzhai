@@ -19,13 +19,15 @@ import type { TtsEngine } from '../core/builtin-tts.ts';
  * 这种最难查的情况。现在试听和正式朗读是同一段代码，想分家都难。
  */
 export function TtsPanel(
-  { read, set, tts, onManage }:
+  { read, set, tts, onManage, 位 = '章' }:
   {
     read: ReadSettings;
     set: <K extends keyof ReadSettings>(k: K, v: ReadSettings[K]) => void;
     tts: TtsState & { speak: (text: string) => void; stop: () => void };
     /** 点「管理引擎…」。放这儿而不是塞进设置里：换引擎是一边听一边换的事 */
     onManage: () => void;
+    /** 「一章」的那个量词，由 `TtsLayer` 从两个阅读界面传进来（章 / 页 / 节） */
+    位?: string;
   },
 ) {
   /**
@@ -121,7 +123,7 @@ export function TtsPanel(
           说了就得说清去哪儿加——同本仓库那条「功能名要出现在通往它的那句话里」 */}
       {engines.length === 0 && (
         <p className="muted" style={{ fontSize: '0.75rem', margin: '0.1rem 0' }}>
-          只有系统语音。想用在线的去<strong>设置 · 阅读 · 朗读引擎</strong>导一份、或者手填一个。
+          只有系统语音。点下面的<strong>「管理引擎…」</strong>导一份，或者手填一个。
         </p>
       )}
 
@@ -158,7 +160,7 @@ export function TtsPanel(
           disabled={tts.speaking && !试听中}
           title={
             tts.speaking && !试听中
-              ? '正在念这一章。要试听先在上面按「暂停」'
+              ? `正在念这一${位}。要试听先在上面按「暂停」`
               : '念一句带标点的话——听得出这个引擎的语调和停顿'
           }
           onClick={() => {
@@ -185,11 +187,13 @@ export function TtsPanel(
           checked={read.ttsContinuous}
           onChange={(e) => set('ttsContinuous', e.target.checked)}
         />
-        <span>一章念完接着念下一章</span>
+        <span>一{位}念完接着念下一{位}</span>
       </label>
       {tts.fellBack && (
-        <p className="muted" style={{ fontSize: '0.75rem', margin: '0.1rem 0' }}>
-          这个引擎没出声，已经退回系统语音：{tts.fellBack}
+        // 屏上只说「发生了什么 + 已经怎么办」；原始那句（429、连接被拒之类）对人没意义，
+        // 但排查时要有，所以挂在悬停里而不是印在正文上（同 Reader 那条回退提示一个判据）
+        <p className="muted" style={{ fontSize: '0.75rem', margin: '0.1rem 0' }} title={tts.fellBack}>
+          在线引擎没出声，已经换成系统语音接着念。
         </p>
       )}
     </>

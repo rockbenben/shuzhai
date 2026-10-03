@@ -28,14 +28,28 @@
  *
  * ## 三条边界
  *
- * 1. **只管 `.modal`，不管 `.rate-pop` 和 `.reader-panel`。**
+ * 1. **焦点陷阱只管 `.modal`，不管 `.rate-pop` 和 `.reader-panel`。**
  *    后两个是浮层、没有遮罩、点外面就关——浮层里困住焦点是错的，
  *    用户本来就该能 Tab 出去。判据就是「有没有那层挡住点击的遮罩」。
+ *    ⚠️ **这条只约束陷阱和 `aria-modal`，不约束「有没有名字」**：
+ *    名字对浮层一样成立，而且越是没有遮罩、越是点一下就开的那一层，
+ *    「这是哪一层」越需要被说出来。所以本文件对两族做**两件不同的事**——
+ *    有遮罩的：陷阱 + `role=dialog` + `aria-modal` + 名字；
+ *    没遮罩的浮层：**只有名字**（见下面 `接浮层名字`）。
+ *    给浮层加 `aria-modal` 是把这条判据反过来做错：它等于告诉读屏
+ *    「背后那页不用念了」，而正文明明还在读。
  * 2. **只拦 Tab。** Esc 有它自己那张总表（`App.tsx`，靠 `defaultPrevented` 握手），
  *    这里一个字都不碰，免得变成同一件事的第二套机制。
  * 3. **嵌套要用栈。** 「在线地址」是开在「编辑一本书」里面的——
  *    约束要认最上面那一层，关掉之后焦点得回到中间那一层，不是一路回到书架。
  */
+
+/**
+ * **浮层一族（没有遮罩、点外面就关）。** 这一份清单就是「什么算一层浮层」的
+ * 唯一说法——`scripts/ui-check/audit.mjs` 那三条判据（有名字 / 有出口 /
+ * 关掉把焦点还回去）按它跑，别再在别处抄第二份类名清单。
+ */
+export const 浮层选择器 = '.reader-panel, .reader-pop, .note-pop, .toc, .rate-pop';
 
 const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
@@ -105,6 +119,26 @@ export function installModalA11y(): () => void {
     box.setAttribute('aria-labelledby', 标题.id);
   };
 
+  /**
+   * 浮层只接名字：层里有个真标题就 `aria-labelledby` 接上去，
+   * 没有就**什么都不做**（同 `起名()` 那句「不替它编一个」）。
+   *
+   * 不加 `role` / `aria-modal` / 陷阱——那是边界 1。
+   * 调用点只看**新增进来的那批节点**，不在每次 DOM 变动时全量 `querySelectorAll`
+   * （书架一次铺 120 张卡，理由同下面 `obs` 那段）。
+   */
+  const 接浮层名字 = (根: Node) => {
+    if (!(根 instanceof HTMLElement)) return;
+    const 是浮层 = (el: HTMLElement) => el.matches(浮层选择器);
+    for (const 层 of (是浮层(根) ? [根] : []).concat([...根.querySelectorAll<HTMLElement>(浮层选择器)])) {
+      if (层.getAttribute('aria-labelledby') || 层.getAttribute('aria-label')) continue;
+      const 标题 = 层.querySelector('h1, h2, h3');
+      if (!标题) continue;
+      if (!标题.id) 标题.id = `pop-title-${++标题序号}`;
+      层.setAttribute('aria-labelledby', 标题.id);
+    }
+  };
+
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== 'Tab') return;
     const box = topModal();
@@ -167,6 +201,12 @@ export function installModalA11y(): () => void {
    */
   const obs = new MutationObserver((records) => {
     for (const r of records) {
+      /*
+       * 浮层的名字**要在判「有没有遮罩进出」之前接**：这一族根本没有遮罩，
+       * 放在下面那个 \`touched\` 分支里的话永远轮不到——第一次复量就是这么量的：
+       * 设置层里明明有 \`<h3>阅读设置</h3>\`，`aria-labelledby` 却是空的。
+       */
+      for (const n of r.addedNodes) 接浮层名字(n);
       const touched = [...r.addedNodes, ...r.removedNodes].some(
         (n) => n instanceof HTMLElement && (n.classList.contains('modal-backdrop') || n.querySelector?.('.modal')),
       );
@@ -186,6 +226,8 @@ export function installModalA11y(): () => void {
 
   document.addEventListener('keydown', onKey);
   obs.observe(document.body, { childList: true, subtree: true });
+  // 挂上来之前就已经在 DOM 里的浮层（首屏、或者热更新）
+  for (const 层 of document.querySelectorAll<HTMLElement>(浮层选择器)) 接浮层名字(层);
   sync();
 
   return () => {

@@ -158,6 +158,21 @@ button:disabled {
   opacity: 0.45;
   cursor: default;
 }
+/*
+ * **按下去要回话。** 原来全站 `:active` 只有一条，是进度条那颗滑块——
+ * 侧栏档名、侧栏工具键、视图芯片、卡片上那排键，实测悬停都改东西，
+ * 按下相对悬停**七个计算样式读数零变化**。桌面应用点一下不回任何话。
+ *
+ * 手法用这一家已有的那支笔（下面 `button.danger:hover` 就是它），不引入新颜色。
+ * 用 `filter` 不用 `transform`：后者会挪动盒子，而这屏上到处是
+ * 「要不要滚才够得到」和「有没有溢出」的判据，1px 的位移是白加的抖动。
+ *
+ * ⚠️ **`button.danger` 绕开。** 那一处写着「悬停不变亮：这不是一个该被鼓励去点的
+ * 按钮」——按下同理，**毁掉东西的那一下不该被按得更爽**。它保持「按下也不变」。
+ */
+button:active:not(:disabled):not(.danger) {
+  filter: brightness(0.94);
+}
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -285,6 +300,12 @@ th {
   color: var(--muted);
   font-weight: 600;
 }
+/* 快捷键表的行头是给读屏的，不是「次级文字」——动作名是一行里最重要的字，
+   别跟着 `th` 一起变灰变粗（列头该灰，行头不该） */
+.hotkeys th[scope='row'] {
+  color: inherit;
+  font-weight: 400;
+}
 tbody tr:hover {
   background: var(--panel);
 }
@@ -400,6 +421,8 @@ tbody tr:hover {
 }
 .toc-title {
   display: flex;
+  /* 里面的层名是 h3（`.pop-title`），UA 的外边距在这个 flex 里会撑开一条缝 */
+  align-items: center;
   align-items: baseline;
   justify-content: space-between;
   gap: 0.6rem;
@@ -553,10 +576,11 @@ tbody tr:hover {
   top: auto;
   bottom: 100%;
 }
+/* 它是 h3（层名）：UA 给的上下外边距和字号要压掉，只留这一层自己要的样子 */
 .rate-title {
   font-size: 0.85rem;
   font-weight: 600;
-  margin-bottom: 0.35rem;
+  margin: 0 0 0.35rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -875,40 +899,20 @@ button.toc-more:hover {
   overflow: hidden;
 }
 
-.reader-rail button {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.15rem;
-  width: 3.4rem;
-  padding: 0.5rem 0.2rem;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  color: var(--fg);
-  font-size: 0.72rem;
-  line-height: 1.1;
-}
-
-.reader-rail button + button { border-top: 1px solid var(--line); }
-.reader-rail button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.reader-rail button:disabled { opacity: 0.35; }
-.reader-rail button[aria-current="true"] { color: var(--accent); }
-
-/* **和左轨长一个样，不是另立一套。** 原来这边是六个纯圆图标，一个字都没有——
-   而左边同样一条竖轨每格都带文字。同一个界面两套规矩，普通人只能挨个悬停去猜，
-   偏偏没名字的那几个正是书签、划线、朗读（书签和划线还是铁律 3 的不可再生数据）。
-   最要命的是「自动滚」的▷和「朗读」的耳机挨着，而看起来最像播放声音的那个不是声音。 */
-.reader-tools {
-  /* 右下：贴着正文栏的右外沿，落在底部状态条上方 */
-  bottom: 3.4rem;
-  right: max(1.1rem, calc(50% - var(--read-col, 1113px) / 2 - 4.6rem));
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
+/*
+ * **两条轨一份配方。** 原来 `.reader-rail button` 和 `.reader-tools button` 各写一份，
+ * 盒模型 + `+ button` + hover + disabled **四条逐字节相同**，只有「开着」那一条
+ * 各自长出了另一份（左轨认 `aria-current` → 字变棕，右轨认 `.on` → 整格填充）——
+ * 同一个界面里挨着的两条竖轨，同一个意思两种画法，而这两份谁都不会替对方跟上。
+ *
+ * ⚠️ **「开着」只认 `aria-current` 这一份。** 纯视觉的 `.on` 在这两条轨上撤掉了：
+ * 眼睛和读屏从此是**同一件事**，想漏都漏不掉。原来 `Reader.tsx` 的「搜索」「书签划线」
+ * 两样都没有（点开浮层后键上一个像素都不变），而查看器同名两颗两样都有——
+ * 那是分叉；`朗读` 那颗 `.on` 绑「在不在念」而 `aria-current` 绑「层开没开」——
+ * 那是两个状态互相冒充。现在都不成立了。
+ * `disabled` 也不再自己写一档（原来轨上 0.35、全局 0.45，同一个「点不了」两种灰）。
+ */
+.reader-rail button,
 .reader-tools button {
   display: flex;
   flex-direction: column;
@@ -924,11 +928,66 @@ button.toc-more:hover {
   line-height: 1.1;
 }
 
+.reader-rail button + button,
 .reader-tools button + button { border-top: 1px solid var(--line); }
+.reader-rail button:hover:not(:disabled),
 .reader-tools button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.reader-tools button:disabled { opacity: 0.35; }
-/* 自动阅读、朗读、书签是**有状态**的。看不出开没开就只能靠试 */
-.reader-tools button.on { background: var(--accent); color: var(--on-accent); }
+.reader-rail button[aria-current="true"],
+.reader-tools button[aria-current="true"] { background: var(--accent); color: var(--on-accent); }
+
+/* **和左轨长一个样，不是另立一套。** 原来这边是六个纯圆图标，一个字都没有——
+   而左边同样一条竖轨每格都带文字。同一个界面两套规矩，普通人只能挨个悬停去猜，
+   偏偏没名字的那几个正是书签、划线、朗读（书签和划线还是铁律 3 的不可再生数据）。
+   最要命的是「自动滚」的▷和「朗读」的耳机挨着，而看起来最像播放声音的那个不是声音。 */
+.reader-tools {
+  /* 右下：贴着正文栏的右外沿，落在底部状态条上方 */
+  bottom: 3.4rem;
+  right: max(1.1rem, calc(50% - var(--read-col, 1113px) / 2 - 4.6rem));
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* 这一轨的盒模型和四条状态归上面那份（`.reader-rail button, .reader-tools button`）——
+   原来这里逐字节又抄了一遍，只有「开着」那条各写各的。别在这里加第三条。 */
+
+/*
+ * **浮层的公共件：层名 + 出口。**
+ *
+ * 阅读界面里点开的这几层（`.reader-panel` / `.reader-pop` / `.note-pop` /
+ * `.toc` / `.rate-pop`）原来每一层都不说自己叫什么、有几层连出口都没有——
+ * 而 `modal-a11y.ts` 接名字靠的是层里有一个 `h1/h2/h3`。所以这一族统一：
+ * **层名是个真标题（`.pop-title`），底部一颗「收起」**。
+ *
+ * ⚠️ 标题一律从 `h3` 起：`.reader-panel` 里的分组名是 `h4.panel-group`，
+ * 层名和分组名同级就白分了一层。
+ */
+.pop-title {
+  margin: 0 0 .5rem;
+  font-size: .92rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.pop-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: .6rem;
+  padding-top: .5rem;
+  border-top: 1px solid var(--line);
+  /*
+   * **钉在层的底沿。** 这一层是封顶再内滚的（`max-height: 60vh`），
+   * 而 760×520 下实测可视 233px、内容 913px——那颗「收起」本来要滚 4 屏才够得到。
+   * 出口要一直够得到，这条判据不是新写的：toast 那颗「知道了」和弹窗的
+   * `.modal-actions` 都是这么钉的，理由也一样（容器有 `max-height` 就会内滚）。
+   *
+   * ⚠️ 背景要**自己那层的色、不能透明**——否则正文从底下透过来，
+   * 那颗键像是浮在字上。
+   */
+  position: sticky;
+  bottom: 0;
+  background: var(--panel);
+}
 
 /* 设置浮层挨着左轨的「设置」那一格，别飘到屏幕中间去 */
 /*
@@ -1081,7 +1140,23 @@ button.toc-more:hover {
   .reader-rail button,
   .reader-tools button { min-height: 2.2rem; }
 
-  /* 浮层在流里就是一段面板了，别让它把正文顶出屏幕 */
+  /*
+   * 浮层在流里就是一段面板了，别让它把正文顶出屏幕。
+   *
+   * ⚠️ **别给这条加 `flex-shrink: 0`，也别把 60vh 提上去——试过，是回归。**
+   * 窄屏下这个面板只拿到 233px 可视（内容 797px，要滚 2.4 屏），看着像被 flex 挤扁了，
+   * 实际算一下这一列（760×520）：`rail 51 + tools 65 + body 128 + foot 41 = 285`，
+   * 520 减掉就是 **235**——那 233px 是这一列**诚实的余额**，不是谁挤的。
+   *
+   * 试过 `flex-shrink: 0` + `70vh`：浮层确实拿到 363px（2.4 屏 → 1.2 屏），
+   * 但 `.reader` 是 `overflow: hidden`，`scrollHeight` 涨到 650 > 520，
+   * **多出来的 130px 是从底栏身上裁的**，`audit.mjs` 当场报两条「竖着被切断」。
+   * 又试过让正文能缩（给它 `min-height: 0`）：760 档正文纹丝不动还是 128，
+   * 因为余额本来就不在它身上。
+   *
+   * 真要治这一屏，得动的是**面板自己的内容组织**（43 个控件在 235px 里必然要滚两三屏），
+   * 那是单独一轮设计，不是这里的一行 CSS。
+   */
   .reader-panel { width: min(22rem, 100%); max-height: 60vh; overflow-y: auto; }
 
   /*
@@ -1644,7 +1719,11 @@ button.toc-more:hover {
 /* 朗读引擎列表。**一行一个**——原来是一排 chip、点名字就删，
    而用户的库里有 88 个：铺出来是一整片，既找不着也不敢点。
    高度封顶 + 自己滚，免得这一节把设置页顶得老长 */
-.tts-list {
+/* 「名字 + 几颗小键」那一列。朗读引擎 / 字体 / 纸色三处共用一份——
+   原来只有 `.tts-*` 那一份，而设置弹窗里的字体和纸色是**另一套形状**
+   （一排 chip、点名字就删），同一个弹窗里两种「怎么列出一串东西」。
+   名字占满、动作各在各的位置、删除是写着「删掉」的那颗键。 */
+.item-list {
   max-height: 15rem;
   overflow-y: auto;
   border: 1px solid var(--line);
@@ -1652,7 +1731,7 @@ button.toc-more:hover {
   margin-bottom: .5rem;
 }
 
-.tts-row {
+.item-row {
   display: flex;
   align-items: center;
   gap: .4rem;
@@ -1660,12 +1739,12 @@ button.toc-more:hover {
   border-bottom: 1px solid var(--line);
 }
 
-.tts-row:last-child { border-bottom: 0; }
-.tts-row:hover { background: var(--panel); }
+.item-row:last-child { border-bottom: 0; }
+.item-row:hover { background: var(--panel); }
 
 /* 名字占满剩下的地方，太长就省略号——引擎名有长到二十几个字的
    （「AI思必驰中文-秋木 故事」那一族），换行会让每一行高矮不齐 */
-.tts-name {
+.item-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1854,7 +1933,8 @@ button.toc-more:hover {
   /* 原来 415px 宽、短评是个 200px 的单行框。一句短评值一个看得全的框 */
   width: min(26rem, calc(100vw - 8rem));
 }
-.review-head { font-size: .92rem; }
+/* 同样是 h3（层名），要归零外边距，否则这张便条上面凭空多一行 */
+.review-head { font-size: .92rem; font-weight: 600; margin: 0 0 .3rem; }
 .review-say {
   width: 100%;
   resize: vertical;
@@ -1870,12 +1950,12 @@ button.toc-more:hover {
   gap: .6rem;
   font-size: 0.75rem;
 }
-/* 那句提示可以被挤没，两个键不能——**它是提示，键是出口** */
+/* 两个键不能挤没——**它是出口，提示不是**。但提示那句不许截半句：
+   那一句是「记下来之后会去哪儿」的承诺，截成「读不下去了也算，下次在书…」
+   比多占一行糟。所以让它折行，宽度还是先让给键 */
 .review-foot .muted {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 .review-foot .row { flex: none; }
 /* 「不用了」是会丢字的那个键，**不能和「记下来」等重** */
@@ -1933,6 +2013,74 @@ button.toc-more:hover {
  * 而分类的全部价值就在「这条规则捞上来的是不是我想的那一堆」。
  */
 .cat-modal { max-width: 46rem; }
+
+/* ── 编辑一本书：两栏 ──────────────────────────────────────
+ *
+ * 原来 43 个控件排成一条 1625px 的纵列：1440×900 打开时最常改的
+ * 「阅读状态 / 评分」在折叠线以下（要滚 790px 才到底），而最少用的
+ * 「文件与解析」占了底下 330px。
+ *
+ * 分栏那条线**不是「左半右半好看」，是两种生效方式**：
+ * 左栏点「保存」才落库，右栏改了就生效、不跟着保存走。
+ * 原来这两样混在同一列里，只有标签那一格自己说了一句「改了就生效」。
+ *
+ * ⚠️ 断点用**容器查询**量弹窗自己的宽度，不用 `@media` 量视口：
+ * 决定两栏挤不挤的是弹窗多宽，而弹窗是 `min(56rem, 100%)`——
+ * 拿视口当依据的话，760 那一档弹窗只有 ~43rem 宽，
+ * 里面却还按「视口 760 > 断点」排成两栏，标签那排芯片当场挤成一列一个字。
+ */
+.modal.editor {
+  width: min(56rem, 100%);
+  container-type: inline-size;
+}
+
+.editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 1.1rem;
+  align-items: start;
+}
+
+.editor-col-hint {
+  font-size: 0.78rem;
+  margin: 0 0 0.4rem;
+}
+
+/* 两个短字段并排一行（连载状态 + 本地章数）。
+   `min-width: 0` 是必须的：grid 的子项默认最小宽度是内容宽度，
+   一个 `width:100%` 的输入框会把这一格顶开而不是缩进去 */
+.editor-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 0.7rem;
+}
+
+.editor-pair > label {
+  min-width: 0;
+}
+
+@container (max-width: 46rem) {
+  .editor-grid, .editor-pair { grid-template-columns: minmax(0, 1fr); }
+}
+
+/*
+ * 「文件与解析」默认收起，但**收起不等于看不见状态**：
+ * 编码、章数、字数写在 `<summary>` 上——「我选的编码怎么又变了」那条判据
+ * 要求正在生效的状态必须摆在屏幕上，不能藏进一个要点开的折叠里。
+ * 文件真不见了（`file_status === 'missing'`）时那一整块**不折叠**，
+ * 那是个要人处理的告警，不是一个低频功能。
+ */
+.editor-more {
+  margin-top: 0.7rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.5rem;
+}
+
+.editor-more > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  list-style-position: inside;
+}
 
 .cat-grid {
   display: grid;

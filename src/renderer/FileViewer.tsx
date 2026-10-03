@@ -15,7 +15,7 @@ import { NoteCard } from './NoteCard.tsx';
 import { useTts } from './useTts.ts';
 import { NightToggle, TocHead, TtsEnginesModal } from './ReaderChrome.tsx';
 import {
-  画划线, 清划线, 命中, 闪一下, HL_COLORS, use色名, 画矩形, 命中矩形, 底色, RECT_CLASS,
+  画划线, 清划线, 命中, 闪一下, 找第几处, HL_COLORS, use色名, 画矩形, 命中矩形, 底色, RECT_CLASS,
   type 画布,
 } from './highlight-view.ts';
 // PDF 划线的锚：页内偏移 ↔ Range（整段判据在那个文件顶上）
@@ -335,6 +335,9 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
   const 设置键 = useRef<HTMLButtonElement>(null);
   const 评价键 = useRef<HTMLButtonElement>(null);
   const 设置层 = useRef<HTMLDivElement>(null);
+  /** 书内搜索那一层：判据同 `Reader.tsx`，它不贴着键开，焦点要单独接 */
+  const 搜索键 = useRef<HTMLButtonElement>(null);
+  const 搜索层 = useRef<HTMLDivElement>(null);
   const 评价层 = useRef<HTMLDivElement>(null);
 
   /*
@@ -687,10 +690,17 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
                 }).getTextContent();
                 文 = tc.items.map((i) => i.str ?? '').join('');
               } catch { continue; }
-              // 一页里可能有好几处，逐个往后找
+              // 一页里可能有好几处，逐个往后找。
+              // `ordinal` 数的是**这一页里第几处**——跳过去那边靠它落点（`找第几处`）。
               let at = 文.indexOf(词);
+              let 第几 = 0;
               while (at >= 0 && 出.length < 搜索上限) {
-                出.push({ chapterIdx: n, chapterTitle: `第 ${n} 页`, snippet: makeSnippet(文, 词, 12, at) });
+                出.push({
+                  chapterIdx: n,
+                  chapterTitle: `第 ${n} 页`,
+                  snippet: makeSnippet(文, 词, 12, at),
+                  ordinal: ++第几,
+                });
                 at = 文.indexOf(词, at + 词.length);
               }
             }
@@ -1306,11 +1316,15 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
                 文 = (得?.body?.textContent ?? 得?.textContent ?? '').replace(/\s+/g, ' ').trim();
               } catch { continue; } finally { try { 节.unload?.(); } catch { /* 卸不掉不影响搜 */ } }
               let at = 文.indexOf(词);
+              let 第几 = 0;
               while (at >= 0 && 出.length < 搜索上限) {
                 出.push({
                   chapterIdx: i,
                   chapterTitle: 目录名.current(i) ?? `第 ${i + 1} 节`,
                   snippet: makeSnippet(文, 词, 12, at),
+                  // 这一节里第几处。数的是节**加载出来**那份（空白已折叠），
+                  // 落点那边数的是 iframe 里画出来那份——对不上就回章首，见 `找第几处`
+                  ordinal: ++第几,
                 });
                 at = 文.indexOf(词, at + 词.length);
               }
@@ -1841,6 +1855,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
   const 朗读键 = useRef<HTMLButtonElement>(null);
   const 朗读层 = useRef<HTMLDivElement>(null);
   const 朗读位 = useAnchored(ttsOpen, 朗读键, 朗读层, 右轨, 'right-bottom');
+  use浮层焦点(搜索开, 搜索键, 搜索层);
   const 评价位 = useAnchored(!!reviewing, 评价键, 评价层, 右轨, 'right-bottom');
 
   /**
@@ -2071,6 +2086,31 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
     setTimeout(走, 200);
   };
 
+  /**
+   * **跳搜索命中的那一处**：滚过去 + 闪一下，和 `定位到` 一套定位。
+   *
+   * ⚠️ **一样要重试**——点下去的那一刻新的一页 / 新的一节还没画出来，文字层和
+   * iframe 都还不在，「第几处」当然数不出来。试够放弃也不吭声：跳转本身已经成了，
+   * 差的只是「精确落到那一行」。
+   *
+   * ⚠️ **PDF 的根只能是那一页的文字层**，不能是整个舞台：一叠里同时挂着好几页，
+   * 而 `ordinal` 是**按页**数的——在整叠上数，数到的可能是别的页那一处。
+   */
+  const 定位到处 = useRef<(页: number, 词: string, 第几: number) => void>(() => {});
+  定位到处.current = (页, 词, 第几) => {
+    let 试 = 0;
+    const 走 = () => {
+      const c = 取画布();
+      const 根 = c ? (viewer === 'epub' ? c.document : 各页文字层(box.current).get(页) ?? null) : null;
+      if (c && 根 && 词) {
+        const r = 找第几处(根, 词, 第几);
+        if (r) { 闪一下(c, r); return; }
+      }
+      if (试++ < 20) setTimeout(走, 150);
+    };
+    setTimeout(走, 200);
+  };
+
   /** 把现在这一屏的划线重画一遍。换节 / 换页 / 改字号 / 缩放之后都要调 */
   const 重画划线 = useRef<() => void>(() => {});
   重画划线.current = () => {
@@ -2186,9 +2226,31 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
       else onExit();
       return;
     }
+    /*
+     * **正在输入框里打字，一个动作键都不接。** 判据抄 `Reader.tsx` 那一段，
+     * 而这一侧原来整个缺着——缺了会怎样：目录带搜索框、划线卡里那个笔记框
+     * 都**不是弹窗**（`modalOpen` 挡不住它们），于是在里面打「f」会把书内搜索
+     * 盖上来、打「b」加一枚书签、按空格**一边打出空格一边把自动滚打开**。
+     * 上一轮接上这三个动作之前先补这道 guard，不然就是新接的键先把输入吃掉。
+     */
+    const t = e.target as HTMLElement;
+    if (
+      t.tagName === 'INPUT' || t.tagName === 'SELECT' ||
+      t.tagName === 'TEXTAREA' || t.isContentEditable
+    ) return;
     const act = actionFor(键表.current, e.key);
     if (act === 'prev') { e.preventDefault(); api.current.prev?.(); }
     if (act === 'next') { e.preventDefault(); api.current.next?.(); }
+    /*
+     * 目录 / 书内搜索 / 书签。**这三行在设置的快捷键表里是摆给全部三个界面的**，
+     * 而原来这一侧只有上面两个 `if`——实测同一个测试库、同一套默认键位：
+     * txt 里 `T` 开目录、`B` 撤书签、`F` 开搜索，PDF 和 EPUB 里三个键全是
+     * 「什么都没发生」。三个功能查看器都有、就在同一个文件里各有一颗键，
+     * 所以这不是「这一档不成立」，是没接。
+     */
+    if (act === 'toc') { e.preventDefault(); 切换('目录'); }
+    if (act === 'search') { e.preventDefault(); 切换('搜索'); }
+    if (act === 'bookmark') { e.preventDefault(); void 切书签(); }
     // 空格开关自动滚（默认键位）。翻页模式下这一档不成立，按了也不理
     if (act === 'autoScroll' && settings.mode !== 'page') { e.preventDefault(); set滚着((v) => !v); }
   };
@@ -2310,6 +2372,8 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
    * 所以比较之前要挑对——用错了高亮会一直停在第一条。
    */
   const 当前位置 = viewer === 'pdf' ? page : sec;
+  /** 这一屏的量词：PDF 论「页」、EPUB 论「节」。三个界面共用的面板靠它才不说假话 */
+  const 位 = viewer === 'pdf' ? '页' : '节';
 
   /*
    * **目录里标出哪一节/哪一页有笔记**——判据整段在 `Reader.tsx` 同一处。
@@ -2534,15 +2598,15 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
           <button onClick={onExit} title="回书架（Esc）">{ICO.back}<span>书架</span></button>
           {/* **只有真取到目录才摆这个键**：PDF 没有 nav，摆一个点开是空的抽屉
               比不摆更糟（本仓库那条老规矩） */}
-          {/* ⚠️ **`.on` 在左轨上什么都不做**——那条 CSS 只写给右轨
-              （`.reader-tools button.on`）。左轨认的是 `aria-current`。
-              当场量的：这个键开着关着字色都是 `rgb(38,38,38)`，一个像素不差。 */}
+          {/* 两轨现在共用一份状态配方，「开着」只认 `aria-current`（整格填充）。
+              原来这里是两套：左轨认 `aria-current` 只改字色、右轨认 `.on` 才填充，
+              而 `.on` 写在左轨上什么都不做。 */}
           {有目录入口 && (
             <button
               ref={目录键}
               aria-current={tocOpen}
               onClick={() => 切换('目录')}
-              title="目录"
+              title={`开关目录侧栏（${键('toc')}）`}
             >
               {ICO.toc}<span>目录</span>
             </button>
@@ -2557,7 +2621,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
             ref={设置键}
             aria-current={panel}
             onClick={() => 切换('设置')}
-            title="纸色、字号、行距、正文字体"
+            title="纸色、字号、行距、繁简"
           >
             {ICO.gear}<span>设置</span>
           </button>
@@ -2581,15 +2645,15 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
             * 「加得进去、看不见」，这个功能在 txt 那边就栽过一次。
             */}
           <button
-            className={这屏的书签 ? 'on' : ''}
             aria-current={!!这屏的书签}
             onClick={() => void 切书签()}
-            title={这屏的书签 ? '取消这一屏的书签' : '给这一屏加个书签'}
+            title={这屏的书签
+              ? `这一${位}已加书签，点一下撤掉（${键('bookmark')}）。加过的书签在旁边「书签与划线」里看`
+              : `给这一${位}加书签（${键('bookmark')}）。书签独立于阅读进度，在旁边「书签与划线」里看`}
           >
-            {ICO.mark}<span>加书签</span>
+            {ICO.mark}<span>{这屏的书签 ? '撤书签' : '加书签'}</span>
           </button>
           <button
-            className={看笔记面板 ? 'on' : ''}
             aria-current={看笔记面板}
             onClick={() => 切换('书签划线')}
             title="回看这本书的书签、划线和笔记"
@@ -2600,7 +2664,6 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
               摆一个按下去不知道会发生什么的键，比不摆更糟（本仓库那条老规矩）。 */}
           {viewer === 'pdf' && (
             <button
-              className={框选中 ? 'on' : ''}
               aria-current={框选中}
               onClick={() => set框选中((v) => !v)}
               title="框选：在页上拖一块。扫描页、插图、公式那些选不中字的地方靠它做笔记"
@@ -2613,17 +2676,15 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
               查看器这边正文只有渲染进程拿得到（pdf.js 的文字层 / epub.js 的一节），
               所以搜法另写，而界面是同一个组件 */}
           <button
-            className={搜索开 ? 'on' : ''}
+            ref={搜索键}
             aria-current={搜索开}
             onClick={() => 切换('搜索')}
-            title="在这本书里找一段话"
+            title={`在这本书里找一段话（${键('search')}）`}
           >
             {ICO.search}<span>搜索</span>
           </button>
           <button
             ref={评价键}
-            className={reviewing ? 'on' : ''}
-            // `.on` 给眼睛、`aria-current` 给读屏，判据同 `Reader.tsx` 那一处
             aria-current={!!reviewing}
             onClick={() => 切换('评价')}
             title="给这本书打分、写一句短评。读不下去了也记一句，下次在书架上就能看见"
@@ -2641,10 +2702,10 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
           {/* 自动滚。**和 txt 阅读器同一个键、同一句说明**。
               翻页那一档它是灰的——那一屏根本不滚，摆一个点了没反应的键比没有更糟 */}
           <button
-            className={滚着 ? 'on' : ''}
+            aria-current={滚着}
             disabled={settings.mode === 'page'}
             onClick={() => set滚着((v) => !v)}
-            title={`自动往下滚，读到底自动接下一屏（${键('autoScroll')}）。左右翻页模式下用不上`}
+            title={`自动往下滚，读到底自动接下一${位}（${键('autoScroll')}）。左右翻页模式下用不上`}
           >
             {ICO.auto}<span>自动滚</span>
           </button>
@@ -2652,8 +2713,9 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
               正在念的时候这个键亮着（`.on`），一眼看得出开着 */}
           <button
             ref={朗读键}
-            className={tts.speaking ? 'on' : ''}
-            aria-current={ttsOpen}
+            /* 同 `Reader.tsx`：原来 `.on` 绑在不在念、`aria-current` 绑层开没开，
+               两样对不上。一份：**层开着或正在念**都算这一格是活的 */
+            aria-current={ttsOpen || tts.speaking}
             onClick={() => 切换('朗读')}
             title={
               settings.ttsEngine === 'system'
@@ -2680,7 +2742,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
             四个色块前面要有个动词——光四个圆点看不出点下去会发生什么 */}
         {待划 && (
           <div
-            className="note-pop card"
+            className="note-pop card" role="dialog" aria-label="刚划的这一段"
             ref={贴住}
             data-anchor-top={待划.at.锚顶}
             style={{
@@ -2726,7 +2788,8 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
                   onChange={(e) => set笔记草稿(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && 笔记草稿.trim()) void 存划线('yellow', 笔记草稿); }}
                 />
-                <button className="primary" disabled={!笔记草稿.trim()} onClick={() => void 存划线('yellow', 笔记草稿)}>
+                <button className="primary" disabled={!笔记草稿.trim()} onClick={() => void 存划线('yellow', 笔记草稿)}
+                  title="先写一句笔记">
                   记下来
                 </button>
                 <button className="quiet" onClick={() => set笔记草稿(null)}>不写笔记</button>
@@ -2740,7 +2803,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
             不该一点就没 */}
         {看笔记 && (
           <div
-            className="note-pop card"
+            className="note-pop card" role="dialog" aria-label="这条划线的笔记"
             ref={贴住}
             data-anchor-top={看笔记.at.锚顶}
             style={{ top: 看笔记.at.top, left: 看笔记.at.left }}
@@ -2783,12 +2846,14 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
         {ttsOpen && (
           <div className="reader-panel" ref={朗读层} style={朗读位}>
             <TtsLayer
+              收起={() => 切换('朗读')}
               tts={tts}
               settings={settings}
               set={set}
               正文={正文}
               onManage={() => set管引擎(true)}
               计时={计时}
+              位={位}
             />
           </div>
         )}
@@ -2796,6 +2861,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
         {panel && (
           <div className="reader-panel" ref={设置层} style={设置位}>
             <ReadSettingsPanel
+              收起={() => 切换('设置')}
               settings={settings}
               set={set}
               能改正文={viewer === 'epub'}
@@ -2806,6 +2872,8 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
                * 摆两个点了一模一样的按钮，比少一个更糟。
                */
               模式={viewer === 'epub' ? ['scroll', 'flow', 'page'] : ['scroll', 'page']}
+              位={位}
+              可滚轮翻={false}
               繁简={{
                 值: 繁简,
                 改: (m) => {
@@ -2829,9 +2897,14 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
 
         {搜索开 && (
           <FindInBook
+            层Ref={搜索层}
             搜={(q) => 搜正文.current(q)}
             上限={搜索上限}
-            onJump={(i) => { api.current.goto?.(i); 只开一个(null); }}
+            onJump={(h, 词) => {
+              api.current.goto?.(h.chapterIdx);
+              if (h.ordinal !== undefined) 定位到处.current(h.chapterIdx, 词, h.ordinal);
+              只开一个(null);
+            }}
             onClose={() => 只开一个(null)}
           />
         )}
@@ -2952,9 +3025,9 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
             <button
               className="mini danger"
               onClick={() => 切换('书签划线')}
-              title="正文变过（换了版本、重新解析过），这几条划线按存下来的位置找不回原文了。摘录和笔记还在，点开就能看"
+              title="正文变过（换过版本、重新解析过），这几条按存下来的位置找不回原文了。摘录和笔记都还在，点开来一条看一条"
             >
-              {漂了} 条划线画不出来
+              {漂了} 条划线对不上原文了
             </button>
           )}
           <span className="pager">

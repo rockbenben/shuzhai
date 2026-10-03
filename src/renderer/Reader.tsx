@@ -27,7 +27,7 @@ import { FindInBook, type Hit } from './FindInBook.tsx';
 import { TtsPanel } from './TtsPanel.tsx';
 import { NightToggle, TocHead, TtsEnginesModal } from './ReaderChrome.tsx';
 import { HighlightsPanel } from './HighlightsPanel.tsx';
-import { splitParagraphs, sliceByMarks, speakingParagraph, splitImages, type Mark } from '../core/paragraphs.ts';
+import { splitParagraphs, sliceByMarks, speakingParagraph, splitImages, 第n处, type Mark } from '../core/paragraphs.ts';
 import { useTts } from './useTts.ts';
 
 interface TocEntry {
@@ -219,6 +219,14 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
   const toLastPage = useRef(false);
   const [pendingScroll, setPendingScroll] = useState<number | null>(null);
   /**
+   * 搜索结果「跳过来」要落到本章第几处。**只用一次**，兑现完就自己清。
+   *
+   * 为什么不当场算出偏移、走 `restoreTo` 那条现成的路：偏移要在**这一章的段落表**
+   * 上数出来（`第n处`），而换章时那一章还没加载、`flow` 里还没有它。
+   * 所以这里存的是「计划」，等下面那条 effect 看见 `flow` 里有这一章了再兑现。
+   */
+  const [落点计划, set落点计划] = useState<{ 章: number; 词: string; 第几: number } | null>(null);
+  /**
    * 这一章已经铺出去多少段。
    *
    * **不能一次性全铺。** 解析再准也总有个别章特别大（这个库里 78 章超过 1MB，
@@ -328,6 +336,9 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
   const 朗读键 = useRef<HTMLButtonElement>(null);
   const 评价键 = useRef<HTMLButtonElement>(null);
   const 设置层 = useRef<HTMLDivElement>(null);
+  /** 书内搜索那一层：它不贴着键开（`useAnchored` 管不到它），焦点要单独接 */
+  const 搜索键 = useRef<HTMLButtonElement>(null);
+  const 搜索层 = useRef<HTMLDivElement>(null);
   const 朗读层 = useRef<HTMLDivElement>(null);
   const 评价层 = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLElement>(null);
@@ -677,6 +688,27 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     }
     setPendingScroll(null);
   }, [pendingScroll, chapter, idx, settings.mode]);
+
+  /**
+   * 兑现搜索命中的落点——**等这一章铺进 `flow` 才数得出「第几处」**。
+   *
+   * ⚠️ **长章要先补一批段**，否则目标那个 `<p>` 还没建出来，下面那条按
+   * `data-offset` 找段落的 effect 只会落到这批的最后一段。不能指望
+   * 「滚到底自动接一批」那个 IntersectionObserver——它等的是**滚到底**，
+   * 而这里要的是**先有那一段才滚得过去**。同朗读跟读那处（`speakingOffset`）
+   * 是分两批铺的同一个道理。
+   */
+  useEffect(() => {
+    if (!落点计划) return;
+    const 节 = flow.find((f) => f.idx === 落点计划.章);
+    if (!节) return; // 这一章还在路上；`flow` 变了这个 effect 会再跑
+    set落点计划(null);
+    const 落 = 第n处(节.title ?? '', 节.paras, 落点计划.词, 落点计划.第几);
+    if (落 === null) return; // 数不到就留在章首——猜一处比留在原地更难被发现
+    const i = 节.paras.findIndex((p) => p.offset === 落);
+    if (i >= shownParas) setShownParas(Math.min(节.paras.length, i + PARA_BATCH));
+    setPendingScroll(落);
+  }, [落点计划, flow, shownParas]);
 
   /**
    * 记住章内位置。**节流到停下来才存**——滚动事件每帧都来，
@@ -1516,6 +1548,8 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
 
   const 设置位 = useAnchored(panel, 设置键, 设置层, 左轨, 'left-top');
   const 朗读位 = useAnchored(ttsOpen, 朗读键, 朗读层, 右轨, 'right-bottom');
+  /** 判据和那三层一样（开的时候进层、关掉还给那颗键），只是位置不归它管 */
+  use浮层焦点(finding, 搜索键, 搜索层);
   const 评价位 = useAnchored(!!reviewing, 评价键, 评价层, 右轨, 'right-bottom');
 
   const pct = chapter && chapter.total > 0
@@ -1591,7 +1625,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
               className="toc-more"
               onClick={() => setTocTo((n) => n + TOC_WINDOW)}
             >
-              ↓ 还有 {shown.length - tocTo} 章…
+              还有 {shown.length - tocTo} 章…
             </button>
           )}
           {shown.length === 0 && <p className="muted" style={{ padding: '0.5rem 0.8rem' }}>没有匹配的章节</p>}
@@ -1631,7 +1665,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           >
             {ICO.next}<span>下一章</span>
           </button>
-          <button ref={设置键} aria-current={panel} onClick={() => 切换('设置')} title="字号、行距、主题、繁简">
+          <button ref={设置键} aria-current={panel} onClick={() => 切换('设置')} title="纸色、字号、行距、繁简">
             {ICO.gear}<span>设置</span>
           </button>
           <button
@@ -1659,11 +1693,16 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
         {/* 右轨：读的时候会临时用一下的几样。**每格都写名字**，和左轨同一套——
             纯图标那版实测得挨个悬停一秒才知道是什么，而「书签划线」按钮的名字
             必须和它开出来的弹窗（「书签与划线」）对得上。
-            开着的用 .on 标出来——自动滚和朗读是有状态的，看不出开没开就只能靠试 */}
+            开着的用 `aria-current` 标出来——自动滚、朗读、书签是有状态的，
+            看不出开没开就只能靠试。**这一族只认这一个属性**（`.on` 撤了，
+            理由写在 `styles.css` 两条轨那份合并的注释上）：设了它就有画法，
+            想「有视觉没读屏」或反过来都设不出来 */}
         <div className="reader-tools" ref={右轨}>
           {/* 亮 = 这一章有书签。**再点一下是撤掉，不是再加一个** */}
           <button
-            className={markedHere ? 'on' : ''}
+            // 状态只认 `aria-current` 这一份：眼睛和读屏从此是同一件事。
+            // 原来这里是纯视觉的 `.on`，右轨其余几颗两样都有，漏的正是这几颗
+            aria-current={markedHere}
             onClick={() => void toggleBookmark()}
             title={
               markedHere
@@ -1673,14 +1712,20 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           >
             {ICO.mark}<span>{markedHere ? '撤书签' : '加书签'}</span>
           </button>
-          <button onClick={() => 切换('搜索')} title={`在这本书里搜（${键('search')}）`}>{ICO.search}<span>搜索</span></button>
+          {/* 原来这颗既没有 `.on` 也没有 `aria-current`——点开搜索层后键上
+              一个像素都不变，而查看器同名那颗两样都有（两个阅读界面的分叉） */}
+          <button
+            ref={搜索键}
+            aria-current={开着的 === '搜索'}
+            onClick={() => 切换('搜索')}
+            title={`在这本书里找一段话（${键('search')}）`}
+          >
+            {ICO.search}<span>搜索</span>
+          </button>
           {/* 评价随时能记，不用读完。**说明里要写「读不下去」**——
               那是这个入口存在的理由，而它在按钮名字里看不出来 */}
           <button
             ref={评价键}
-            className={reviewing ? 'on' : ''}
-            // `.on` 是给眼睛的（右轨那条 CSS），`aria-current` 是给读屏的——
-            // 右轨其余有状态的键（朗读）两样都有，这里原来只有前一样
             aria-current={!!reviewing}
             onClick={() => 切换('评价')}
             title="给这本书打分、写一句短评。读不下去了也记一句，下次在书架上就能看见"
@@ -1690,13 +1735,14 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           {/* 说明里必须带上「书签」：书签**加**在左边那个按钮、**看**在这里，
               而原来这句只说划线——按 B 加完的人根本找不到它们去哪了 */}
           <button
+            aria-current={开着的 === '书签划线'}
             onClick={() => 切换('书签划线')}
             title="书签、划线和笔记（这本书的，以及全库带笔记的划线）"
           >
             {ICO.pen}<span>书签划线</span>
           </button>
           <button
-            className={scrolling ? 'on' : ''}
+            aria-current={scrolling}
             disabled={settings.mode === 'page'}
             onClick={() => setScrolling((v) => !v)}
             title={`自动往下滚，读到底自动进下一章（${键('autoScroll')}）。左右翻页模式下用不上`}
@@ -1709,8 +1755,10 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
               正在念的时候这个键仍然亮着（`.on`），一眼看得出开着 */}
           <button
             ref={朗读键}
-            className={tts.speaking ? 'on' : ''}
-            aria-current={开着的 === '朗读'}
+            /* 原来 `.on` 绑「在不在念」、`aria-current` 绑「层开没开」——两个状态
+               互相冒充：层开着还没念，键看起来是关的（实测 aria-current=true 而 class 空）。
+               现在一份：**这一格是活的** = 层开着，或者正在念（关了层还在念要看得见） */
+            aria-current={开着的 === '朗读' || tts.speaking}
             onClick={() => 切换('朗读')}
             title={
               settings.ttsEngine === 'system'
@@ -1738,6 +1786,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
             {/* 朗读那一整层（播放器 + 声音/节奏 + 定时）**和查看器共用一份**，
                 整段判据在 `TtsLayer.tsx` 上面 */}
             <TtsLayer
+              收起={() => 切换('朗读')}
               tts={tts}
               settings={settings}
               set={set}
@@ -1768,6 +1817,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
                 十张纸的名字有长有短（「书斋 - 白天」「legado - 淡青」），
                 挤在右半边会被截掉——占满一行既是权重也是实用 */}
             <ReadSettingsPanel
+              收起={() => 切换('设置')}
               settings={settings}
               set={set}
               能改正文
@@ -1816,7 +1866,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
              和笔记卡同一层（`.reader-main`）：`.reader-body` 在翻页模式下带着
              `clip-path`，会连着裁掉所有后代。 */
           <div
-            className="note-pop card"
+            className="note-pop card" role="dialog" aria-label="刚划的这一段"
             ref={贴住}
             data-anchor-top={pending.at.锚顶}
             style={{
@@ -1886,7 +1936,8 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
                   * 而**查看器那边一直有**（`FileViewer.tsx` 的「记下来」）。
                   * 两个阅读界面在同一件事上分叉，这个仓库抓到过三次。
                   */}
-                <button className="primary" disabled={!noteDraft.trim()} onClick={() => void 记下来()}>
+                <button className="primary" disabled={!noteDraft.trim()} onClick={() => void 记下来()}
+                  title="先写一句笔记">
                   记下来
                 </button>
                 {/* **写的是它干什么，不是「算了」**：旁边那个「取消」是连划线一起不要，
@@ -1910,7 +1961,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           */}
         {openMark && (
           <div
-            className="note-pop card"
+            className="note-pop card" role="dialog" aria-label="这条划线的笔记"
             ref={贴住}
             data-anchor-top={openMark.at.锚顶}
             style={{ top: openMark.at.top, left: openMark.at.left }}
@@ -1941,7 +1992,15 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
         )}
         {finding && (
           <FindInBook
-          搜={(query) => rpc<Hit[]>('search.inBook', { bookId, query })} onJump={(c) => go(c)} onClose={() => setFinding(false)} />
+            层Ref={搜索层}
+            搜={(query) => rpc<Hit[]>('search.inBook', { bookId, query })}
+            onJump={(h, 词) => {
+              if (h.ordinal === undefined) { go(h.chapterIdx); return; }
+              set落点计划({ 章: h.chapterIdx, 词, 第几: h.ordinal });
+              if (h.chapterIdx !== idx) go(h.chapterIdx);
+            }}
+            onClose={() => setFinding(false)}
+          />
         )}
 
         <div
@@ -1997,9 +2056,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
                 */}
               {mine.some((m) => !m.intact) && (
                 <p className="muted" style={{ fontSize: '0.8rem', textAlign: 'center' }}>
-                  这一章有 {mine.filter((m) => !m.intact).length} 条划线对不上原文了
-                  （正文变过：换过章节规则、改过正文净化或繁简）。
-                  没有画在正文上，免得标错地方——原文和笔记都还在「书签划线」里。
+                  这一章有 {mine.filter((m) => !m.intact).length} 条划线对不上原文了（正文变过：换过章节规则、改过正文净化或繁简）。没有画在正文上，免得标错地方——原文和笔记都还在「书签划线」里。
                   {/*
                     * **这句话原来到此为止**：说完就没了，笔记还在、指着哪句话没人知道。
                     * 而修它不用猜——`excerpt` 当初就是按原样存下来当锚的，
@@ -2148,14 +2205,16 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           *
           * 说法上不摆原始报错（「429」对人没意义），先说发生了什么、再说怎么办。
           */}
-        {/* 不放「去设置」按钮：朗读引擎在应用设置里，而这里是全屏阅读器，够不到——
-            给一个点了没反应的按钮比不给更糟。说清路径就够了。
+        {/* 不放「去设置」按钮：这里是全屏阅读器，够不到应用设置——给一个点了没反应的按钮比不给更糟。
+            指的那条路是**同一个朗读面板里的「管理引擎…」**（`onManage` 在这儿接着 `TtsLayer`），
+            所以这句话把人送到真够得着的地方，不是送到书架另一头。
             这条提示会在下次开始或停止朗读时自己消失（useTts 里两处都会重置） */}
         {tts.fellBack && (
           <div className="tts-fallback" role="status">
-            在线朗读没能继续，<strong>已经换成系统语音接着念</strong>。
-            要换个引擎：回书架 → 设置 → 阅读 → 朗读。
-            <span className="muted">　（{tts.fellBack}）</span>
+            在线朗读没能继续，<strong>已经换成系统语音接着念</strong>。要换个引擎：在朗读面板里点「管理引擎…」。
+            {/* 原始那句（429、连接被拒之类）对人没意义，所以不印在正文上；
+                排查时又得有，就挂在悬停里——和 TtsPanel 那条回退提示同一个判据 */}
+            <span className="muted" title={tts.fellBack}>　（悬停看原因）</span>
           </div>
         )}
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { splitParagraphs, sliceByMarks, speakingParagraph, splitImages, type Mark } from './paragraphs.ts';
+import { splitParagraphs, sliceByMarks, speakingParagraph, splitImages, 第n处, type Mark } from './paragraphs.ts';
 
 const mark = (o: number, len: number, extra: Partial<Mark> = {}): Mark => ({
   id: o,
@@ -176,4 +176,38 @@ test('图前粘着不可见控制字符，整段仍算图', () => {
   assert.equal(splitImages('\u0002字' + 图).imageOnly, false);
   // 没有可认的图片地址时也不成立
   assert.equal(splitImages('\u0002<img src="javascript:alert(1)">').imageOnly, false);
+});
+
+/*
+ * **搜索结果「跳过去」的落点**（`SearchHit.ordinal` 使的那一半）。
+ *
+ * 为什么是数「第几处」，而不是把命中的字符偏移搬过去：偏移要在两份文本之间
+ * 对得上，而这两份——搜的时候手里那份（**文件的字节**、逐行解码）、屏幕上画出来
+ * 那份（清洗后、剥掉标题的正文，段落还带缩进）——中间隔着解码、净化规则改长度、
+ * 剥标题、繁简字形四道。每一道都能偏，而**偏了不报错，只是跳到别处去**
+ * （`lessons.md`「偏移量是字节，不是字符」、`pdf-text.ts` 顶上那句「两把尺」）。
+ *
+ * 序号不需要换算：两边都在自己那一份里，按看到的顺序数同一个词。
+ */
+test('第n处：按屏幕上看到的顺序数，给出那一段的偏移', () => {
+  const 标题 = '第二章 客栈遇故人';
+  const ps = splitParagraphs('\n他在客栈里遇到了旧识。\n中间一句不相干的话。\n客栈的门开了。');
+
+  // 标题里那一处排第 1——它确实画在屏幕上（那个 `<h2>`），搜的时候也数了它
+  assert.equal(第n处(标题, ps, '客栈', 1), 0, '落在章首');
+  assert.equal(第n处(标题, ps, '客栈', 2), ps[0].offset, '第一段的偏移');
+  assert.equal(第n处(标题, ps, '客栈', 3), ps[2].offset);
+});
+
+/**
+ * ⚠️ **这一条是「宁可落章首，也别猜一个位置」的判据。**
+ * 数不到第 n 处，多半是两边那份文本对不上（净化有 `whole` 规则、章节刚重切过），
+ * 这时候随便落一处比落回章首难发现得多——同 `造Range` 那句「越界要回 null，
+ * 不要夹」，也同 `reanchor` 那句「猜错了是把笔记贴到另一句话上」。
+ */
+test('第n处：数不到就回 null，不猜第一处', () => {
+  const ps = splitParagraphs('只有一处。');
+  assert.equal(第n处('标题', ps, '一处', 2), null, '超出实际处数');
+  assert.equal(第n处('标题', ps, '没有这个词', 1), null);
+  assert.equal(第n处('标题', ps, '一处', 0), null, '第几处从 1 起，0 是无效输入');
 });
