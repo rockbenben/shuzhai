@@ -26,3 +26,7 @@ docs/superpowers/
 # 是这台机器上的中间产物，不是项目文档。换台机器重来一遍也不该靠它。
 .workbuddy-ai/
 .qoder*
+# Design QA 的打磨稿（design-preview/batchX.html）：现状 vs 改后的评审工作稿，
+# 审完就落地成代码提交，稿子本身留着只会让人去读一份和代码对不上的旧提案。
+# 同 scratchpad/ 一个理由：中间产物，不是项目文档。
+design-preview/
