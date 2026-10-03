@@ -504,15 +504,27 @@ app.whenReady().then(async () => {
   // 老板键（spec §6）：一键把窗口藏起来/叫回来。
   // **注册失败不报错**——这个组合键很可能被别的软件占了，
   // 而为了一个可有可无的快捷键让应用起不来是本末倒置。
-  const bossKey = getSetting(db, 'reader.bossKey') || 'CommandOrControl+Shift+H';
-  const registered = globalShortcut.register(bossKey, () => {
-    if (win.isVisible()) win.hide();
-    else {
-      win.show();
-      win.focus();
-    }
-  });
-  if (!registered) console.warn(`[hotkey] 老板键 ${bossKey} 注册失败，可能被别的程序占用`);
+  //
+  // ⚠️ **抽成函数而不是就地注册一次**：设置里那栏改了要能当场换过去。
+  // 原来这里只在启动时 `register` 一次，而界面上写的是「改动即时生效」——
+  // 那句因此是假的（`docs/lessons.md`「设置里那句即时生效」那一节记着 A/B 读数）。
+  let 老板键当前: string | null = null;
+  const registerBossKey = () => {
+    if (老板键当前) globalShortcut.unregister(老板键当前);
+    const key = getSetting(db, 'reader.bossKey') || 'CommandOrControl+Shift+H';
+    const registered = globalShortcut.register(key, () => {
+      if (win.isVisible()) win.hide();
+      else {
+        win.show();
+        win.focus();
+      }
+    });
+    // 注册上了才记下这个名字，否则下次 unregister 的是一个没占着的键
+    老板键当前 = registered ? key : null;
+    if (!registered) console.warn(`[hotkey] 老板键 ${key} 注册失败，可能被别的程序占用`);
+    return registered;
+  };
+  registerBossKey();
 
   // ── 定期扫描（spec §1.2）────────────────────────────────────────
   //
@@ -603,11 +615,19 @@ app.whenReady().then(async () => {
   const firstBackup = setTimeout(checkBackup, 30_000);
   const backupTimer = setInterval(checkBackup, 6 * 3600_000);
 
-  // 设置改了要立刻重新排，不能等到下一次触发
-  ipcMain.handle('reschedule', () => {
+  /*
+   * **设置改了要立刻重新应用一遍，不能等到下一次触发。**
+   *
+   * 原来这条叫 `reschedule`，只管排程和监听；老板键那一栏改完没人调它，
+   * 于是界面上挂着「改动即时生效」而那个键要重启才认。
+   * 名字改成 `applyLiveSettings` 并把**所有能当场应用的**都收进来——
+   * 判据是：**渲染进程只需要记一个动作**（「我刚改了设置」），
+   * 而不是记一张「哪一栏改完该调哪条」的表。那张表正是漏掉这一处的地方。
+   */
+  ipcMain.handle('applyLiveSettings', () => {
     schedule();
     startWatching();
-    return { ok: true };
+    return { ok: true, bossKeyOk: registerBossKey() };
   });
 
   app.on('before-quit', () => {

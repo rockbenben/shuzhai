@@ -463,6 +463,27 @@ test('修复：删掉空记录，但有进度或书签的一律留着', () => {
   assert.ok(left.includes(normal));
 });
 
+test('修复：干跑报的和真跑动的是同一个数，而且一个字都不落库', () => {
+  const junk = addBookNoFile('空记录');
+  const other = addBookNoFile('另一条空记录');
+  db.prepare('update reading_state set chapter_idx = 2 where book_id = ?').run(other);
+
+  const 干 = repairLibrary(db, true);
+  assert.equal(干.orphanBooks, 1, '干跑要报出真会动的那一条');
+  assert.ok(
+    (db.prepare('select id from book where id = ?').get(junk) as { id: number } | undefined)?.id === junk,
+    '干跑之后那条空记录必须还在——预览靠的是回滚，不是另写一遍计数',
+  );
+
+  const 真 = repairLibrary(db);
+  assert.deepEqual({ ...真 }, { ...干 }, '预览和执行的数必须一模一样');
+  assert.equal(
+    (db.prepare('select id from book where id = ?').get(junk) as { id: number } | undefined)?.id,
+    undefined,
+    '真跑才删',
+  );
+});
+
 /*
  * **「没有文件」不等于「没人要」。** `manual.ts` 添的书只往 `book` 表写一行，
  * 一个 `book_file` 都没有——「整理数据库」原来把它们当孤儿删了。

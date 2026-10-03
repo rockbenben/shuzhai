@@ -23,8 +23,11 @@ contextBridge.exposeInMainWorld('novel', {
     }
   },
 
-  /** 改完扫描排程要叫一声，否则新设置得等到下次触发才生效 */
-  reschedule: () => ipcRenderer.invoke('reschedule'),
+  /**
+   * 改完任何「要主进程重新应用一次」的设置都叫这一声：排程、文件监听、老板键
+   * 都在那一条 handler 里一起重做。渲染进程只记这一个动作，不记「哪栏配哪条」。
+   */
+  applyLiveSettings: () => ipcRenderer.invoke('applyLiveSettings'),
 
   /**
    * 扫描进度（`scan-progress`），扫描**过程中**一路发过来的，不是扫完那一下——

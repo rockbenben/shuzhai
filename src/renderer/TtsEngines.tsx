@@ -7,7 +7,7 @@
 // 重做的三条：
 //
 // 1. **列表就是列表**：一行一个，名字、GET/POST、试听、删除各在各的位置。
-//    删除是写着「删」的那个键，不是「点名字」。
+//    删除是写着「删掉」的那个键，不是「点名字」。
 // 2. **当场能试听。** 加一个引擎最想知道的就是「它出不出声」，
 //    而原来得先关掉设置、开一本书、进阅读器的浮层才试得了。
 // 3. **试听走阅读器自己的 `useTts`**，不另写一条播放路径——本仓库那条
@@ -35,7 +35,7 @@ function 丢了什么(dropped: string[] | undefined): string {
   // 一个的时候写「这几格」读着别扭
   const 量词 = dropped.length === 1 ? '这一格' : '这几格';
   const 那些 = dropped.length === 1 ? '那一项' : '那几项';
-  return `。${dropped.join('、')} ${量词}没搬（写的是要算的 JS），${那些}用服务自己的默认值`;
+  return `。${dropped.join('、')} ${量词}没有带过来——那几项要现场算一段代码，这个应用不跑别人配置里的代码，${那些}用的是服务自己的默认值`;
 }
 
 export function TtsEngines({
@@ -89,14 +89,14 @@ export function TtsEngines({
               await 重取();
               const 话 = [`导进来 ${r.added} 个`];
               if (r.existed) 话.push(`${r.existed} 个本来就有`);
-              if (r.skipped) 话.push(`${r.skipped} 个没收——它们要跑配置里的 JS，而这个应用不跑`);
+              if (r.skipped) 话.push(`${r.skipped} 个没收——它们要跑配置里带的一段代码，这个应用不跑别人的代码`);
               说(话.join('，') + 丢了什么(r.dropped));
             } catch (e) {
               说((e as Error).message, true);
             }
           })()}
         >
-          导入一份…
+          从文件加一个…
         </button>
         <button onClick={() => { setDraft(draft ? null : { name: '', url: '' }); setMsg(null); }}>
           {draft ? '收起' : '手填一个…'}
@@ -124,15 +124,14 @@ export function TtsEngines({
           <label className="field" style={{ marginTop: '.4rem' }}>
             <span className="muted" style={{ fontSize: '0.78rem' }}>地址</span>
             <input
-              placeholder="「阅读」里那一行整行贴进来也行"
+              placeholder="legado（阅读 App）里那一行整行贴进来也行"
               value={draft.url}
               onChange={(e) => setDraft({ ...draft, url: e.target.value })}
             />
           </label>
           <p className="muted" style={{ fontSize: '0.75rem', margin: '0.4rem 0 0.5rem' }}>
-            要念的那一段写成 <code>{'{text}'}</code>。「阅读」的配置写的是
-            {' '}<code>{'{{java.encodeURI(speakText)}}'}</code>，整行贴进来会自动认出来，
-            走 POST 的那种也认。
+            要念的那一段写成 <code>{'{text}'}</code>。legado 的配置写的是
+            {' '}<code>{'{{java.encodeURI(speakText)}}'}</code>，整行贴进来会自动认出来，走 POST 的那种也认。
           </p>
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button onClick={() => { setDraft(null); setMsg(null); }}>取消</button>
@@ -155,13 +154,13 @@ export function TtsEngines({
         </div>
       )}
 
-      {/* 列表。一行一个，删除是写着「删」的那个键——原来是一排 chip、
+      {/* 列表。一行一个，删除是写着「删掉」的那个键——原来是一排 chip、
           点名字就删，88 个铺出来既找不着也不敢点 */}
       {engines.length > 0 && (
-        <div className="tts-list">
+        <div className="item-list">
           {列出来的.map((e) => (
-            <div className="tts-row" key={e.id}>
-              <span className="tts-name" title={e.body ? `${e.url}\n${e.body}` : e.url}>
+            <div className="item-row" key={e.id}>
+              <span className="item-name" title={e.body ? `${e.url}\n${e.body}` : e.url}>
                 {e.name}
               </span>
               {e.method === 'POST' && (
@@ -172,16 +171,17 @@ export function TtsEngines({
               </button>
               <button
                 className="mini"
+                aria-label={`删掉引擎 ${e.name}`}
                 onClick={() => void (async () => {
                   await rpc('tts.removeEngine', { id: e.id });
                   await 重取();
-                  // 正在用的那个被删了就退回系统语音，同卸字体那一处：
+                  // 正在用的那个被删了就退回系统语音，同删字体那一处：
                   // 不退的话下次点朗读只会撞一句「没有这个朗读引擎」
                   if (read.ttsEngine === e.id) applyRead({ ttsEngine: 'system' });
                   说(`「${e.name}」删掉了`);
                 })()}
               >
-                删
+                删掉
               </button>
             </div>
           ))}
@@ -194,14 +194,13 @@ export function TtsEngines({
       )}
 
       <p className="muted" style={{ fontSize: '0.78rem', margin: '0.5rem 0 0.6rem' }}>
-        默认只有<strong>系统语音</strong>，离线、不外发一个字。
-        在线引擎<strong>会把正文一段一段发到第三方服务器</strong>，所以要自己加。
+        默认只有<strong>系统语音</strong>，离线、不外发一个字。在线引擎<strong>会把正文一段一段发到第三方服务器</strong>，所以要自己加。
         <br />
         加进来的<strong>只存在这台机器上</strong>，跟着备份走，不进代码仓库。
       </p>
       {tts.fellBack && (
         <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
-          这个引擎没出声，已经退回系统语音：{tts.fellBack}
+          <span title={tts.fellBack}>在线引擎没出声，已经换成系统语音接着念。（悬停看原因）</span>
         </p>
       )}
       {msg && (

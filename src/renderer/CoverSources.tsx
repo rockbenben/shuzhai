@@ -54,14 +54,22 @@ export function CoverSources() {
   return (
     <>
       <h3>自定义书源</h3>
-      <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 0.5rem' }}>
-        内置 8 个站点都不用在这里配——起点、书旗、豆瓣能按书名搜（搜索链就是这三个）；
-        纵横、番茄、独阅读、晋江、飞卢不进搜索链，但在「在线地址」那栏粘它们的详情页链接
-        照样认得出。这里加的源在<strong>起点、书旗都没找到时</strong>才轮到，最后才是豆瓣兜底。
-        <br />
-        搜到书之后会再读它的详情页，<strong>封面、简介、分类一起补</strong>，不影响阅读。规则里
-        <strong>不支持 JS</strong>：这些配置常常是从别处拿来的，跑陌生人的代码换几个源不划算。
+      {/* 原来这一段 188 字平铺在设置里，和「会造成不可逆后果」那两条警告同一个
+          字号同一种颜色。常显的只留结论，名目收进 details——
+          低频不等于可以藏，但也不必占着每一回的视线。 */}
+      <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 0.2rem' }}>
+        <strong>内置 8 个站点不用在这里配。</strong>这里加的源在起点、书旗都没找到时才轮到，最后才是豆瓣兜底。
       </p>
+      <details style={{ margin: '0 0 0.5rem' }}>
+        <summary className="muted" style={{ fontSize: '0.8rem', cursor: 'pointer' }}>
+          哪几个站能搜、规则怎么写
+        </summary>
+        <p className="muted" style={{ fontSize: '0.8rem', margin: '.3rem 0 0' }}>
+          起点、书旗、豆瓣能按书名搜（搜索链就是这三个）；纵横、番茄、独阅读、晋江、飞卢不进搜索链，但在「在线地址」那栏粘它们的详情页链接照样认得出。
+          <br />
+          搜到书之后会再读它的详情页，<strong>封面、简介、分类一起补</strong>，不影响阅读。规则里<strong>不支持 JS</strong>：这些配置常常是从别处拿来的，跑陌生人的代码换几个源不划算。
+        </p>
+      </details>
 
       {list.map((s) => (
         <div key={s.id} className="card" style={{ marginBottom: '.5rem', padding: '0.6rem 0.8rem' }}>
@@ -100,7 +108,7 @@ export function CoverSources() {
             >
               {testing === s.id ? '试着…' : '用《斗破苍穹》试一下'}
             </button>
-            <button onClick={() => save(list.filter((x) => x.id !== s.id))} title="删掉这个源">×</button>
+            <button onClick={() => save(list.filter((x) => x.id !== s.id))} title="删掉这个源">删掉</button>
           </div>
 
           {open === s.id && (

@@ -460,6 +460,33 @@ export function keyLabel(k: string): string {
   return map[k] ?? (k.length === 1 ? k.toUpperCase() : k);
 }
 
+/**
+ * Electron 的 accelerator 串翻成人话。
+ *
+ * 老板键那一栏存的就是这串（`CommandOrControl+Shift+H`），因为注册全局热键要它——
+ * **不能改存的内容**，改了注册不上。但屏上只摆这串，Windows 用户看到的是
+ * 一个键帽上不存在的名字 `CommandOrControl`。同 `keyLabel` 那条：
+ * 用户认的是 Ctrl。所以另给一行「这台机器上按什么」，输入框照旧留原值。
+ */
+export function acceleratorLabel(accel: string): string {
+  // 渲染进程里 `process.platform` 不一定拿得到（这层是打包进 Vite 的浏览器代码），
+  // 而 `navigator.userAgent` 永远在——认 Mac 只要认出 Mac 就行
+  const 是Mac = /Mac|iPhone|iPad/i.test(typeof navigator === 'undefined' ? '' : navigator.userAgent);
+  return accel
+    .split('+')
+    .map((p) => {
+      const t = p.trim();
+      if (/^(CommandOrControl|CmdOrCtrl|SuperOrControl)$/i.test(t)) return 是Mac ? '⌘' : 'Ctrl';
+      if (/^Command$/i.test(t)) return '⌘';
+      if (/^Option$/i.test(t)) return 是Mac ? '⌥' : 'Alt';
+      if (/^Shift$/i.test(t)) return 'Shift';
+      if (/^Alt$/i.test(t)) return 是Mac ? '⌥' : 'Alt';
+      if (/^Ctrl$/i.test(t)) return 是Mac ? '⌃' : 'Ctrl';
+      return t.length === 1 ? t.toUpperCase() : t;
+    })
+    .join(' + ');
+}
+
 const KEYS_KEY = 'novel.read-keys';
 
 export function loadKeys(): Record<Action, string[]> {

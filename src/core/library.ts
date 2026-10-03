@@ -1419,7 +1419,7 @@ export interface RepairReport {
  *    连「文件缺失」都标不上，于是它在书架上装作一切正常，点开才报 ENOENT。
  *    文件确实不在了就删掉记录——没有任何流程能让它复活。
  */
-export function repairLibrary(db: DatabaseSync): RepairReport {
+export function repairLibrary(db: DatabaseSync, dryRun = false): RepairReport {
   const report: RepairReport = {
     orphanBooks: 0, missingPrimary: 0, staleMissing: 0, rootlessGone: 0, wronglyMissing: 0,
   };
@@ -1542,7 +1542,15 @@ export function repairLibrary(db: DatabaseSync): RepairReport {
       if (ensurePrimary(db, b.id)) report.missingPrimary++;
     }
 
-    db.exec('commit');
+    /*
+     * **干跑靠回滚，不靠再数一遍。**
+     *
+     * 界面上那颗「看看会整理哪些」要的是同一个数字，不是一句估计数。
+     * 另写一条只读计数 SQL 就是给这五类判据抄第二份——本仓库为这种事摔过
+     * 不止一次（`shelfCounts` 绕开 `buildFilter`、渲染进程自己抄了一份 `Filter`）。
+     * 所以：真跑一遍，最后不 commit 而是 rollback，报数照收。
+     */
+    db.exec(dryRun ? 'rollback' : 'commit');
   } catch (e) {
     db.exec('rollback');
     throw e;

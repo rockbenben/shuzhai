@@ -17,7 +17,8 @@ declare global {
       rpc: (method: string, params?: unknown) => Promise<unknown>;
       /** 拖进来的文件在磁盘上的路径。Electron 32+ 拿不到 File.path 了 */
       pathForFile: (file: File) => string | null;
-      reschedule: () => Promise<unknown>;
+      /** 改完要主进程重新应用一次的设置（排程 / 文件监听 / 老板键）都叫这一声 */
+      applyLiveSettings: () => Promise<unknown>;
       /** 返回取消订阅的函数 */
       onScanDone: (cb: (d: ScanDone) => void) => () => void;
       onScanProgress: (cb: (p: ScanProgress) => void) => () => void;
