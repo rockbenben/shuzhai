@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { rpc } from './rpc.ts';
 // 哪匹书衣、题签多大字——判据连同它们的算式都在那儿，那边测得到（`cover-art.test.ts`）
-import { 书衣色, 字号, 封面文字 } from './cover-art.ts';
+import { 书衣色, 字号, 题签列, 封面文字 } from './cover-art.ts';
 
 interface Props {
   bookId: number;
@@ -61,9 +61,12 @@ export function Cover({ bookId, title, version = 0, width, hasCover }: Props) {
    * 哪匹布、题签多大字。原来整块是内联样式，二十来行样式对象里混着三条判据。
    *
    * ⚠️ `cover-ph` 这个类名**走查要用**：这块里的字是**书名**，也就是用户自己的
-   * 数据，`audit.mjs` 的「最后一行只剩一个字」必须跳过它（书名折成
-   * 「正在连载的」/「书」我们改不了，也不该改）。书架上的那份被 `.book-art`
-   * 圈住了，但编辑弹窗顶上那个小预览不在里面——实测因此每个分辨率还剩 2 条报不掉的。
+   * 数据，`audit.mjs` 的「最后一行只剩一个字」必须跳过它——横排里书名怎么折由
+   * 内容决定，我们改不了。竖排那一侧不一样：**断列现在是我们算的**
+   * （`cover-art.ts` 的 `题签列`，匀开、不许甩出只剩一个字的孤列），
+   * 所以那条判据在竖排里量成了真问题，用 `cover-art.test.ts` 钉住。
+   * 书架上的那份被 `.book-art` 圈住了，但编辑弹窗顶上那个小预览不在里面——
+   * 实测因此每个分辨率还剩 2 条报不掉的。
    *
    * **不挂 `title` 属性**：书名就写在封面正下方，重复一遍没有新信息，
    * 而且会盖住外层 `.book-art` 那个真正有用的 title（短评）。
@@ -72,10 +75,17 @@ export function Cover({ bookId, title, version = 0, width, hasCover }: Props) {
     <div className="cover-ph" style={{ ...box, background: 书衣色(title) }}>
       <div className="cover-title">
         {/* 超长书名在这儿就截掉（`封面文字`），不留给 CSS 去裁——
-            多列竖排溢出是**块方向**的，裁掉的是最左边那一整列，看不出是被裁的 */}
-        <span style={{ fontSize: `${字号([...title].length)}cqw` }}>
-          {封面文字(title)}
-        </span>
+            多列竖排溢出是**块方向**的，裁掉的是最左边那一整列，看不出是被裁的。
+            列与列之间匀开由 `题签列` 定，浏览器不再参与折列（每列 `nowrap`） */}
+        {题签列(title)?.map((列, i) => (
+          <span key={i} style={{ fontSize: `${字号([...title].length)}cqw` }}>{列}</span>
+        )) ?? (
+          /* 带拉丁 / 数字的书名：断点交回浏览器（理由写在 `题签列` 顶上那段）。
+              这一支就是旧行为，一个字没改 */
+          <span className="cover-flow" style={{ fontSize: `${字号([...title].length)}cqw` }}>
+            {封面文字(title)}
+          </span>
+        )}
       </div>
     </div>
   );
