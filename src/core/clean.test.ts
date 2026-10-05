@@ -291,3 +291,91 @@ test('正文里的「<系统>」不许被当成 HTML', () => {
   assert.ok(out.includes('<系统>'), out);
   assert.ok(out.includes('<主线任务>'), out);
 });
+
+// ── 防盗乱码里的「伪标签」不许吃正文 ──
+// 两条 HTML 规则的判据：标签名要整词（`\b` 在汉字前也算边界，挡不住 `<p聣筫…`），
+// 而且不许跨过换行去找那个 `>`。判据形状来自一批同类改动，实测语料里
+// 那两种写法都真的吃掉过整段正文（单行 30 行 / 跨行 1916 行）。
+
+test('乱码碎片里的「<p聣筫…」不是标签，同行后面的正文要活着', () => {
+  const on = PURIFY_RULES.filter((r) => r.enabled);
+  const 乱码 = '購婲N<p聣筫b椃儣_qQ茓哊Mb颯錘0GYLNu 中间的重要正文。后面 O\U^> 号仍在同一行';
+  assert.equal(cleanText(乱码, on).trim(), 乱码.trim(), '伪标签把同行的正文一起吃掉了');
+});
+
+test('没有闭合的 <p 碎片不许跨过换行吞掉整段', () => {
+  const on = PURIFY_RULES.filter((r) => r.enabled);
+  // 三处讲究，少一处这条判据就测不到：
+  //   - 首尾两行要够长，否则整章缩水过四成会被 `MAX_SHRINK` 兜住，把失效掩盖成「全绿」；
+  //   - 碎片到那个 `>` 之间要**短于限长**，否则跨行这条路根本没被走到；
+  //   - 被吞的必须是中间那一行。
+  const 长 = '他把手掌贴在那块冰凉的铁板上，听见远处有人在喊他的名字，一声比一声远。'.repeat(8);
+  const src = ['前一行正文。' + 长, '碎片 <p 未闭合这里没有尖括号', '中间的重要正文。', '末尾这里有个 > 号。', '最后一段正文。' + 长].join('\n');
+  const out = cleanText(src, on);
+  assert.ok(out.includes('中间的重要正文。'), '跨行找 > 会把整段吞掉');
+  assert.ok(out.includes('最后一段正文。'));
+});
+
+test('带 URL 的 <img>（阅文每章注入的 AIGC 标识）在默认规则下一动不动', () => {
+  const img = '　　<img src="https://aigcc.yuewen.com/imgChapter/5702202403064801/33842841507593809/10636014/9ca9d117c4.webp">';
+  const on = [...BUILTIN_CLEAN_RULES, ...PURIFY_RULES].filter((r) => r.enabled);
+  const out = cleanText(img + '\n正文一段。', on);
+  assert.ok(out.includes('aigcc.yuewen.com'), '「含网址的整行」把 AIGC 标识整行删了');
+  assert.ok(out.includes('正文一段。'));
+  // 而想关掉插图的人有地方关：那条规则本来就是给他开的
+  const withImgDrop = on.concat(PURIFY_RULES.filter((r) => r.name === '正文里的图片').map((r) => ({ ...r, enabled: true })));
+  assert.ok(!cleanText(img, withImgDrop).includes('imgChapter'), '开了「正文里的图片」就该删掉');
+});
+
+test('「提醒您」这类台词词不在默认开的推广行里', () => {
+  // 这一条是给「补线索词表」那次踩的坑守门的：《魔装》的一句台词
+  // 「差点忘了，还有一件事得提醒您一下。」曾被「提醒您」这个线索整行删掉
+  const on = PURIFY_RULES.filter((r) => r.enabled);
+  const 台词 = '　　“差点忘了，还有一件事得提醒您一下。”他回头对摩利尔说：“法师小姐，您想知道我们正处在外域的第几层上么？”';
+  assert.equal(cleanText(台词, on).trim(), 台词.trim(), '推广行的线索词咬到了台词');
+  // 而页脚那句「版权归原作者所有」是这条扩充要收拾的
+  assert.equal(cleanText('2：原文的版权归原作者所有。', on).trim(), '');
+});
+
+test('站点引流与裁尾巴：默认关着，开起来才动', () => {
+  const off = PURIFY_RULES.filter((r) => !r.enabled && (r.name === '站点引流话术与群号行' || r.name === '行尾广告尾巴（只裁尾巴）'));
+  assert.equal(off.length, 2, '这两条得存在且默认关着');
+  const on = off.map((r) => ({ ...r, enabled: true }));
+
+  // 整行引流
+  assert.equal(cleanText('　　刺猬猫，飞卢，点娘，少年梦等全网小说资源每日更新，日更50+，从此告别书荒，', on).trim(), '');
+  assert.equal(cleanText('【千寻新小说中转群：814903798】', on).trim(), '');
+  // 裁尾巴：正文留着，广告没了
+  assert.equal(
+    cleanText('在这样的胡思乱想中，周辰慢慢的进入了沉睡。请牢记收藏,网址 最新最快无防盗免费找书加书可加qq群952868558', on).trim(),
+    '在这样的胡思乱想中，周辰慢慢的进入了沉睡。',
+  );
+  // 广告插在句中、后面还有正文——一裁就把后面那段带走了，所以整行不动
+  const 句中 = '叶枫目前的论坛进行的是开放式注册，他怎么也想不到第一次根据电脑IP最快更新请浏览器输入-www.XBYUAN.COM-到新笔趣阁进行查看又过了两个小时，做好饭的叶枫不放心。';
+  assert.ok(cleanText(句中, on).includes('又过了两个小时'), '裁尾巴吃掉了广告后面的正文');
+  // 作者自己写的加群话术：不在「整行引流」的线索里（那条只认站点话术与「群+号码」的形状）
+  const 作者话 = '　　寻呼机精贵，配条百来块的防盗链不应该么？';
+  assert.ok(cleanText(作者话, on).includes('寻呼机精贵'), '「防盗」这类正文词不该进线索表');
+
+  // 裁点只能落在句末标点之后：短对话行也裁得干净，不会留下半截广告引子
+  const tailOnly = PURIFY_RULES.filter((r) => r.name === '行尾广告尾巴（只裁尾巴）').map((r) => ({ ...r, enabled: true }));
+  assert.equal(cleanText('“好。”请牢记收藏,网址 最新最快无防盗', tailOnly), '“好。”');
+  assert.ok(cleanText('在这样的胡思乱想中，周辰睡了。请牢记收藏,网址 最新最快无防盗', tailOnly).includes('周辰睡了。'));
+  // 广告挂在句中、前后都没有句末标点收口——整行不动
+  const 无收口 = '他正要出门请牢记收藏,网址 最新最快无防盗免费找书';
+  assert.equal(cleanText(无收口, tailOnly), 无收口, '裁不出干净的裁点就别动这一行');
+});
+
+test('正文成句之后才出现「本书由…整理」——整行不许跟着没了', () => {
+  // 三条整行删的规则都要求「线索前面那一段不含句号」：广告引子里没有句号，
+  // 有句号说明前面是成句正文，那种行最多裁尾巴，不能整行删
+  const on = PURIFY_RULES.filter((r) => r.enabled);
+  const 混排 = '　　“我走了。”本书由【灵梦】整理，文本仅供试读！';
+  assert.ok(cleanText(混排, on).includes('我走了'), '整行删吃掉了成句正文');
+});
+
+test('裁尾巴的尾巴里不许有句末标点——那是正文跟在广告后面', () => {
+  const tailOnly = PURIFY_RULES.filter((r) => r.name === '行尾广告尾巴（只裁尾巴）').map((r) => ({ ...r, enabled: true }));
+  const 广告后还有正文 = '他睡了。请牢记收藏。后来他又醒了一次，把门带上。';
+  assert.equal(cleanText(广告后还有正文, tailOnly), 广告后还有正文, '广告后面那段正文被裁掉了');
+});
