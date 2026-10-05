@@ -15,6 +15,12 @@ export interface Line {
   text: string;
   /** 行首在原文件中的字节偏移 */
   byteOffset: number;
+  /**
+   * 这一行**长得像在标题位上**：顶格，或前一行是空行。
+   * 只有 `matchLines` 会填它（它才看得见原始行的缩进和空行），别的构造点留空=未知。
+   * 「句子样命中」那条判据拿它当豁免——见 `dropProseHits`。
+   */
+  headingShape?: boolean;
 }
 
 export interface Chapter {
@@ -599,21 +605,30 @@ function headMarkerOf(text: string): string | null {
  * 3 条命中，代价是《无限群芳谱》那条「第001节 不是正文，而是通知。」——作者把
  * 一则通知重新编号、夹在中间，那是真章。三条换一条不值。
  *
- * 卷那一边靠的是「整批作废」那一支：全库有 295 本书的卷名**全部**是正文句
- * （《人皇纪》2428 章顶着「第二部分就是王冲自己主持考试，是针对所有止戈院成员的。」），
- * 一处真卷名都不是——这种书的结构由章规则撑着，卷标记只是撞上来的一句正文，
- * 整批作废正好把它清掉。混在真卷名之间的那 157 条句子样卷名分不开（同号同字），
- * 留着只是标签难看，不会把目录切坏。**知道，不动。**
+ * **`headingShape` 那道豁免管的是「宁可漏切，不吞看着像标题的行」**：
+ * 一行顶格、或前面是空行，就是排版上的标题位，不判成正文句。两种代价不对等——
+ * 假标题留在目录里只是一行噪声，真标题被吞掉是目录少一个入口，
+ * 而书签、划线、进度都锚在章上（铁律 3 那批重扫恢复不了的）。
+ * 214 本逐本双跑归因量到的形状：被这条判据去掉的 506 条抽样里 **506 条缩进、0 条顶格**，
+ * 而它没动的 1284 条里 98% 顶格、99% 前面是空行。代价小到可以忽略：
+ * 同这 214 本，净去掉的边界从 4046 条变成 4040 条（放回 6 条），
+ * 买的是「顶格或空行隔开的行永不被当正文吞掉」这条保证。
+ *
+ * 同一形状在**卷**上留了尾巴：全库有 157 个卷名其实是正文句
+ * （「第一部分，是明辉帝国的恭亲王黄毅，通过星核换取准圣出手……」），
+ * 但它们和这本书真正的卷标记同号同字，归属判据分不开，而绝对按句子过滤会伤到
+ * 「第一部，风起。」这种卷名——那是标签难看一点，不是把目录切坏。**知道，不动。**
  */
 function dropProseHits(hits: Line[]): Line[] {
+  const 正文句 = (h: Line) => looksLikeProseSentence(h.text) && !h.headingShape;
   let prose = 0;
-  for (const h of hits) if (looksLikeProseSentence(h.text)) prose++;
+  for (const h of hits) if (正文句(h)) prose++;
   if (prose === 0) return hits; // 快路径：绝大多数规则的命中全是标题样
   if (prose === hits.length) return []; // 整批都是正文句——这不是目录
 
   const tally = new Map<string, number>();
   for (const h of hits) {
-    if (looksLikeProseSentence(h.text)) continue;
+    if (正文句(h)) continue;
     const m = headMarkerOf(h.text);
     if (m) tally.set(m, (tally.get(m) ?? 0) + 1);
   }
@@ -629,15 +644,23 @@ function dropProseHits(hits: Line[]): Line[] {
   // 干净命中里一个「第N<标记>」都没有（全是 `1、标题` 那种）——判不出单位，原样交回
   if (!dominant) return hits;
 
-  return hits.filter((h) => !looksLikeProseSentence(h.text) || headMarkerOf(h.text) === dominant);
+  return hits.filter((h) => !正文句(h) || headMarkerOf(h.text) === dominant);
 }
 
 function matchLines(lines: Line[], rule: ParseRule): Line[] {
   const hits: Line[] = [];
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const t = line.text.trim().replace(MD_HEADING, '');
     if (t.length === 0 || t.length > MAX_TITLE_LEN) continue;
-    if (rule.pattern.test(t)) hits.push({ text: t, byteOffset: line.byteOffset });
+    if (!rule.pattern.test(t)) continue;
+    /*
+     * 排版上的标题位：这一行**顶格**（正文段落以「　　」起头），或者它**前面是空行**。
+     * 原始行的样子只有这里看得到——`t` 已经 trim 过了，判形状必须拿 `line.text` 本身。
+     */
+    const 顶格 = !/^[ \t　]/.test(line.text);
+    const 前面空 = i === 0 || lines[i - 1].text.trim() === '';
+    hits.push({ text: t, byteOffset: line.byteOffset, headingShape: 顶格 || 前面空 });
   }
   return rule.refine ? rule.refine(dropProseHits(hits)) : dropProseHits(hits);
 }
