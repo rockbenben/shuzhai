@@ -683,3 +683,145 @@ test('连着一大串碎片：并到 500 字就收口，不是全并成一块', 
   for (const c of r.chapters) { assert.equal(c.offset, 走到); 走到 = c.offset + c.length; }
   assert.equal(走到, buf.length, '章节没盖满整个文件');
 });
+
+// ── 「第N<标记>」的句子样命中：判的是标记归属，不是句子本身 ──
+// 形状取自真实库：篮球竞技文把比赛进程写成正文，独占一行、还带递增序号，
+// 全库这类假章 8521 条；而《殖装》《情与血》那批书的章节单位**就是**「第N节」。
+
+/** 一本「章为单位、中间夹着比赛进程句」的竞技文 */
+function 竞技文(): Buffer {
+  const 章 = (n: number, 句子: string[]) => [`第${n}章 比赛开始`, ...句子.map((s) => s), ].join('\n');
+  const 正文 = '他运球过半场，抬手就是一个三分。'.repeat(60);
+  const lines: string[] = [];
+  for (let i = 1; i <= 12; i++) {
+    lines.push(`第${i}章 第${i}节录像`);
+    lines.push(正文);
+    if (i < 12) {
+      // 每章末尾都有几句「第N节…」独占一行——它们之间还递增，光靠序号链分不出来
+      lines.push(`第一节打完，两队打成${20 + i}平。`);
+      lines.push(正文);
+      lines.push(`第二节，双方都换上了替补阵容。`);
+      lines.push(正文);
+    }
+  }
+  return Buffer.from(lines.join('\n') + '\n', 'utf8');
+}
+
+test('章为单位的书里，「第一节打完，两队打成28平。」不再当章节边界', () => {
+  const r = parseChapters(竞技文(), 'utf-8', BUILTIN_RULES);
+  assert.equal(r.ruleName, 'standard');
+  assert.equal(r.chapters.length, 12, '22 处比赛进程句不该切成章');
+  assert.ok(!r.chapters.some((c) => c.title.includes('打完')), '假标题不该出现在目录里');
+});
+
+test('但「节」是这本书章节单位时，句子样的标题一条都不许丢', () => {
+  // 《殖装》形状：1198 章叫「第N节 短语」，其中几条自带逗号句号
+  const 正文 = '他把手按在舱门上，金属的凉意顺着掌心爬上来。'.repeat(60);
+  const lines: string[] = [];
+  for (let i = 1; i <= 30; i++) {
+    lines.push(i % 10 === 0 ? `第${i}节 喝一杯吧，放松下。` : `第${i}节 出发，莫苏克里克`);
+    lines.push(正文);
+  }
+  const r = parseChapters(new TextEncoder().encode(lines.join('\n')), 'utf-8', BUILTIN_RULES);
+  assert.equal(r.chapters.length, 30, '主导标记就是「节」，那三条带句号的也是它自己的真标题');
+  assert.ok(r.chapters.some((c) => c.title === '第10节 喝一杯吧，放松下。'), '真标题被吞了');
+});
+
+test('「卷号 + 章号 + 长标题」不算正文句', () => {
+  const 正文 = '他把地图摊在膝上，就着月光辨认等高线。'.repeat(60);
+  const lines: string[] = [];
+  for (let i = 1; i <= 10; i++) {
+    lines.push(`第三卷 异界发家 第${i * 7}章 其实黑客就是偷萝卜，防御就是打地鼠。`);
+    lines.push(正文);
+  }
+  const r = parseChapters(new TextEncoder().encode(lines.join('\n')), 'utf-8', BUILTIN_RULES);
+  assert.equal(r.chapters.length, 10, '行里有「第N章」，行首那个「卷」不能判它成正文');
+});
+
+test('卷那一边同样只按归属判：外来的句子样标记进不了目录，同单位的不裁', () => {
+  const 正文 = '银幕亮起来之前，观众已经在下面吵成一片。'.repeat(60);
+  const lines: string[] = [];
+  for (let i = 1; i <= 10; i++) {
+    lines.push(`第${i}卷 开拍`);
+    lines.push(正文);
+    if (i === 3) {
+      // 「部」不是这本书的卷单位（它的卷全用「卷」）——这一句是正文
+      lines.push('第二部《办公室风情》的票房表现，丝毫都不比第一部差，甚至表现得还更好。');
+      lines.push(正文);
+    }
+  }
+  const r = parseChapters(new TextEncoder().encode(lines.join('\n')), 'utf-8', BUILTIN_RULES);
+  const volumes = new Set<string>(r.chapters.map((c) => c.volume).filter((v): v is string => !!v));
+  assert.ok(![...volumes].some((v) => v.startsWith('第二部《')), '外来标记的正文句不该被当卷标记');
+  assert.equal(r.chapters.length, 10);
+
+  // 反向：一本书的卷标记**全部**是句子样时，这一批整个作废（`dropProseHits` 那条）。
+  // 真实库上量过：295 本书的卷名全是正文句（《人皇纪》2428 章顶着
+  // 「第二部分就是王冲自己主持考试，是针对所有止戈院成员的。」这一个卷名），
+  // 而它们都有真章结构——「整批都是句子」正是这种噪声的形状。
+  // 代价是一本来就用「第一部，风起。」这种句子里给卷命名的书会退回机械分段，
+  // 库里没有一本（按这条判据全库数过），而「宁可整本一章，也不能乱切」本来就立在这里。
+  const 按部 = ['第一部，风起。', 正文, '第二部，云涌。', 正文, '第三部，归根。', 正文].join('\n');
+  const r2 = parseChapters(Buffer.from(按部, 'utf8'), 'utf-8', BUILTIN_RULES);
+  assert.equal(r2.recognized, false, '整批都是句子的命中不该成为这本书的结构');
+});
+
+test('一批命中全是正文句时，这条规则整条作废', () => {
+  // 全书只有「第N节…」这一种行，且每一条都带逗号句号——判不出这本书的章节单位。
+  // 不许它凭命中数赢过真正的章规则：那会把一本好好的书按比赛进程切碎
+  const 正文 = '哨声一响，双方落位。'.repeat(60);
+  const lines: string[] = [];
+  for (let i = 1; i <= 12; i++) {
+    lines.push(`第${(i % 4) + 1}节打完，两队打成${20 + i}平。`);
+    lines.push(正文);
+  }
+  const r = parseChapters(new TextEncoder().encode(lines.join('\n')), 'utf-8', BUILTIN_RULES);
+  assert.equal(r.recognized, false, '全是正文句的命中集不该被当成目录');
+});
+
+test('但同一批句子夹在真章之间时，真章一条不少、句子一条不进', () => {
+  const r = parseChapters(竞技文(), 'utf-8', BUILTIN_RULES);
+  assert.equal(r.ruleName, 'standard');
+  assert.equal(r.chapters.length, 12);
+  assert.ok(r.chapters.every((c) => /^第\d+章/.test(c.title)), '目录里混进了比赛进程句');
+});
+
+test('只有句号、句中没有逗号的，不许判成正文句', () => {
+  // 逗号那一半是刹车，不是精度。全库量过：撤掉它只多判掉 758 条正文句，
+  // 但代价是整条规则的选择跟着翻——《大时代从1983开始》1810 章的
+  // `standard` 命中被削掉一批后，下载站分页行的 `split-read` 反而赢了，
+  // 目录整个换成另一套。所以「第N节天梯。」这种要留下来当章。
+  const 正文 = '屏幕上的字一行行滚过去，他一个字都没看进去。'.repeat(60);
+  const lines: string[] = [];
+  for (let i = 1; i <= 14; i++) {
+    lines.push(`第${i}章 起`);
+    lines.push(正文);
+    if (i % 4 === 0) {
+      lines.push(`第${i}节天梯。`);
+      lines.push(正文);
+    }
+  }
+  const r = parseChapters(Buffer.from(lines.join('\n'), 'utf8'), 'utf-8', BUILTIN_RULES);
+  assert.equal(r.ruleName, 'standard');
+  assert.ok(r.chapters.some((c) => c.title === '第4节天梯。'), '没有逗号的句号收尾行不许被吞');
+});
+
+test('章节单位取的是最多的那组标记，不是最少的', () => {
+  // 这本篮球文里「节」既有干净的短行（`第1节 天梯。`，没有逗号），也有整段比赛进程。
+  // 单位是章（12 条）而不是节（2 条干净）——反过来取最小的那组，句子就全留下了
+  const 正文 = '他弯腰系鞋带，场上已经在报阵容了。'.repeat(60);
+  const lines: string[] = [];
+  for (let i = 1; i <= 12; i++) {
+    lines.push(`第${i}章 首发`);
+    lines.push(正文);
+    if (i <= 2) {
+      lines.push(`第${i}节 天梯。`);
+      lines.push(正文);
+    }
+    lines.push(`第${i}节打完，两队打成${20 + i}平，教练叫了暂停。`);
+    lines.push(正文);
+  }
+  const r = parseChapters(Buffer.from(lines.join('\n'), 'utf8'), 'utf-8', BUILTIN_RULES);
+  assert.equal(r.chapters.filter((c) => c.title.includes('打完')).length, 0, '句子样的「第N节…」一条都不该留下');
+  assert.equal(r.chapters.length, 14, '章 12 条 + 干净短节 2 条');
+});

@@ -532,6 +532,106 @@ export function splitLines(buf: Uint8Array, encoding: Encoding): Line[] {
  */
 export const MD_HEADING = /^#{1,6}[ \t　]*/;
 
+/**
+ * 「第N<结构标记>」的行首标记。收录本文件所有规则用到的那几种标记，
+ * 不收别的字——判据只管「这一行的编号单位是不是这本书的章节单位」。
+ */
+const HEAD_MARKER = new RegExp(`^第\\s*${NUM}+\\s*([章节節回话話幕卷集部篇折段页辑])`, 'u');
+
+/**
+ * 整行里出现过「第N章」。`第三卷 异界发家 第70章 其实黑客就是偷萝卜，防御就是打地鼠。`
+ * 是「卷号 + 章号 + 长标题」的写法，行首的「卷」不能当它是正文句。
+ */
+const CHAPTER_MARK_ANYWHERE = new RegExp(`第\\s*${NUM}+\\s*[章節]`, 'u');
+
+/**
+ * 「这句话是正文句，不是章节标题」。三条同时成立才算：
+ *
+ *   1. 行首是「第N<标记>」，而那个标记**不是**章（章标记的标题不会长成句子）；
+ *   2. 以句号收尾，而且**句号之前**还有一个逗号——真标题里的逗号是并列短语
+ *      （`第九十六章 这世上，没有无缘无故的恨！`），分句分隔的逗号才是句子；
+ *   3. 整行没有「第N章」这种章标记（见 `CHAPTER_MARK_ANYWHERE`）。
+ *
+ * 真实库上量出来的形状：篮球竞技文把比赛进程写成正文，
+ * 「第一节打完，两队打成28平。」这样的句子独占一行、还带递增的序号，
+ * 而 `standard` 认「第N节」、`mu` 认「第N幕」——光靠正则和打分都分不开。
+ * 全库这一类有 8500 余处（《球霸的黑科技系统》667 处 / 1701 章）。
+ *
+ * ⚠️ **单看这一条不能用来删命中**，必须配 `dropProseHits` 那两条一起判：
+ * 有些书的章节单位**就是**「节」——《殖装》1199 章里有 1198 章叫「第226节 来吧，我们捕猎。」，
+ * 逐条按句子样丢掉会把它的目录吃掉六章。
+ */
+function looksLikeProseSentence(text: string): boolean {
+  if (!/[。.]$/.test(text) || !/[，,]/.test(text.slice(0, -1))) return false;
+  const m = HEAD_MARKER.exec(text);
+  if (!m || m[1] === '章' || m[1] === '節') return false;
+  return !CHAPTER_MARK_ANYWHERE.test(text);
+}
+
+/** 行首的结构标记；不是「第N<标记>」开头的行返回 null（`1、标题`、`【一】`、纯书名那些） */
+function headMarkerOf(text: string): string | null {
+  return HEAD_MARKER.exec(text)?.[1] ?? null;
+}
+
+/**
+ * 把「不属于这本书章节单位」的句子样命中当回正文。
+ *
+ * 判据是**归属**，不是句子本身：先只看那些不像句子的命中，数它们行首的标记，
+ * 最多的那一个就是这本书的章节单位；句子样命中的标记不是它，才是正文里的一句话。
+ * 于是同一套句子判据在两本书记得完全相反：
+ *
+ *   - 《球霸的黑科技系统》干净的命中全是「第N章」（961 条），句子样的 667 条标记是
+ *     「节」→ 单位是章，那些「第N节…」全是正文，删掉；
+ *   - 《殖装》干净的命中是 1192 条「第N节」→ 单位就是节，它那 6 条
+ *     「第226节 来吧，我们捕猎。」是真标题，一条都不动。
+ *
+ * ⚠️ **数单位的时候必须把句子样命中排除在外。** 第一版数的是全部命中，
+ * 结果测试当场抓到：一本 12 章的竞技文里 22 行比赛进程，
+ * 「节」以 22 > 12 把自己投成了这本书的单位，一条都没删掉。
+ * 正文比目录多，正是这类书的样子。
+ *
+ * 一批命中**全部**是句子样（这本书只有「第N节…」这一种行）时整条规则作废：
+ * 真实库里没有一本书的目录整个由句子样的标题组成（全库数过，被拒占比最高的一本
+ * 也只有 39%，还是篮球文的比赛进程），而 `split-read` 这类宽松规则一旦把正文句子
+ * 包圆，它会凭命中数赢过真正的章规则——一本好好的书被按正文切碎。
+ *
+ * ⚠️ **还加过第三条「同标记但编号回头」，量完撤掉了。** 它对章规则全库只多删
+ * 3 条命中，代价是《无限群芳谱》那条「第001节 不是正文，而是通知。」——作者把
+ * 一则通知重新编号、夹在中间，那是真章。三条换一条不值。
+ *
+ * 卷那一边靠的是「整批作废」那一支：全库有 295 本书的卷名**全部**是正文句
+ * （《人皇纪》2428 章顶着「第二部分就是王冲自己主持考试，是针对所有止戈院成员的。」），
+ * 一处真卷名都不是——这种书的结构由章规则撑着，卷标记只是撞上来的一句正文，
+ * 整批作废正好把它清掉。混在真卷名之间的那 157 条句子样卷名分不开（同号同字），
+ * 留着只是标签难看，不会把目录切坏。**知道，不动。**
+ */
+function dropProseHits(hits: Line[]): Line[] {
+  let prose = 0;
+  for (const h of hits) if (looksLikeProseSentence(h.text)) prose++;
+  if (prose === 0) return hits; // 快路径：绝大多数规则的命中全是标题样
+  if (prose === hits.length) return []; // 整批都是正文句——这不是目录
+
+  const tally = new Map<string, number>();
+  for (const h of hits) {
+    if (looksLikeProseSentence(h.text)) continue;
+    const m = headMarkerOf(h.text);
+    if (m) tally.set(m, (tally.get(m) ?? 0) + 1);
+  }
+
+  let dominant = '';
+  let max = 0;
+  for (const [m, n] of tally) {
+    if (n > max) {
+      dominant = m;
+      max = n;
+    }
+  }
+  // 干净命中里一个「第N<标记>」都没有（全是 `1、标题` 那种）——判不出单位，原样交回
+  if (!dominant) return hits;
+
+  return hits.filter((h) => !looksLikeProseSentence(h.text) || headMarkerOf(h.text) === dominant);
+}
+
 function matchLines(lines: Line[], rule: ParseRule): Line[] {
   const hits: Line[] = [];
   for (const line of lines) {
@@ -539,7 +639,7 @@ function matchLines(lines: Line[], rule: ParseRule): Line[] {
     if (t.length === 0 || t.length > MAX_TITLE_LEN) continue;
     if (rule.pattern.test(t)) hits.push({ text: t, byteOffset: line.byteOffset });
   }
-  return rule.refine ? rule.refine(hits) : hits;
+  return rule.refine ? rule.refine(dropProseHits(hits)) : dropProseHits(hits);
 }
 
 /**
