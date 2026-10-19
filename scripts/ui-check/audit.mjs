@@ -1473,7 +1473,8 @@ await ev(`(() => {
        elementFromPoint 返回 null，两条断言一起变成 false。
        第一版就是这么红的，看起来像判据坏了，其实是诱饵没在屏幕上。 */
     /* ⚠️ 这个 gap 原来是 8px，改成 12px 是因为新加的「挨着的小键」那条
-       会把 40x40 / 缝 8px 判成挤（最小边 40 不算小，但缝 8 > 6 才放得过）。
+       会把 40x40 / 缝 8px 判成挤（最小边 40 不算小，缝 8 也过线——那条的线
+       画在 4px，缝 8 > 4 放得过）。
        这个夹具量的是「浮层盖不盖键」，不是间距——别让它被不相干的判据报进来。 */
     + '<div class="reader-rail" style="position:fixed;left:0;top:0;display:flex;flex-direction:row;gap:12px;z-index:99999">'
     + '<button style="all:unset;display:block;width:40px;height:40px;background:#ccc">目录</button>'
