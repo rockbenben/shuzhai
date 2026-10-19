@@ -654,7 +654,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             {rereadAsk && (
               <div className="card" style={{ marginTop: '.5rem' }}>
                 <div style={{ fontSize: '0.85rem' }}>
-                  这本书标着「已读完」，而库里还记着读到第 {reading.chapterIdx + 1} 章。改成「在读」是哪个意思？
+                  这本书标着「{labelOf(READING_STATUS, 'finished')}」，而库里还记着读到第 {reading.chapterIdx + 1} 章。改成「{labelOf(READING_STATUS, 'reading')}」是哪个意思？
                 </div>
                 <div className="row" style={{ gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
                   <button
