@@ -10,7 +10,10 @@
 
 `AGENTS.md` 的「还没做的」清单列了三项：应用图标、封面、划线/笔记。**核实后其中两项是过时的**：
 
-- **应用图标**已经接上了——`build/icon.png` 存在（8.8KB），`electron-builder.yml` 的 `buildResources: build` 指过去了。
+- **应用图标**已经接上了——母版在 `build/brand/master-1024.png`，`icons.mjs` 生成
+  `build/icon.ico` 交给 `electron-builder.yml` 的 `buildResources: build`。
+  ⚠️ **2026-10-19 更新**：`build/` 现在只留 `icon.ico` 一个，`icon.png` / `icon.icns`
+  已删（本项目只打 Windows 包，那两个分别是 Linux 和 macOS 用的）。
   （只核实了配置，没有重新打包验证成品图标真的换掉了默认图标；清单该改成「待验证」而不是「没做」。）
 - **划线/笔记**核心和界面都有：`highlight.ts` 六个函数、六个 rpc、阅读器里选中划线／点击取消／写笔记全通。真正缺的是**回看**——`highlight.notes` 这个 rpc 写好了但界面上没有任何地方调它，划完的线找不回来。而回看面板恰恰是 spec §5.1 明文要求的（「可在笔记面板中汇总查看」），所以这不是新需求，是补欠账。
 - **封面**核心和 rpc 都有（`cover.ts` + `cover.get/set/clear`），`BookEditor` 里能手动选图。缺的是**批量来源**。
