@@ -210,8 +210,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
               * （书签划线都按位置去重）。
               */}
             <p className="muted" style={{ margin: '0.3rem 0', fontSize: '0.82rem' }}>
-              这些书的进度还在备份文件里，但本地找不到对应的 txt——
-              多半是文件还没扫进来。<strong>先把书库文件夹加进来扫描一次，再恢复一遍</strong>，这些就认得回来了；重复恢复不会让书签划线翻倍。
+              这些书的进度还在备份文件里，但本地找不到对应的 txt——多半是文件还没扫进来。<strong>先把书库文件夹加进来扫描一次，再恢复一遍</strong>，这些就认得回来了；重复恢复不会让书签划线翻倍。
               <br />
               文件确实不在这台机器上的话，那几本就先留在备份里——
               <strong>程序不会凭空建条目</strong>，那样只会得到一堆点开就报错的幽灵。

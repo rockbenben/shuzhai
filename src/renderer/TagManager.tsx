@@ -111,8 +111,7 @@ export function TagManager({ onClose }: { onClose: (changed: boolean) => void })
         )}
         {tags.length > 0 && (
           <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
-            共 {tags.length} 个标签。<strong>改成一个已经存在的名字就是合并</strong>——
-            两个标签的书会并到一起，两边都打过的书只算一次。
+            共 {tags.length} 个标签。<strong>改成一个已经存在的名字就是合并</strong>——两个标签的书会并到一起，两边都打过的书只算一次。
           </p>
         )}
 

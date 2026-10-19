@@ -92,8 +92,7 @@ export function ExtractDialog({ bookIds, onClose }: Props) {
         {/* **没有要改的时候，这段「逐行核对」是句空话**——下面根本没有行 */}
         {changedCount > 0 && (
           <p className="muted" style={{ margin: '0 0 0.8rem', fontSize: '0.85rem' }}>
-            这是<strong>猜测</strong>，不是事实。下面逐行核对，不对的取消勾选——
-            应用后会覆盖现有的书名和作者。
+            这是<strong>猜测</strong>，不是事实。下面逐行核对，不对的取消勾选——应用后会覆盖现有的书名和作者。
           </p>
         )}
 

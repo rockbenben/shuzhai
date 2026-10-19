@@ -2112,8 +2112,7 @@ export function App() {
               */}
             {report.skipped.unreadableDir ? (
               <div className="muted" style={{ fontSize: '0.82rem' }}>
-                有文件夹读不到，所以这次一本都没标成「文件不见了」——
-                多半是移动硬盘没插、网络盘断了，或者权限被改了。接回去再扫一次就行。
+                有文件夹读不到，所以这次一本都没标成「文件不见了」——多半是移动硬盘没插、网络盘断了，或者权限被改了。接回去再扫一次就行。
               </div>
             ) : null}
             {/*
@@ -2324,8 +2323,7 @@ export function App() {
               {splitMsg && <span style={{ color: 'var(--accent)', fontSize: '0.8rem', marginLeft: '.5rem' }}>{splitMsg}</span>}
               <div className="muted" style={{ fontSize: '0.78rem', marginTop: '.3rem' }}>
                 只重算章节、不动磁盘上的文件。阅读进度、书签、划线都会按标题跟着搬；
-                <strong>标题在新目录里找不到时只能按序号落位，可能对不上</strong>——
-                划线还会在阅读器里如实标出来。
+                <strong>标题在新目录里找不到时只能按序号落位，可能对不上</strong>——划线还会在阅读器里如实标出来。
               </div>
             </div>
         )}

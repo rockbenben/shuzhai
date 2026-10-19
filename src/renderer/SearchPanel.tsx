@@ -170,8 +170,7 @@ export function SearchPanel({ onOpen, onClose }: Props) {
         <h2>全库搜索</h2>
         <p className="muted" style={{ margin: '0 0 0.7rem', fontSize: '0.85rem' }}>
           书名、作者、标签、<strong>你自己写的短评</strong>随时能搜。
-          <strong>要搜正文，先给那本书建索引</strong>——
-          按书建不是整库建：一本 500 章的书几秒，12000 章的要一分多钟。
+          <strong>要搜正文，先给那本书建索引</strong>——按书建不是整库建：一本 500 章的书几秒，12000 章的要一分多钟。
         </p>
         <div className="row">
           <input
