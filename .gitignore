@@ -1,6 +1,10 @@
 node_modules/
 dist/
 release/
+# 打包实测的验证副本：把 `npm run dist` 出来的包解开放在这儿，用来核对
+# 打进 exe 的是不是那套图标和内容（AGENTS.md「打包基线」那条）。
+# 9.4 MB 的构建产物，和 `release/` 一个理由：不是源码。
+release-verify/
 
 # 本机数据，不进版本库：库文件在 userData 下，不在仓库里，但别人可能软链过来
 *.db
@@ -25,6 +29,13 @@ docs/superpowers/
 # AI 工具在本机留的记忆目录（工作日志 + 项目长期约定），同 scratchpad/ 一个理由：
 # 是这台机器上的中间产物，不是项目文档。换台机器重来一遍也不该靠它。
 .workbuddy-ai/
+# 另一个 AI 工具的本机记忆目录，同上。
+.workbuddy/
+# ⚠️ **只忽略 `worktrees/`，不忽略整个 `.claude/`**：CLAUDE.md 写明
+# 「`.claude/` 下的 skill 与 slash 命令」是这个仓库可以放**项目内容**的地方
+# （换个 AI 工具照样成立的那部分归 AGENTS.md，这一部分归 Claude Code）。
+# 整个 `.claude/` 一起忽略，会把将来要提交的那几个文件悄悄埋掉。
+.claude/worktrees/
 .qoder*
 # Design QA 的打磨稿（design-preview/batchX.html）：现状 vs 改后的评审工作稿，
 # 审完就落地成代码提交，稿子本身留着只会让人去读一份和代码对不上的旧提案。
