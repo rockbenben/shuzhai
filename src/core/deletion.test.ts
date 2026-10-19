@@ -182,6 +182,31 @@ test('最后一个文件带着自建目录时，不许删', async () => {
   assert.match(check.reason!, /自己加的目录/, '理由要说的是真正那一样');
 });
 
+/*
+ * 同一份清单漏的**第五样**：繁简转换模式（`convert.book.<bookId>`，迁移 26）。
+ *
+ * 形状还是那个形状——一行按 id 命名的设置，没有外键，上面那串 count 一个都看不见。
+ * 可它比前两样更容易漏：**`off` 也会在库里留一行**（`setSetting` 写的是值，
+ * 不是「有没有这一行」），所以判据不能问「那行在不在」，得问「这个模式是不是
+ * 真的开着」——问错了就把早就改回「原文」的书也拦下来。
+ */
+test('最后一个文件带着繁简转换模式时，不许删；改回「原文」就放行', async () => {
+  const b1 = addBookWithAuthor('设了繁简的书', '某人');
+  const b2 = addBookWithAuthor('设了繁简的书', '某人');
+  const f1 = addFile(b1, '设了繁简的书.txt', 'r1', true);
+  addFile(b2, '设了繁简的书 副本.txt', 'r1', true);
+  db.prepare('insert into app_setting(key, value) values(?, ?)').run(`convert.book.${b1}`, 'to-traditional');
+
+  const check = await canDelete(db, f1);
+  assert.equal(check.ok, false, '用户给这本书选的繁简重扫恢复不了，不能当成「什么都没有」');
+  assert.match(check.reason!, /繁简/, '理由要说的是真正那一样');
+
+  // 改回「原文」：那行还在库里，但生效的模式是「原文」——没有用户输入了，该放行
+  db.prepare('update app_setting set value = ? where key = ?').run('off', `convert.book.${b1}`);
+  const 放行 = await canDelete(db, f1);
+  assert.equal(放行.ok, true, '改回「原文」之后就没有用户输入了，不该再拦');
+});
+
 test('最后一个文件带着标签或弃坑原因时，不许删', async () => {
   for (const [what, write] of [
     ['标签', (id: number) => {

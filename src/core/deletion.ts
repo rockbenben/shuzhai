@@ -27,6 +27,7 @@ import { basename, join } from 'node:path';
 import { ensurePrimary } from './primary.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import { mergeBooks, setPrimary, bookKey } from './versions.ts';
+import { bookConvertMode } from './convert.ts';
 
 
 /**
@@ -359,6 +360,17 @@ async function guardEmptyBook(
            (select count(*) from app_setting where key = ?) as viewerPos,
            -- **自建目录**（outline.<bookId>，迁移 24）。同上：也是一行按 id 命名的设置，
            -- 上面那几个 count 一个都看不见它
+           -- ⚠️ app_setting 里还有**第三行**按 id 命名的设置：
+           -- convert.book.<bookId>（这本书的繁简转换模式，迁移 26）。
+          -- **它也算「用户自己的东西」**（2026-10-19 补上的，之前漏了）：
+           -- 用户给这本书选的显示模式，重扫恢复不了（book.id 变了旧键就失效），
+           -- 而应用靠 convert.ts 的 bookConvertMode 取它——铁律 3 那句问话
+           -- （「谁在靠原来那个位置取数」）问的就是这个。
+           -- ⚠️ **它不在这条 SQL 里，用模块自己的 API 问**（见下面 has.push 那处）：
+           -- off 也会在库里留一行（setSetting 写的是值不是「有没有」），
+           -- 判「行在不在」会把早就改回「原文」的书也算成有数据。
+           -- 备份带走它、删书时由 db.ts 迁移 26 的触发器清掉——那两处说的是
+           -- 「它跟着书一起走」，不是「它可以丢」。
            (select count(*) from app_setting where key = ?) as outline`,
       )
       .get(f.book_id, f.book_id, f.book_id, f.book_id, f.book_id, f.book_id,
@@ -401,6 +413,10 @@ async function guardEmptyBook(
      */
     if (p.viewerPos) has.push('PDF / EPUB 读到哪一页');
     if (p.outline) has.push('你自己加的目录');
+    // 繁简转换模式（`convert.book.<bookId>`）：**用模块自己的 API 问**——
+    // `off` 也会在库里留一行（`setSetting` 写的是值），判「行在不在」
+    // 会把早就改回「原文」的书也算成有数据。
+    if (bookConvertMode(db, f.book_id) !== 'off') has.push('这本书的繁简转换设置');
 
     if (has.length) {
       return {

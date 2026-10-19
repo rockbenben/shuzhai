@@ -501,8 +501,16 @@ test('合并：keeper 自己有手填章数时，别被败方盖掉', () => {
  * 以后再加一种（比如按书存的字号），把前缀加进下面这张表。
  */
 test('按 book id 命名的设置，四处管书的地方都得表个态', () => {
-  /** 前缀 → 它是什么。加一种就往这儿加一行 */
-  const 按书存的设置 = [['viewer.', 'PDF / EPUB 读到第几页']];
+  /**
+   * 前缀 → 它是什么。**加一种就往这儿加一行**（2026-10-19 补了两行：
+   * `outline.` 和 `convert.book.`——它们跟 `viewer.` 同一形状，可这张表里
+   * 一直只有 `viewer.`，于是守卫自己就漏了两种）。
+   */
+  const 按书存的设置 = [
+    ['viewer.', 'PDF / EPUB 读到第几页'],
+    ['outline.', '用户自己加的目录'],
+    ['convert.book.', '这本书的繁简转换模式'],
+  ];
   const 四处 = ['backup.ts', 'deletion.ts', 'library.ts', 'versions.ts'];
 
   for (const [前缀, 是什么] of 按书存的设置) {

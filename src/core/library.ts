@@ -10,6 +10,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { PROBLEM_FILE_STATUS, TOUCHED_STATUS } from './labels.ts';
 // 格式那一档认哪些扩展名，只此一份（`book-format.ts` 一个依赖都不 import）
 import { BOOK_EXT } from './book-format.ts';
+import { bookConvertMode } from './convert.ts';
 
 export interface Category {
   id: number;
@@ -1647,6 +1648,18 @@ export function cleanupMissing(db: DatabaseSync, onlyBookIds?: number[]): Missin
  * 标签、阅读进度、评分/短评/弃坑原因，和两行按 id 命名的设置
  * （`viewer.<id>` 是 PDF/EPUB 读到第几页、`outline.<id>` 是自建目录）。
  *
+ * ⚠️ `app_setting` 里其实有**三行**按 id 命名的设置，第三行是
+ * `convert.book.<id>`（这本书的繁简转换模式，迁移 26）。
+ * **它现在也在这份清单里**（2026-10-19 补上的，之前漏了）：它是用户给这本书
+ * 选的显示模式，**重扫恢复不了**——`book.id` 变了旧键就失效；应用靠
+ * `convert.ts` 的 `bookConvertMode` 取它，这正是铁律 3 那句问话
+ * （「谁在靠原来那个位置取数」）问的那件事。
+ * ⚠️ **它用模块自己的 API 问，不走 SQL**：
+ * `off` 也会在库里留一行（`setSetting` 写的是值不是「有没有」），
+ * 问「那行在不在」会把早就改回「原文」的书也算成有数据。
+ * 备份带走它（`backup.ts` 的 `convertMode`）、删书时由 `db.ts` 迁移 26 的
+ * 触发器清掉——**那两处说的是「它跟着书一起走」，不是「它可以丢」**。
+ *
  * ⚠️ 这份每抄一份就漏一样（弃坑原因、标签、viewer.、outline. 各漏过一次，
  * 见上面 repairLibrary 那段表格和铁律 3）。`deletion.ts` 的 `guardEmptyBook`
  * 是**另一份**：它要逐条报出「你有哪几样」来拦删重复文件，而且不看 status——
@@ -1667,12 +1680,17 @@ export function bookHasUserData(db: DatabaseSync, bookId: number): boolean {
                 or chapter_idx > 0 or percent > 0 or last_read_at is not null
                 or rating is not null or comment is not null or drop_reason is not null)) as reading,
          exists(select 1 from app_setting where key = ?) as viewerPos,
-         exists(select 1 from app_setting where key = ?) as outline`,
+         exists(select 1 from app_setting where key = ?) as outline,
+         exists(select 1 from app_setting where key = ?) as convertMode`,
     )
     .get(
       bookId, bookId, bookId, bookId,
       `viewer.${bookId}`, `outline.${bookId}`,
     ) as Record<string, number>;
+  // 繁简转换模式（`convert.book.<id>`）**单独判**：它用模块自己的 API 问，
+  // 因为 `off` 也会在库里留一行（`setSetting` 写的是值不是「有没有」），
+  // 而「行在不在」会把用户早就改回「原文」的书也算成有数据。
+  if (bookConvertMode(db, bookId) !== 'off') return true;
   return Object.values(r).some((v) => v === 1);
 }
 

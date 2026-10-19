@@ -541,6 +541,27 @@ test('修复：手工添的书，弃坑原因 / 标签 / 想读都得留住', ()
   assert.equal(r.drop_reason, '第三卷开始注水，别看了');
 });
 
+/*
+ * ⚠ 繁简转换模式（`convert.book.<bookId>`，迁移 26）**也不在 `reading_state` 里**——
+ * 存的是 `app_setting` 里一行按 id 命名的设置，孤儿判据那串 `not exists` 看不见它。
+ * 跟 `viewer.<bookId>` 同一形状，可它**更容易漏**：`off` 也会在库里留一行
+ * （`setSetting` 写的是值，不是「有没有这一行」）——判据得问「这个模式是不是
+ * 真的开着」，问「那行在不在」会把早就改回「原文」的书也算成有数据。
+ */
+test('孤儿清理：只设了繁简转换的书不算孤儿；改回「原文」就还算', () => {
+  const 设了 = addBookNoFile('只设了繁简转换');
+  db.prepare('insert into app_setting(key, value) values(?, ?)').run(`convert.book.${设了}`, 'to-traditional');
+  const 改回原文 = addBookNoFile('改回原文的');
+  db.prepare('insert into app_setting(key, value) values(?, ?)').run(`convert.book.${改回原文}`, 'off');
+  const junk = addBookNoFile('真的什么都没有');
+
+  assert.equal(repairLibrary(db).orphanBooks, 2, '只该删「什么都没有」和「改回原文」那两条');
+  const left = (db.prepare('select id from book').all() as Array<{ id: number }>).map((x) => x.id);
+  assert.ok(left.includes(设了), '用户给这本书选的繁简重扫恢复不了，别当成「什么都没有」');
+  assert.ok(!left.includes(改回原文), '改回「原文」之后就没有用户输入了，不该护着');
+  assert.ok(!left.includes(junk), '真的什么都没有的那条要删掉——不然这条测试什么也没验');
+});
+
 test('修复：有文件却没有主版本的，挑字数最多的那个', () => {
   const id = addBookNoFile('没有主版本');
   const ins = db.prepare(
