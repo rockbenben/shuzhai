@@ -2610,8 +2610,24 @@ export function App() {
                     <span key={t.text} className="book-tag" title={t.title}>{t.text}</span>
                   ))}
                   {b.author ?? '佚名'}
-                  {章数 ? ` · ${章数} 章` : ''}
-                  {wan(b.word_count) && ` · ${wan(b.word_count)}`}
+                  {/*
+                    * 后头这几样各自**原子内联**：间隔号和它后面那件事绑成一格，
+                    * 折行只发生在两格之间。判据是「间隔号不许落在行尾」——
+                    * 中文排版的行首禁则（间隔号也不许起行，所以宁可跟着后一件走）。
+                    *
+                    * 原来它们是三段裸文本（作者 / ` · N 章` / ` · N 万字`），
+                    * 断点落在「`·` 和 `N` 之间那个空格」上，于是卡片上排成
+                    * 「烽火戏诸侯 · 45 章 ·」/「3 万字」——**行尾挂着一个点、
+                    * 末行只剩一个词**，看着像话没说完。
+                    * 走查那条「最后一行只剩一个字」量不到它：那条线画在 1.35em，
+                    * 而「3 万字」有三个字宽。
+                    *
+                    * 和 `.book-mark` / `.book-tag` 是同一个形状（那两样早就
+                    * 「随信息行一起折行、不被拆碎」），这里只是把同一份规矩
+                    * 补到剩下那几样事实小字上。放得下时一行不变（多数卡片）。
+                    */}
+                  {章数 ? <span className="book-fact"> · {章数} 章</span> : null}
+                  {wan(b.word_count) ? <span className="book-fact"> · {wan(b.word_count)}</span> : null}
                 </div>
                 {/*
                   * 读过的书多一行「读到哪 · 多久没碰了」。
@@ -2651,7 +2667,8 @@ export function App() {
                         ? '读完'
                         : formatOf(b.path) === 'catalog' ? null : `第 ${(b.chapter_idx ?? 0) + 1} 章`;
                       const 时 = readAt !== null ? relTime(readAt) : null;
-                      return <>{章}{时 !== null && (章 ? ` · ${时}` : 时)}</>;
+                      // 同上：间隔号跟着后头那件事走，不许落在行尾
+                      return <>{章}{时 !== null && (章 ? <span className="book-fact"> · {时}</span> : 时)}</>;
                     })()}
                   </div>
                 )}

@@ -866,9 +866,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
               if (cover.pausedReason) {
                 return (
                   <p className="muted" style={式}>
-                    {数}
-                    <span className="danger">
-                      　{cover.pausedReason}
+                    {数} · <span className="danger">
+                      {cover.pausedReason}
                       {cover.pausedAt && `（${relTime(cover.pausedAt)}暂停，稍后自动重试，恢复后接着跑）`}
                     </span>
                   </p>
