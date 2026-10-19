@@ -1,7 +1,4 @@
-# 干净克隆 + npm ci + 全量测试。**这个 workflow 从来没有真的跑过**——仓库还没有
-# 远程，是本地项目。等公开之后第一次 push 才会验证它，那次红了是预期内的，
-# 照着日志改就是（AGENTS.md 里「一条永远绿的断言等于没有断言」的同一个道理：
-# 一个从没跑过的 workflow 不算数）。
+# 干净克隆 + npm ci + 全量测试。
 #
 # ── 为什么只有 windows-latest ──
 #
@@ -70,7 +67,7 @@ jobs:
     timeout-minutes: 15
     # engines 里钉的是 >=24.0.0，而且不是随便写的：这个仓库靠 `.ts` 原生剥类型
     # 和 `node:sqlite` 两件只有 24 才默认开启的能力（AGENTS.md）。
-    # 不跑更高的 Current：Electron 自带的就是 Node 24 线（当前 44 = 24.19.0），跑一条别的线
+    # 不跑更高的 Current：Electron 自带的就是 Node 24 线，跑一条别的线
     # 得到的红跟这个应用实际运行的环境没关系。
     name: windows · node 24
 
