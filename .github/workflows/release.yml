@@ -1,4 +1,4 @@
-# 按 tag 出包：打 `v1.0.0` → 构建 → 传成一个**草稿** release。
+# 按 tag 出包：打 `v1.0.0` → 构建 → 直接发成一个**已发布**的 release。
 #
 # AGENTS.md 里一直写着「真要出包，等有 release 流程时按 tag 触发单开一个 workflow」，
 # 这就是那个 workflow。`ci.yml` 不出包也不该出包（那边专门有一节写为什么），
@@ -8,10 +8,11 @@
 # 没有 tag 时上传那几步自己跳过，不会误发。
 #
 # 每次发版仍然成立的两条：
-#   1. 出来的 release 是**草稿**（`draft: true`）。草稿不出现在 releases/latest 上、
-#      也不通知任何人——**先自己把那个 exe 下下来真跑一次**，再点 Publish。
-#      这一条不是客套：CI 打的包在你按下发布之前，没有任何人运行过它。
-#      （本地那条路至少每次都真的启动过 exe，换成 CI 就把这一步丢了，得自己补回来。）
+#   1. **release 由这条流水线直接发出去**（`draft: false`），发完 `releases/latest` 就指着它
+#      （`make_latest: true` 显式写死，理由见下面那处注释）。应用内更新器读的就是
+#      `releases/latest/download/latest.yml`——草稿上的东西它看不见。
+#      「先把那个 exe 下下来真跑一次」挪到**打 tag 之前**（本地跑）：它不再是流水线上的
+#      闸门，闸门由下面「四道闸门」那步守着。
 #   2. 打 tag 不触发 ci.yml，所以下面「四道闸门」那步不能省。发版顺序：
 #      先 push main 等 CI 绿再打 tag。v1.1.0 那次 main 的 CI 先抓到 stale-refs：
 #      被跟踪的 .md 引用了 .gitignore 里的 docs/superpowers 文件，本地有文件所以绿、
@@ -163,23 +164,34 @@ jobs:
       # 修复不用任何人动手就能拿到。
       #
       # ⚠️ **body 只放固定的下载说明和校验方法。**
-      # 当次更新说明在 Publish 之前让 AI 总结两个版本间的变化，贴到 body 开头。
-      # `generate_release_notes` 自动追加 commit 列表，给开发者看。
+      # 更新说明由 `generate_release_notes` 自动生成（commit 列表）：发布不再有草稿可改，
+      # 正文里也就没有人工段落了。
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
+          # 应用内更新要用的两样：latest.yml 写着「去哪儿下、下的是哪个版本」，
+          # blockmap 用来做增量下载。**少 latest.yml，更新器连「有没有新版」都问不出来**——
+          # 那个文件是 electron-builder 见到 publish 配置才生成的，别以为它一直在。
+          #
+          # ⚠️ **这几行注释必须写在 `files: |` 外面。** 块标量里的 `#` 行是**内容**，
+          # 不是注释：action-gh-release 把每一行都当 glob 模式去匹配，匹配不到就按
+          # `fail_on_unmatched_files` 把这一步打挂——release 根本建不出来。
           files: |
             release/shuzhai-${{ steps.ver.outputs.version }}-x64-setup.exe
             release/shuzhai-${{ steps.ver.outputs.version }}-x64.zip
             release/SHA256SUMS.txt
-            # 应用内更新要用的两样：latest.yml 写着「去哪儿下、下的是哪个版本」，
-            # blockmap 用来做增量下载。**少 latest.yml，更新器连「有没有新版」都问不出来**——
-            # 那个文件是 electron-builder 见到 publish 配置才生成的，别以为它一直在
             release/latest.yml
             release/shuzhai-${{ steps.ver.outputs.version }}-x64-setup.exe.blockmap
           fail_on_unmatched_files: true
-          draft: true
+          # **不再是草稿**：这一趟直接把 release 发出去，应用内更新器立刻就能看见它。
+          # 「先下下来真跑一次再点 Publish」挪到打 tag 之前（见文件头）。
+          draft: false
+          # 显式标成 latest：草稿转已发布时 GitHub **不会**重算这个指针——rclone-deck 上
+          # 撞过一次：release 已经是 `draft=false`、`prerelease=false`、`published_at` 也
+          # 填上了，`releases/latest` 却仍返回旧版本，端点 `releases/latest/download/latest.yml`
+          # 于是 404（旧 release 里没有那个文件）。
+          make_latest: true
           generate_release_notes: true
           body: |
             ## 下载
