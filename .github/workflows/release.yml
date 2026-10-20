@@ -9,7 +9,7 @@
 #
 # 每次发版仍然成立的两条：
 #   1. **release 由这条流水线直接发出去**（`draft: false`），发完 `releases/latest` 就指着它
-#      （`make_latest: true` 显式写死，理由见下面那处注释）。应用内更新器读的就是
+#      （`make_latest` 由下面「发布这个 release」那一步显式写死）。应用内更新器读的就是
 #      `releases/latest/download/latest.yml`——草稿上的东西它看不见。
 #      「先把那个 exe 下下来真跑一次」挪到**打 tag 之前**（本地跑）：它不再是流水线上的
 #      闸门，闸门由下面「四道闸门」那步守着。
@@ -191,7 +191,6 @@ jobs:
           # 撞过一次：release 已经是 `draft=false`、`prerelease=false`、`published_at` 也
           # 填上了，`releases/latest` 却仍返回旧版本，端点 `releases/latest/download/latest.yml`
           # 于是 404（旧 release 里没有那个文件）。
-          make_latest: true
           generate_release_notes: true
           body: |
             ## 下载
@@ -215,3 +214,37 @@ jobs:
             ```
             gh attestation verify shuzhai-${{ steps.ver.outputs.version }}-x64-setup.exe -R rockbenben/shuzhai
             ```
+
+      # 把 release 发布出去，并显式把 `releases/latest` 指到它，然后自己确认一遍。
+      #
+      # ⚠️ **显式给 make_latest 不是多此一举**：GitHub 在「草稿转成已发布」时**不会**重算
+      # `releases/latest` 指向谁。2026-10-20 在 rclone-deck 上撞到过一次：release 已经是
+      # `draft=false`、`prerelease=false`、`published_at` 也填上了，`releases/latest` 却仍
+      # 返回旧版本，端点 `releases/latest/download/latest.yml` 于是 404（旧 release 里没有
+      # 那个文件）——已装的应用从此收不到更新。
+      #
+      # 判据是**看 API 指到谁**，不是看 release 的字段：字段全对而指针没挪，端点照样 404。
+      # CDN 那层重定向会再滞后几分钟，属正常——这里判 API，不判 CDN。
+      - name: 发布这个 release，并把 latest 指到它
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          # ⚠️ **不能用 `releases/tags/<tag>` 找这条 release**：那个端点**不返回草稿**。
+          # 草稿只能从 release 列表里捞——列表按创建时间倒序，新建的草稿总在第一页。
+          id="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+                 --jq "first(.[] | select(.tag_name == \"${tag}\") | .id)")"
+          if [ -z "$id" ]; then
+            echo "::error::没找到 tag ${tag} 对应的 release"
+            exit 1
+          fi
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${id}" \
+            -F draft=false -f make_latest=true > /dev/null
+          latest="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
+          if [ "$latest" != "$tag" ]; then
+            echo "::error::releases/latest 指着 ${latest}，不是 ${tag}"
+            exit 1
+          fi
+          echo "release ${tag} 已发布，releases/latest 指向它"
