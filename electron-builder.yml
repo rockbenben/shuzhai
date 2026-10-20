@@ -44,7 +44,19 @@ extraResources:
 
 # opencc-js 是主进程运行时要用的（繁简转换），必须带上；
 # react / react-dom 已经被 Vite 编进 dist/，不用带
+#
+# electron-updater 同理：它**不能**被编进主进程的 .ts（主进程是 .ts 直接跑的，
+# 没有打包这一步），只能以 node_modules 的形式跟应用一起装进去。
+# electron-builder 按 package.json 的 dependencies 算该带哪些包，这里不多不少两个。
 asar: true
+
+# 更新用的发布地址。**只用来生成 latest.yml 里的下载地址**，不代表由 electron-builder
+# 去建 release——CI 的打包那步一律 --publish never，release 由 workflow 单独建。
+# 少了这一段，打出来的包里就没有 app-update.yml，应用内更新无从查起。
+publish:
+  provider: github
+  owner: rockbenben
+  repo: shuzhai
 
 win:
   target:

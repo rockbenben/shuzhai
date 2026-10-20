@@ -331,6 +331,14 @@ schema + 迁移（有几条就是 `SCHEMA_VERSION`，当场跑 `counts.mjs` 看�
 
 正文字体：装 ttf/otf、随应用发布的那份（spec §6）
 
+### `src/core/update.ts`
+
+应用内更新检查的设置键。**只有一份**，渲染进程与主进程都从这儿取
+
+### `src/main/update.ts`
+
+应用内更新的主进程侧：查一次、弹原生对话框、下载与安装（**都要用户点头**）
+
 ### `src/main/cover-fetcher.ts`
 
 封面抓取的 Electron 侧：隐藏窗口 + 后台循环（spec §3.1）

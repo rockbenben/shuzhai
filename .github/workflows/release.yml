@@ -104,8 +104,10 @@ jobs:
       - name: 打包
         run: npm run dist -- --publish never
 
-      # ⚠️ **只收安装包和免安装 zip。`.blockmap` 不发**——那是 electron-updater
-      # 做增量下载用的，这个应用没有自动更新，传上去只是让人多一个不知道干嘛的文件。
+      # ⚠️ **校验和只覆盖安装包和免安装 zip。** `.blockmap` 和 `latest.yml` 是给
+      # 应用内更新用的两样东西：latest.yml 写着「去哪儿下、下的是哪个版本」，
+      # blockmap 用来做增量下载。用户不会手动去下载它们，但它们**必须**跟着
+      # release 一起发出去——少 latest.yml，更新器连「有没有新版」都问不出来。
       # ⚠️ **`Get-ChildItem release -Include …` 会返回 0 个。** `-Include` 不带 `-Recurse`
       # 时要求路径本身带通配（`release\*`），否则它静静地什么都不匹配——
       # 当场量过：`release` 返回 0，`release\*` 返回 2。少了那个星号，
@@ -171,6 +173,11 @@ jobs:
             release/shuzhai-${{ steps.ver.outputs.version }}-x64-setup.exe
             release/shuzhai-${{ steps.ver.outputs.version }}-x64.zip
             release/SHA256SUMS.txt
+            # 应用内更新要用的两样：latest.yml 写着「去哪儿下、下的是哪个版本」，
+            # blockmap 用来做增量下载。**少 latest.yml，更新器连「有没有新版」都问不出来**——
+            # 那个文件是 electron-builder 见到 publish 配置才生成的，别以为它一直在
+            release/latest.yml
+            release/shuzhai-${{ steps.ver.outputs.version }}-x64-setup.exe.blockmap
           fail_on_unmatched_files: true
           draft: true
           generate_release_notes: true

@@ -21,6 +21,7 @@
     "test:bench": "node --test \"scripts/bench/*.test.mjs\""
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "opencc-js": "^1.4.1"
   },
   "_overrides": "epubjs 0.3.93 钉着 @xmldom/xmldom ^0.7.5，那条线有 6 条 XML 注入/DoS 告警（<=0.8.14）。它在浏览器里其实一次都不会跑——epub.js 只在 DOMParser/XMLSerializer 不存在或 IE 时才退回它——但它照样被打进渲染包，也照样让每个 clone 这个仓库的人 npm audit 看到一条 high。换渲染引擎不是换个依赖：EPUB 划线的锚是 epub.js 的 CFI，存在 highlight.cfi 里，那是铁律 3 的数据。所以钉的是这个传递依赖，用 xmldom 自己打的 lts 标签（0.8.15），不动 epubjs。",
@@ -43,5 +44,9 @@
   },
   "author": "rockbenben",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rockbenben/shuzhai.git"
+  },
   "description": "你的文件夹就是你的书斋：txt 小说自动配封面、切目录、记得你读到哪，读完打个分，下次不用再想这本我看过没"
 }

@@ -37,6 +37,7 @@ import { SERIAL_STATUS } from '../core/labels.ts';
 import type { RepairReport } from '../core/library.ts';
 import { rpc } from './rpc.ts';
 import { parseMinBytes, MIN_BYTES_KEY, MIN_BYTES_DEFAULT } from '../core/scan.ts';
+import { UPDATE_CHECK_KEY } from '../core/update.ts';
 import { etaWords, relTime } from '../core/format.ts';
 import { CoverSources } from './CoverSources.tsx';
 import { TtsEngines } from './TtsEngines.tsx';
@@ -97,6 +98,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [minKb, setMinKb] = useState('');
   const [showRating, setShowRating] = useState(loadShowRating);
   const [watchOn, setWatchOn] = useState(false);
+  /** 启动时检查更新。默认关（跟主进程同一个判据：只有 '1' 算开） */
+  const [updateCheckOn, setUpdateCheckOn] = useState(false);
+  /** 手动检查更新的进行中状态。检查在主进程那边跑，界面这边只等它回话 */
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateErr, setUpdateErr] = useState<string | null>(null);
   const [bossKey, setBossKey] = useState('CommandOrControl+Shift+H');
   const [read, setRead] = useState<ReadSettings>(loadSettings);
   const [keys, setKeys] = useState(loadKeys);
@@ -187,6 +193,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
       const raw = await rpc<string>('setting.get', { key: MIN_BYTES_KEY });
       setMinKb(String(Math.round(parseMinBytes(raw) / 1024)));
       setWatchOn((await rpc<string>('setting.get', { key: 'scan.watch' })) === '1');
+      // 启动时检查更新。**默认关**：只有 '1' 算开，和主进程读它时同一个判据
+      setUpdateCheckOn((await rpc<string>('setting.get', { key: UPDATE_CHECK_KEY })) === '1');
       setBossKey(
         (await rpc<string>('setting.get', { key: 'reader.bossKey' })) || 'CommandOrControl+Shift+H',
       );
@@ -818,7 +826,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           </>
         ) : (
           <>
-            {/* 这一页只放**要出网**的两件事：源配在哪、批量补全怎么跑。
+            {/* 这一页只放**要出网**的事：源配在哪、批量补全怎么跑、应用更新查不查。
                 「自定义书源」原来夹在「改动磁盘文件」和「连载状态」中间，
                 切四页时若不把它挪过来，书库页会剩 3 区而联网页挤 4 区 */}
             <CoverSources />
@@ -949,6 +957,49 @@ export function Settings({ onClose }: { onClose: () => void }) {
               </p>
             )}
             {coverErr && <span className="danger">　{coverErr}</span>}
+
+            {/*
+              * 应用内更新。**默认关**：会联网的开关一律 opt-in，这个应用管的是
+              * 用户的书库，凭空多一个网络请求不是它该有的样子。
+              *
+              * 开关管的是「每次开机顺手问一句有没有新版」；下面那个键是「现在问」——
+              * 分成两件事，是因为用户可能不想让应用每次启动都联网，但此刻想知道
+              * 有没有新版。问出来的新版本**只通知，不下载也不装**：下载和安装
+              * 都要用户在主进程弹出来的原生对话框里点头。
+              */}
+            <h3>应用更新</h3>
+            <label className="row" style={{ gap: '.4rem', fontSize: '0.87rem' }}>
+              <input
+                type="checkbox"
+                checked={updateCheckOn}
+                onChange={(e) => {
+                  setUpdateCheckOn(e.target.checked);
+                  put(UPDATE_CHECK_KEY, e.target.checked ? '1' : '0');
+                }}
+              />
+              <span>开机时检查一次有没有新版本（可选，默认不开；只查，不会自己下载或安装）</span>
+            </label>
+            <p className="warn-line">
+              打开之后，每次启动会向 GitHub 发一次请求，问一句「有没有新版本」——不发送任何书本、路径或账号信息。查到新版本也<strong>只是告诉你</strong>：要不要下载、要不要安装，都由你在弹出来的对话框里自己点。不想它每次开机都联网，就把这个开关关着；想当下问一句，用下面那个键。
+            </p>
+            <button
+              disabled={updateChecking}
+              onClick={() => void (async () => {
+                setUpdateChecking(true);
+                try {
+                  // 检查、对话框、下载、安装全在主进程那边（原生对话框只能在那儿弹），
+                  // 界面这边只要把这次点击发过去
+                  await rpc('update.check');
+                } catch (err) {
+                  setUpdateErr(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setUpdateChecking(false);
+                }
+              })()}
+            >
+              {updateChecking ? '正在检查…' : '检查有没有新版本'}
+            </button>
+            {updateErr && <p className="danger" style={{ fontSize: '0.82rem', margin: '0.2rem 0 0' }}>{updateErr}</p>}
           </>
         )))}
         </div>
