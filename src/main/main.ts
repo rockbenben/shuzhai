@@ -22,12 +22,14 @@ import { LibraryWatcher } from '../core/watcher.ts';
 import { maybeBackup } from '../core/autobackup.ts';
 import { createRpc } from './rpc.ts';
 import { CoverFetcher } from './cover-fetcher.ts';
+import { checkForUpdates } from './update.ts';
 import { migrateUserData } from './migrate-userdata.ts';
 import { bundledFonts, listFonts } from '../core/fonts.ts';
 // 「什么时候该发进度」的判据。放 core 是因为**这个文件 import electron，测不了**
 import { makeProgressGate } from '../core/pacing.ts';
 import { closeOpenSessions } from '../core/status.ts';
 import { applyIgnoreToLibrary } from '../core/ignore.ts';
+import { UPDATE_CHECK_KEY } from '../core/update.ts';
 
 /**
  * **断管道时一句日志都不许崩主进程。** 应用从终端或后台启动器里拉起来、而那个
@@ -408,6 +410,17 @@ app.whenReady().then(async () => {
       return { ok: true };
     },
 
+    /**
+     * 手动检查一次更新。**对话框、下载、安装全在主进程这边**——渲染进程只会弹
+     * 网页里的框，而更新这件事要的是原生对话框（能盖在应用窗口上，窗口不在时也能单独弹）。
+     *
+     * 开关（`update.check`）管的是**启动时**那一次自动检查；这一条是用户当下点的，
+     * 所以跟开关无关，什么时候都能查。
+     */
+    'update.check': async () => {
+      return await checkForUpdates({ getWindow: () => win }, true);
+    },
+
     /** 用系统浏览器打开一个外部链接（侧栏的 GitHub 图标）。
      *  只放 http(s)：`openExternal` 能唤起 mailto:/自定义协议，而这张 rpc 表
      *  还开在 HTTP 端口上，不能让它替任何链接起本机程序。 */
@@ -532,6 +545,8 @@ app.whenReady().then(async () => {
   // 但每本书之间都有 await，事件循环有喘息，实测量级是几十毫秒。
   // 真觉得卡了再按 spec §12 挪进 utilityProcess，接口不用改。
   let timer: NodeJS.Timeout | null = null;
+  /** 启动时那次自动检查更新的定时器。退出时必须清掉 */
+  let updateTimer: NodeJS.Timeout | null = null;
 
   const readSchedule = (): ScheduleConfig => ({
     mode: (getSetting(db, 'scan.mode') || DEFAULT_SCHEDULE.mode) as ScheduleConfig['mode'],
@@ -574,6 +589,22 @@ app.whenReady().then(async () => {
     }
   };
   startWatching();
+
+  /*
+   * 启动时检查一次有没有新版本。
+   *
+   * **默认关闭**（`app_setting` 的 `update.check`），开关在设置弹窗的「联网」页里——
+   * 用户不打开它就一次网络请求都不发。这个应用管的是用户的书库，联网得用户自己点头。
+   *
+   * 延后十秒再查：开机那阵子主进程正忙着（首屏铺库、首次扫描），别跟它抢。
+   * 检查本身是异步的，不占主线程。
+   */
+  if (getSetting(db, UPDATE_CHECK_KEY) === '1') {
+    updateTimer = setTimeout(() => {
+      updateTimer = null;
+      void checkForUpdates({ getWindow: () => win }, false);
+    }, 10_000);
+  }
 
   // 自动备份（spec §10）。判据是「距上次多久」而不是固定时刻——
   // 桌面应用不常驻，按时刻排的话好几天不开机的人一次都轮不到，
@@ -641,6 +672,7 @@ app.whenReady().then(async () => {
     closeOpenSessions(db, 'quit');
     globalShortcut.unregisterAll();
     if (timer) clearTimeout(timer);
+    if (updateTimer) clearTimeout(updateTimer);
     clearTimeout(firstBackup);
     clearInterval(backupTimer);
     watcher?.close();

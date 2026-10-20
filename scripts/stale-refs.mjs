@@ -79,6 +79,12 @@ const ALLOW = new Map([
   ['render.mjs', 'html-shot skill 的脚本，装在 ~/.claude/skills 下，不在本仓库'],
   ['icons.mjs', '同上'],
   ['make-icon.mjs', '早先生成图标的脚本，已删；build/brand/README.md 里是历史引用，那儿写明了'],
+  // electron-builder 的更新元数据：**构建产物**，只在打包之后出现在 release/ 里，
+  // 不进版本库。应用内更新靠这一对——一个写着「去哪儿下、下的是哪个版本」，
+  // 一个写着「去哪儿问」。发版那一步必须把它们一起传上去，所以名字会出现在
+  // workflow 与配置里，而它们**本来就不该**是仓库里的文件。
+  ['latest.yml', 'electron-builder 的更新元数据，构建产物，不进版本库'],
+  ['app-update.yml', '同上'],
 ]);
 
 /**
