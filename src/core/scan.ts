@@ -314,6 +314,36 @@ interface FileRow {
 }
 
 /**
+ * **这本书用哪个编码解码。**「用户手工指定过就听他的」——**判据只此一份**。
+ *
+ * ⚠️ **预览和落库必须是同一条路，否则预览就是在骗人。**
+ *
+ * 原来落库走这里（认 `encoding_locked`），而规则编辑器的**预览**走的是
+ * `detectEncoding(buf).encoding`——**自动探测**。于是用户手工把编码选成
+ * `gb18030` 的书：预览按 utf-8 解，显示「切出 2 章、第一章 开始」；
+ * 点「应用」按 gb18030 解，用户那条正则一条都匹配不上，
+ * **章节表被替换成一个「未识别章节 1」**，而界面照样报「切出 2 章」。
+ * 更糟的是那条匹配不上的规则被存进 `parse_rule`，
+ * 以后每次追更都拿它重切——这本书**永久退回机械分段**。
+ *
+ * 同一本书的编码，探测、预览、落库三处必须是同一个答案。
+ */
+export function 这本书的编码(
+  db: DatabaseSync,
+  fileId: number,
+  buf: Buffer,
+  /** 调用方当场指定的（用户刚在下拉里选的） */
+  forceEncoding?: Encoding,
+): Encoding {
+  if (forceEncoding) return forceEncoding;
+  const 记着的 = db
+    .prepare('select encoding, encoding_locked as locked from book_file where id = ?')
+    .get(fileId) as { encoding: string | null; locked: number } | undefined;
+  return (记着的?.locked && 记着的.encoding ? (记着的.encoding as Encoding) : undefined)
+    ?? detectEncoding(buf).encoding;
+}
+
+/**
  * 解析一个 txt，把章节写进库。返回统计信息。
  * `rules` 传自定义规则时取代内置规则（规则编辑器走这条，见 reparse.ts）。
  */
@@ -364,12 +394,7 @@ export async function parseAndStore(
    * 于是这本书一追更、文件被覆盖写入，`scanRoot` 重新探测一遍，
    * **他挑的那个被静默盖掉，又变回乱码**。`encoding_locked` 就是那半句话的凭据。
    */
-  const 记着的 = db
-    .prepare('select encoding, encoding_locked as locked from book_file where id = ?')
-    .get(fileId) as { encoding: string | null; locked: number } | undefined;
-  const encoding = forceEncoding
-    ?? (记着的?.locked && 记着的.encoding ? (记着的.encoding as Encoding) : undefined)
-    ?? detectEncoding(buf).encoding;
+  const encoding = 这本书的编码(db, fileId, buf, forceEncoding);
   // 这一次是用户当场指定的：记下来，往后别再探测
   if (forceEncoding) db.prepare('update book_file set encoding_locked = 1 where id = ?').run(fileId);
   /*

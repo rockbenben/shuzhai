@@ -147,6 +147,31 @@ test('没有文件的书要说人话，不是「书 9 没有主文件」', async
   );
 });
 
+/*
+ * **预览和落库必须是同一个编码。**
+ *
+ * 原来预览用**自动探测**、落库用**用户锁定的那个**——两套编码。
+ * 于是手工指定过编码的书：预览按 utf-8 解显示「切出 4 章」，点「应用」按
+ * gb18030 解，那条正则一条都匹配不上，**章节表被替换成机械分段**，
+ * 而界面照样报「切出 4 章」。更糟的是匹配不上的规则被存进 `parse_rule`，
+ * 以后每次追更都拿它重切——这本书**永久退回机械分段**。
+ *
+ * 判据一句话：**预览报出来的，必须就是落库之后的样子。**
+ */
+test('用户锁定过编码时，预览和落库必须是同一个答案', async () => {
+  // 模拟「用户手工把编码选成 gb18030」
+  db.prepare("update book_file set encoding = 'gb18030', encoding_locked = 1 where book_id = ?").run(bookId);
+
+  const 预览 = await previewChapters(db, bookId, '^@@@');
+  const 应用 = await applyRule(db, bookId, '^@@@');
+  const 落库后 = chapterCount();
+
+  assert.equal(应用.count, 落库后, '预览报的章数必须等于落库之后的章数——预览不许在骗人');
+  assert.equal(预览.count, 应用.count, '预览和应用是同一条路，不许两套答案');
+  const 实际标题 = (db.prepare('select title from chapter order by idx limit 1').get() as { title: string }).title;
+  assert.equal(预览.titles[0], 实际标题, '预览列出来的标题必须就是库里那一条');
+});
+
 test('清除规则和应用规则能将解析失败状态刷回 ok 并清空 parse_error', async () => {
   db.prepare("update book_file set status = 'parse_failed', parse_error = '损坏的规则', failed_at = datetime('now') where book_id = ?").run(bookId);
   await clearRule(db, bookId);

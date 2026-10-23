@@ -1,14 +1,13 @@
-// 章节规则编辑器的后端（spec §2.2）。
+﻿// 章节规则编辑器的后端（spec §2.2）。
 //
 // spec 把这个功能定为「解析失败时的兜底，不可省略」，所以它的形状由一条规矩决定：
 // **先预览，确认了才落库。** 预览这条路一个字都不写数据库——用户拿不准的时候可以
 // 随便试，试坏了没有代价。
 
 import type { DatabaseSync } from 'node:sqlite';
-import { detectEncoding } from './encoding.ts';
 import { parseChapters, type ParseRule } from './chapter.ts';
 import { suggestRules, type Suggestion } from './suggest.ts';
-import { parseAndStore } from './scan.ts';
+import { parseAndStore, 这本书的编码 } from './scan.ts';
 import { readBook } from './reader.ts';
 
 /** 预览里最多列几个标题。spec §2.2 写的是「前 20 章标题」 */
@@ -65,9 +64,17 @@ export async function previewChapters(
   bookId: number,
   pattern?: string,
 ): Promise<ParsePreview> {
-  const { path } = primaryFile(db, bookId);
+  const { id: fileId, path } = primaryFile(db, bookId);
   const buf = await readBook(path);
-  const { encoding } = detectEncoding(buf);
+  /*
+   * ⚠️ **编码要和落库那一条路完全一致**（`这本书的编码`）。
+   *
+   * 原来这里用的是**自动探测**，而落库（`parseAndStore`）认的是**用户锁定的那个**——
+   * 两套编码。于是手工指定过编码的书，预览按 utf-8 解显示「切出 2 章」，
+   * 点「应用」按 gb18030 解，**章节表被替换成一个「未识别章节 1」**，
+   * 而界面照样报「切出 2 章」。预览在骗人，正是这个功能最不能有的毛病。
+   */
+  const encoding = 这本书的编码(db, fileId, buf);
   const rules = pattern ? [compile(pattern)] : undefined;
   const { chapters, recognized, ruleName } = parseChapters(buf, encoding, rules);
 
@@ -84,9 +91,10 @@ export async function previewChapters(
  * **只读文件，一个字都不写库**——和 previewChapters 一样，用户可以随便点。
  */
 export async function suggestForBook(db: DatabaseSync, bookId: number): Promise<Suggestion[]> {
-  const { path } = primaryFile(db, bookId);
+  const { id: fileId, path } = primaryFile(db, bookId);
   const buf = await readBook(path);
-  return suggestRules(buf, detectEncoding(buf).encoding);
+  // 同样是**锁定优先**——按自动探测去猜，猜出来的候选对不上用户要的编码
+  return suggestRules(buf, 这本书的编码(db, fileId, buf));
 }
 
 /**
