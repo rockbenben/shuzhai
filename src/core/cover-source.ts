@@ -105,14 +105,19 @@ export function resetMisses(db: DatabaseSync): number {
 }
 
 /**
- * failed 行清回队列。`start()` 每次叫一次——**「没问出来」不该是终态**。
+ * failed 行清回队列。**只在一轮新的开始时清一次**——**「没问出来」不该是终态**。
  *
  * `nextPending` 只看「有没有 cover_fetch 行」，不看状态。所以限流那几分钟里
  * 被记成 failed 的书会永久停在队列外，而唯一的出路（上面那个按钮）还捆着
  * 一百多次注定白打的 nomatch 重试。
  *
- * 不会变成死循环：只在 `start()` 清，一次应用启动最多重试一轮；真的每次都抛错的书
- * 由 `MAX_CONSECUTIVE_FAILS` 那条自动暂停兜住。
+ * 不会变成死循环：**一轮新的清一次**（用户自己开开关、或应用启动），
+ * 真的每次都抛错的书由 `MAX_CONSECUTIVE_FAILS` 那条自动暂停兜住。
+ *
+ * ⚠️ **失焦恢复不算「一轮新的」**——那只是接着上一轮继续跑。
+ * 原来恢复也调 `start()`，于是「点一下窗口 → 几百本全部重新入队 → 立刻再轰
+ * 一轮 → 更容易被限流 → 再点一下」——用户只是在切窗口，而站点在挨打。
+ * 判据在 `main/cover-fetcher.ts` 的 `start(新的)`。
  */
 export function resetFailed(db: DatabaseSync): number {
   return Number(db.prepare("delete from cover_fetch where status = 'failed'").run().changes);
