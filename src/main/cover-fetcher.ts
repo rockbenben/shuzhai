@@ -232,12 +232,14 @@ export class CoverFetcher {
       // 限流证据：新的一轮从零数
       this.fails = 0;
       this.emptyStreak = 0;
+      // 「正在被限流」那个标志 + 连败探针的次数 + 最近一串没匹配上的书
+      // ——它们是**证据**，恢复时也该留着（窗口切了一下不等于站点缓过来了）
+      this.throttleHold = false;
+      this.badProbes = 0;
+      this.missRun = [];
       // 上一轮限流留下的 failed 回队列——那不是「查过了没有」，是「没问出来」
       resetFailed(this.db);
     }
-    this.missRun = [];
-    this.throttleHold = false;
-    this.badProbes = 0;
     this.pausedReason = null;
     this.pausedAt = null;
     this.recoveryAttempts = 0;
