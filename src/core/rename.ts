@@ -111,7 +111,7 @@ export function fitPathLength(dir: string, filename: string): { name: string; tr
   return { name: filename.slice(0, room) + ext, truncated: true };
 }
 
-export type RowStatus = 'ok' | 'unchanged' | 'conflict' | 'sanitized' | 'too-long' | 'missing';
+export type RowStatus = 'ok' | 'unchanged' | 'conflict' | 'sanitized' | 'too-long' | 'missing' | 'bad-ext';
 
 export interface RenameRow {
   fileId: number;
@@ -199,6 +199,28 @@ export async function previewRename(
       row.note = '文件已不在原位置';
     } else if (newName === oldName) {
       row.status = 'unchanged';
+    } else if (extname(newName).toLowerCase() !== ext.toLowerCase()) {
+      /*
+       * ⚠️ **扩展名不能变，更不能没有。**
+       *
+       * 判据仓库里早就有——`fitPathLength` 顶上那句「**扩展名丢了文件就打不开了**」。
+       * 而模板是自由文本（预设之外没人拦），所以 `{title}` 这种不带 `{ext}` 的
+       * 模板会把文件改成没有扩展名的名字：
+       *
+       *   - `book-format.ts` 按扩展名认格式 → 变成「只编目」那一类，
+       *     正文那整套（章节、搜索、朗读、划线）当场失效；
+       *   - `scan.ts` 的 `isBookFile` 判否 → **下一次扫描压根不收它**，
+       *     那条记录直接被判成「文件不见了」，而扫描再也认不回来。
+       *
+       * 改扩展名（比如 .txt 改成 .pdf）也一样的后果：格式是扩展名说了算的，
+       * 而改名这个动作不负责转换格式——扫过去会把章节表删掉。
+       *
+       * 所以：**扩展名必须原样留着**，变了就在预览里标出来、不让勾。
+       */
+      row.status = 'bad-ext';
+      row.note = ext
+        ? `扩展名不能改（原来 ${ext}）——书斋按扩展名认格式，改了它就认不出这本书了`
+        : '改名后不能把扩展名去掉——书斋按扩展名认格式，去掉它就再也扫不回来了';
     } else {
       const key = join(dir, newName).toLowerCase(); // Windows 大小写不敏感
       const selfKey = join(dir, oldName).toLowerCase();
@@ -314,6 +336,19 @@ export async function applyRename(
     if (from === to) continue;
 
     try {
+      /*
+       * ⚠️ **扩展名不许变。** 预览已经标了（`bad-ext`），但预览是**界面**——
+       * rpc 对外开放（§13），调用方自己算出来的 rows 走不到那道预览。
+       * 而这一条的下场不是「改得不理想」，是**这本书再也读不了了**：
+       * 没有扩展名 → 扫不回来、格式也认不出（判据写在 `previewRename` 那段）。
+       */
+      if (extname(row.newName).toLowerCase() !== extname(row.oldName).toLowerCase()) {
+        report.failed.push({
+          oldName: row.oldName,
+          error: '扩展名不能改——书斋按扩展名认格式，改了它就再也认不出这本书了',
+        });
+        continue;
+      }
       // 阅读器可能正开着这本书。Windows 上不先放开句柄，rename 会直接失败
       await cache?.release(from);
       await moveFile(from, to);

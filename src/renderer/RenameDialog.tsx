@@ -23,6 +23,7 @@ const STATUS_META: Record<RowStatus, { color?: string; text: string }> = {
   sanitized: { color: 'var(--accent)', text: '换过非法字符' },
   'too-long': { color: 'var(--danger)', text: '路径过长' },
   missing: { color: 'var(--danger)', text: '文件缺失' },
+  'bad-ext': { color: 'var(--danger)', text: '扩展名变了' },
 };
 
 /*
@@ -248,7 +249,8 @@ export function RenameDialog({ bookIds, onClose }: Props) {
           {rows && (
             <span className="muted" style={{ fontSize: '0.85rem' }}>
               正常 {counts.ok ?? 0} · 无变化 {counts.unchanged ?? 0} · 冲突 {counts.conflict ?? 0} ·
-              换过非法字符 {counts.sanitized ?? 0} · 路径过长 {counts['too-long'] ?? 0} · 文件缺失 {counts.missing ?? 0} · 已勾选 {picked.size}
+              换过非法字符 {counts.sanitized ?? 0} · 路径过长 {counts['too-long'] ?? 0} · 文件缺失 {counts.missing ?? 0} ·
+              扩展名变了 {counts['bad-ext'] ?? 0} · 已勾选 {picked.size}
             </span>
           )}
         </div>
