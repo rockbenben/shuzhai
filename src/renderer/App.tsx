@@ -396,7 +396,24 @@ export function App() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ file: string; done: number } | null>(null);
-  const [report, setReport] = useState<ScanReport | null>(null);
+  /*
+   * ⚠️ **三条通知都带着「它是几时几分出的」（`born`）。**
+   *
+   * 「到点自己走」按**墙上的钟**算，不按「它挂在屏幕上的这段时间」算。
+   * 原来这件事只住在 `Toast` 组件里，而 App 在 `reading` / `viewing` 非空时
+   * **整个 return 掉书架**——通知浮层跟着卸载，计时器跟着没了；退回书架时它
+   * 重新挂上、**重新等满一整个 `auto`**。
+   *
+   * 用户报的就是这个：「扫描完成后我点进一本书，过了很久返回书架，扫描通知还在」。
+   * 它不是「一直在」，是**重新活了一遍**——而它早就该走了（用户定的规矩是
+   * 「到点自己走」，通报 12 秒、报错 8 秒、动作型 25 秒）。
+   *
+   * 出生时刻放在**状态**里（不是组件里），所以书架卸载也不丢。
+   */
+  const [report, setReportState] = useState<(ScanReport & { born: number }) | null>(null);
+  const setReport = useCallback((r: ScanReport | null) => {
+    setReportState(r === null ? null : { ...r, born: Date.now() });
+  }, []);
   /**
    * 切得可疑的书。**扫描完顺手体检一遍**——内置的章节规则会随版本改好，
    * 而库里的书还是当初扫描时算出来的结果；重新解析这个动作一直有，
@@ -409,13 +426,21 @@ export function App() {
   /** 上次体检是什么时候。**只显示，不据此重算**——那句查询要 9–14 秒 */
   const [splitCheckedAt, setSplitCheckedAt] = useState<string | null>(null);
   const [splitMsg, setSplitMsg] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorState] = useState<{ text: string; born: number } | null>(null);
+  /** 报错。**顺带记下它是几时几分出的**——寿命从那一刻算（理由见上面 `report` 那段） */
+  const setError = useCallback((text: string | null) => {
+    setErrorState(text === null ? null : { text, born: Date.now() });
+  }, []);
 
   // 连载更新提示：hints / updateIds 本任务先建好，Task 13 角标直接消费
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   // 「需要处理」档里批量清理失效文件的两段式确认（同改名超 50 个那一下，不走原生 confirm）
   const [cleanupArmed, setCleanupArmed] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNoticeState] = useState<{ text: string; born: number } | null>(null);
+  /** 通报。同样带着出生时刻（理由见上面 `report` 那段） */
+  const setNotice = useCallback((text: string | null) => {
+    setNoticeState(text === null ? null : { text, born: Date.now() });
+  }, []);
   const [hints, setHints] = useState<UpdateHint[]>([]);
   const loadHints = useCallback(async () => {
     try { setHints(await rpc<UpdateHint[]>('link.updates')); } catch { /* 角标是锦上添花，失败静默 */ }
@@ -2064,14 +2089,14 @@ export function App() {
           * `key` 用消息本身：连着两次不同的错，第二条要重新计时。
           */}
         {error && (
-          <Toast key={error} auto={8000} danger onClose={() => setError(null)}>
-            {error}
+          <Toast key={error.text} auto={8000} born={error.born} danger onClose={() => setError(null)}>
+            {error.text}
           </Toast>
         )}
 
         {notice && (
-          <Toast key={notice} auto={12000} onClose={() => setNotice(null)}>
-            {notice}
+          <Toast key={notice.text} auto={12000} born={notice.born} onClose={() => setNotice(null)}>
+            {notice.text}
           </Toast>
         )}
 
@@ -2090,6 +2115,7 @@ export function App() {
             // 拿几个计数拼一个够用：数一样、内容也就一样，接着旧计时无所谓
             key={`${report.added}:${report.updated}:${report.unchanged}:${report.failed}`}
             auto={报告要等人处理(report) ? ACTIONABLE_TOAST_MS : 12000}
+            born={report.born}
             onClose={() => setReport(null)}
           >
             扫描完成：新增 {report.added} · 更新 {report.updated} · 移动 {report.moved} · 缺失{' '}

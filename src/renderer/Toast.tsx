@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { 到期时刻, 还能活多久 } from './toast-clock.ts';
 
 /**
  * 右下角那一条通知。
@@ -23,20 +24,42 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
  * 而「读到一半它自己跑了」比多一个按钮糟得多。停住不动，移开接着走。
  * 这条不是锦上添花：没有它，自动消失就是在拿信息换整洁。
  *
- * ⚠️ **`auto` 是「这一条存在多久」，不是「渲染多久」。** 内容变了要重新计时，
- * 所以 `key` 由调用方给（换一份报告就是换一条通知）。
+ * ⚠️ **寿命从 `born` 起算，不从「它挂上屏幕」起算。**
+ *
+ * 原来计时器住在这个组件里，而 App 在 `reading` / `viewing` 非空时
+ * **整个 return 掉书架**——通知浮层跟着卸载，计时器跟着没了；退回书架时它
+ * 重新挂上、**重新等满一整个 `auto`**。用户报的是「扫描完成后我点进一本书，
+ * 过了很久返回书架，扫描通知还在」：它不是「一直在」，是**重新活了一遍**。
+ *
+ * 所以出生时刻由调用方给（它在 App 的状态里，书架卸载也不丢），寿命从那一刻算。
+ * 判据的算法在 `toast-clock.ts`（纯函数，`node --test` 钉得住）。
  */
 export function Toast(
-  { children, auto = 0, danger, onClose }:
+  { children, auto = 0, born, danger, onClose }:
   {
     children: ReactNode;
     /** 多少毫秒后自己消失。0 = 不自动走（那时调用方自己得给出路） */
     auto?: number;
+    /**
+     * 这条通知是**几时几分出的**（epoch ms）。
+     *
+     * ⚠️ **它必须早于「组件挂上」那一刻。** 组件挂上只是「它此刻在屏幕上」，
+     * 出生时刻是「这件事发生了」。两者一差，通知就会在被卸载的那段时间里
+     * 白白续命——症状正是上面写的那句用户原话。
+     */
+    born: number;
     danger?: boolean;
     onClose: () => void;
   },
 ) {
-  const [停住, set停住] = useState(false);
+  /**
+   * 停住的**开始时刻**（epoch ms），`null` = 没停住。
+   *
+   * ⚠️ **记时刻，不记布尔。** 布尔只说得清「停没停」，说不清「停了多久」——
+   * 而「停了多久」正是「移开之后还剩多少」要用的那个数。
+   */
+  const [停住从, set停住从] = useState<number | null>(null);
+
   /*
    * ⚠️ **`onClose` 走 ref，不进 effect 的依赖。**
    * 调用方多半是写在 JSX 里的箭头函数——每次渲染都是新的一个，
@@ -45,49 +68,89 @@ export function Toast(
   const 关 = useRef(onClose);
   关.current = onClose;
 
-  /*
-   * ⚠️ **「暂停」必须记着已经走了多久——原来这里是重新计时。**
-   *
-   * 计时写在 `useEffect(..., [auto, 停住])` 里，所以「停住」一变依赖就变了：
-   * 清理函数把旧定时器 `clearTimeout` 掉，下一次 effect 又**重新等满一个
-   * `auto`**。于是指针在通知上停 10 秒、移开之后还要**再等满 12 秒**——
-   * 实测 12241ms（基准是不碰它 11856ms），而顶上那句注释写的正是「移开接着走」。
-   *
-   * 为什么这在真实使用里是「有的通知一直不消失」：通知就在**右下角**，
-   * 而那是鼠标待着的默认位置之一。指针每一次路过或停在上面，计时就归零重来，
-   * 于是一条 12 秒的通报能被拖成好几倍；带动作那条是 25 秒，更明显。
-   *
-   * 改法是记下**这一场已经走了多少**，移开时接着走完剩下的，而不是从头再来。
-   * ⚠️ **`auto` 变了要作废上一场的进度**——那是另一场计时了
-   * （`key` 换报告会重挂组件，但 `auto` 本身也可能变）。
-   */
-  const 剩下 = useRef<number | null>(null);
-  const 上次Auto = useRef(auto);
+  /** 这条通知到点走的时刻（墙上的钟）。停住的那段时间会把它往后推。 */
+  const [到期, set到期] = useState<number | null>(() => 到期时刻(born, auto));
+  const [身份, set身份] = useState({ born, auto });
 
+  /*
+   * ⚠️ **换了一条通知：到期时刻重算，刚才那段停住也作废。**
+   *
+   * 用 React 官方的「渲染中调整 state」写法（而不是放进 effect）：放进 effect
+   * 会晚一帧——新通知先按旧时刻闪一下才改过来。停住的那段也作废：它是上一条的。
+   */
+  if (身份.born !== born || 身份.auto !== auto) {
+    set身份({ born, auto });
+    set到期(到期时刻(born, auto));
+    set停住从(null);
+  }
+
+  /**
+   * 此刻真正有效的到期时刻。**停住的当下它一直在往后走**——
+   * 所以停住期间这条通知永远不会「到期」。
+   */
+  const 有效到期 = 到期 === null
+    ? null
+    : 到期 + (停住从 === null ? 0 : Date.now() - 停住从);
+
+  /*
+   * 计时器。
+   *
+   * ⚠️ **「暂停」是把到期时刻往后推，不是从头再等。**
+   * 原来这里写的是 `useEffect(..., [auto, 停住])` + 一个存「还剩多少」的 ref：
+   * 「停住」一变依赖就变了，清理函数 `clearTimeout` 掉旧定时器，下一次 effect
+   * 又**重新等满一整个 `auto`**。指针每一次路过都把计时归零，一条 12 秒的通报
+   * 能被拖成好几倍，用户看到的就是「有的通知一直不消失」。实测差得很远：
+   * 停在第 9 秒、压住 6 秒再移开，重新计时要再等 12.2 秒，真正接着走只要 2.8 秒。
+   *
+   * 现在推的是**到期时刻**（见下面 `停住结束`），停住的那段时间不算进寿命里。
+   */
   useEffect(() => {
-    if (上次Auto.current !== auto) {
-      上次Auto.current = auto;
-      剩下.current = null;
-    }
-    if (!auto || 停住) return;
-    const 等 = 剩下.current ?? auto;
-    const 开始 = performance.now();
-    const t = setTimeout(() => { 剩下.current = null; 关.current(); }, 等);
-    return () => {
-      clearTimeout(t);
-      剩下.current = Math.max(0, 等 - (performance.now() - 开始));
-    };
-  }, [auto, 停住]);
+    if (到期 === null) return;        // auto = 0：永不走
+    if (停住从 !== null) return;      // 停住的时候不计时
+    const 等 = 还能活多久(到期, Date.now());
+    const t = setTimeout(() => { 关.current(); }, 等);
+    return () => clearTimeout(t);
+  }, [到期, 停住从]);
+
+  /** 停住：记下从什么时候开始。 */
+  const 停住开始 = () => {
+    if (停住从 === null) set停住从(Date.now());
+  };
+
+  /**
+   * 移开：把停住的那段时间推到到期时刻后面——**接着走，不是重新等满**。
+   *
+   * ⚠️ **推后的是「到期时刻」，不是「剩余时间」。** 通知是「停不住的时间」满
+   * N 秒就走：停在第 9 秒时它还剩 3 秒，压住 6 秒再移开，那 3 秒一点没少。
+   */
+  const 停住结束 = () => {
+    const 从 = 停住从;
+    set停住从(null);
+    if (从 !== null) set到期((d) => (d === null ? null : d + (Date.now() - 从)));
+  };
+
+  /*
+   * ⚠️ **已经过了的通知不画出来。**
+   *
+   * 书架被卸载过一阵再回来时（用户在阅读器里待了半小时），那条通知早就该走了。
+   * 先画出来、等下一次渲染才消失，是一闪——比多停一秒更糟。
+   *
+   * 下面这个 `return null` 必须在所有 hook 之后：hook 少跑一个，React 就报
+   * 「渲染时 hook 的数量变了」，而那正是这个应用最不该出的错。
+   */
+  if (有效到期 !== null && 还能活多久(有效到期, Date.now()) === 0) {
+    return null;
+  }
 
   return (
     <div
       className={`card toast${danger ? ' toast-danger' : ''}`}
       role={danger ? 'alert' : 'status'}
       // 键盘/读屏的人也要能停：焦点进来（比如 Tab 到里面的按钮）同样暂停
-      onMouseEnter={() => set停住(true)}
-      onMouseLeave={() => set停住(false)}
-      onFocus={() => set停住(true)}
-      onBlur={() => set停住(false)}
+      onMouseEnter={停住开始}
+      onMouseLeave={停住结束}
+      onFocus={停住开始}
+      onBlur={停住结束}
     >
       {children}
     </div>
