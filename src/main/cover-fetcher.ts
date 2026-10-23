@@ -208,13 +208,33 @@ export class CoverFetcher {
     };
   }
 
-  start(): void {
+  /**
+   * 开跑。
+   *
+   * @param 新的 是不是「开一轮新的」。**失焦让路之后的恢复不是**——
+   *
+   *   原来恢复走的是同一个 `start()`，而 `start()` 里有两件「新一轮」才该做的事：
+   *   把上一轮限流攒下的 failed 全放回队列（`resetFailed`）、
+   *   把「连续 5 次失败就暂停」「连续 20 本空结果就暂停」那两道闸清零。
+   *   于是「点一下窗口 → 几百本全部重新入队 → 立刻再轰一轮 → 更容易被限流 →
+   *   再点一下」——**用户只是在切窗口，而站点在挨打**。
+   *   设置页上「剩余 N 本」还会突然涨回几百本。
+   *
+   *   `resetFailed` 那条判据写着「只在 start() 清，一次应用启动最多重试一轮」，
+   *   而失焦恢复也在调 `start()`——那句话当时就不成立。
+   */
+  start(新的 = true): void {
     if (this.running) return;
     this.running = true;
     // 手动/恢复开跑，启动延迟作废
     if (this.launchTimer) { clearTimeout(this.launchTimer); this.launchTimer = null; }
-    this.fails = 0;
-    this.emptyStreak = 0;
+    if (新的) {
+      // 限流证据：新的一轮从零数
+      this.fails = 0;
+      this.emptyStreak = 0;
+      // 上一轮限流留下的 failed 回队列——那不是「查过了没有」，是「没问出来」
+      resetFailed(this.db);
+    }
     this.missRun = [];
     this.throttleHold = false;
     this.badProbes = 0;
@@ -228,8 +248,6 @@ export class CoverFetcher {
       resetForInfoBackfill(this.db);
       setSetting(this.db, 'cover.infoBackfill', '1');
     }
-    // 上一轮限流留下的 failed 回队列——那不是「查过了没有」，是「没问出来」
-    resetFailed(this.db);
     setSetting(this.db, 'cover.autofetch', '1');
     this.schedule(0);
   }
@@ -476,7 +494,9 @@ export class CoverFetcher {
       this.resumeTimer = null;
       if (uiYieldDecision(false, this.running, this.yielded) === 'resume') {
         this.yielded = false;
-        this.start();
+        // **不是新一轮**（`新的 = false`）：用户只是切了个窗口，
+        // 上一轮限流攒下的 failed 不该全放回队列、限流那两道闸也不该清零
+        this.start(false);
       }
     }, 8_000); // 切出去 8 秒才算「真的走开了」，不然切个窗口就来回启停
   }
@@ -536,7 +556,8 @@ export class CoverFetcher {
       // 人还在窗口前 → defer（yielded=true，失焦 8 秒那条路会接走）；
       // 人已走开 → 立刻接着跑。maybeRecover 已经 start() 过的话不重复启动。
       if (wasRunning && !this.running && getSetting(this.db, 'cover.autofetch') === '1') {
-        if (launchStartDecision(false, this.uiActive) === 'start') this.start();
+        // 同上：**是接着跑，不是开新一轮**——别把限流的账清零
+        if (launchStartDecision(false, this.uiActive) === 'start') this.start(false);
         else this.yielded = true;
       }
     }
