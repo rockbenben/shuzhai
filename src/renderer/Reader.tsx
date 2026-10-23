@@ -376,8 +376,26 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
       .catch(() => {}); // 字体挂不上不该让书打不开
   }, []);
 
+  /*
+   * ⚠️ **下面三条都要 `alive` 守卫。**
+   *
+   * 换书时**这个组件不会卸载**——`打开别的书` 里那两句 `setReading(null)` 和
+   * `setReading({...})` 在同一批里，React 从头到尾只渲染了一次
+   * 「旧书 → 新书」，卸载和重挂压根没发生。于是旧书那三个请求还在飞，
+   * 回来时会把**新书**的目录、繁简模式、书签盖掉。
+   *
+   * 后果不是「界面旧了一秒」：书签那条最重——新书里同一章号本来没有书签，
+   * 而屏幕上那条是旧书的，于是按 B 的时候它去**删旧书那条书签**
+   * （书签的 id 是全库连号的，删得掉）。
+   *
+   * 同下面 `book.refreshFile` 那条：它写了守卫，这三条原来没写。
+   */
   useEffect(() => {
-    rpc<TocEntry[]>('book.chapters', { bookId }).then(setToc).catch((e: Error) => setError(e.message));
+    let alive = true;
+    rpc<TocEntry[]>('book.chapters', { bookId })
+      .then((t) => { if (alive) setToc(t); })
+      .catch((e: Error) => { if (alive) setError(e.message); });
+    return () => { alive = false; };
   }, [bookId]);
 
   // 打开书时 stat 一下：文件比库里新（追更覆盖写）就挂刷新条。
@@ -392,12 +410,18 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
   }, [bookId]);
 
   useEffect(() => {
-    void rpc<string>('convert.get', { bookId }).then(setConvert);
+    let alive = true;
+    void rpc<string>('convert.get', { bookId }).then((c) => { if (alive) setConvert(c); });
+    return () => { alive = false; };
   }, [bookId]);
 
   // 进书时把这本书的书签取回来——右轨那个图标要靠它判断「这一章加过没有」
   useEffect(() => {
-    void rpc<Bookmark[]>('bookmark.list', { bookId }).then(setBookmarks).catch(() => setBookmarks([]));
+    let alive = true;
+    void rpc<Bookmark[]>('bookmark.list', { bookId })
+      .then((b) => { if (alive) setBookmarks(b); })
+      .catch(() => { if (alive) setBookmarks([]); });
+    return () => { alive = false; };
   }, [bookId]);
 
   // 离开阅读器时把朗读停掉——不然退回书架它还在念
