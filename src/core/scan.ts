@@ -577,14 +577,23 @@ export async function scanRoot(
 
     try {
       const st = await stat(path);
-      // 静默跳过是这个仓库里反复咬人的一条，见 ScanReport.skipped
-      if (st.size < minBytes) { skip('tooSmall'); continue; }
-      if (st.size > maxBytes) { skip('tooBig'); continue; }
-      const mtime = Math.floor(st.mtimeMs);
-
       const byPath = db.prepare('select * from book_file where path = ?').get(path) as
         | FileRow
         | undefined;
+      /*
+       * ⚠️ **已经在库里的文件，门槛挡下它也算「看见了」。**
+       *
+       * 原来 `seen.add` 在尺寸检查**之后**，于是「把门槛调大」会把**已经收进来的书**
+       * 标成「文件不见了」——文件明明在硬盘上、书也照样打得开。症状是卡片挂上
+       * 红角标、书被推进侧栏「需要处理」那一档、扫描报告写着「缺失 N」，
+       * 而用户第一反应是「我的文件被删了？」
+       *
+       * 判据：**「太小所以这轮不收」和「文件不在了」是两件事。**
+       * （门槛是「装的是短文合集就调小」那个设置，调大来滤掉说明文件完全合理。）
+       */
+      if (st.size < minBytes) { skip('tooSmall'); if (byPath) seen.add(byPath.id); continue; }
+      if (st.size > maxBytes) { skip('tooBig'); if (byPath) seen.add(byPath.id); continue; }
+      const mtime = Math.floor(st.mtimeMs);
 
       /*
        * 第 1 档：size + mtime 都没变，连文件都不打开。

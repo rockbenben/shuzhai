@@ -285,6 +285,33 @@ test('忽略规则和体积下限都生效', async () => {
   assert.deepEqual(books().map((b) => b.title), ['正常的书']);
 });
 
+/*
+ * **「太小所以这轮不收」和「文件不在了」是两件事。**
+ *
+ * 原来 `seen.add` 排在体积下限之后，于是「把门槛调大」会把**已经收进来的书**
+ * 标成 `missing`——文件明明在硬盘上、书也照样打得开。症状是卡片挂上红角标、
+ * 书被推进侧栏「需要处理」那一档、扫描报告写着「缺失 N」，
+ * 而用户第一反应是「我的文件被删了？」
+ */
+test('门槛调大之后，已经收进来的书不该被标成「文件不见了」', async () => {
+  writeFileSync(join(root.path, '小书.txt'), '很短的一本。', 'utf8');
+
+  // 第一轮：门槛调成 0，什么都收
+  const 第一 = await scanRoot(db, root, { minBytes: 0 });
+  assert.equal(第一.added, 1, '小书先进库');
+  const id = (db.prepare('select id from book_file').get() as { id: number }).id;
+
+  // 第二轮：门槛调回默认（10KB），它被门槛挡下了——但它**还在磁盘上**
+  const 第二 = await scanRoot(db, root, { minBytes: 10 * 1024 });
+  assert.equal(第二.skipped.tooSmall, 1, '这轮它确实被门槛挡下了');
+  assert.equal(第二.missing, 0, '报告里不该说缺失');
+  assert.equal(
+    (db.prepare('select status from book_file where id = ?').get(id) as { status: string }).status,
+    'ok',
+    '文件明明还在硬盘上，不该被标成「文件不见了」',
+  );
+});
+
 test('扫描深度上限', async () => {
   const deep = join(root.path, 'a', 'b', 'c');
   mkdirSync(deep, { recursive: true });
