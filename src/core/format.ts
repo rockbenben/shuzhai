@@ -96,8 +96,8 @@ export function sqlTime(s: string | null | undefined): number | null {
  * （`sqlTime` 那一节记着同一个坑的另一半：显示那一头）。
  * 所以**写进去的必须是这一种**，判据只此一份。
  */
-export function sqlNow(d: Date = new Date()): string {
-  return d.toISOString().replace('T', ' ').slice(0, 19);
+export function sqlNow(): string {
+  return new Date().toISOString().replace('T', ' ').slice(0, 19);
 }
 
 /**

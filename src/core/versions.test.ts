@@ -591,3 +591,34 @@ test('只编目的那一份坏不掉用户的选择：没有能读的 txt 时不
   assert.ok(主.path.endsWith('.pdf'), '没有能读的那一档时，主文件应当留在 keeper 原来那份上');
 });
 
+/*
+ * **合并书时写的 `rated_at` 必须是库里那一种格式。**
+ *
+ * 原来这里写的是 `toISOString()`（`2026-10-25T08:00:00.000Z`），而这一列
+ * 是**按字符串比**排序的（`library.ts` 的 `ORDER.rated`）——而 `'T' > ' '`，
+ * 混进来的那一条永远排在最前面，「我最近评过什么」那一档的顺序是乱的。
+ *
+ * 触发得到它的状态：**有评价、但没有 rated_at**（老备份恢复出来的就是这种——
+ * `ratedAt` 是后加的字段）。
+ */
+test('合并书时写的 rated_at 和全库其它时间是同一种格式', () => {
+  const a = addBook('三体', '刘慈欣');
+  const b = addBook('三体', '刘慈欣');
+  addFile(a, 'C:/a.txt', { primary: true });
+  addFile(b, 'C:/b.txt', { primary: true });
+  // 有评价、但没有 rated_at —— 合并时会给它补一个时间戳
+  db.prepare("update reading_state set rating = 5, comment = '好', rated_at = null where book_id = ?").run(a);
+  db.prepare('update reading_state set rated_at = null where book_id = ?').run(b);
+
+  const { keptBookId } = mergeBooks(db, [a, b]);
+
+  const row = db.prepare('select rated_at from reading_state where book_id = ?').get(keptBookId) as {
+    rated_at: string | null;
+  };
+  assert.match(
+    row.rated_at ?? '',
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
+    `必须是 datetime('now') 那种写法，实际是 ${JSON.stringify(row.rated_at)}`,
+  );
+});
+
