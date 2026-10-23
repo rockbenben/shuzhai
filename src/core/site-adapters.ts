@@ -5,8 +5,12 @@
 //
 // 一份提取规则两处用：封面链找书、更新检查认最新章，不再各抄一份
 // （「同一份判据抄第二份」是这个仓库咬过最多遍的坑）。
-import type { DatabaseSync } from 'node:sqlite';
-import { isExactMatch, normalizeForMatch, type Candidate } from './enrich.ts';
+import { isExactMatch, normalizeForMatch, applySerialIfUnknown, type Candidate } from './enrich.ts';
+/**
+ * 连载状态「只补 unknown」那条判据住在 `enrich.ts`（**它管落库**），
+ * 这里转出去一份给 `links.ts` 用——**转出去，不是抄一份**。
+ */
+export { applySerialIfUnknown };
 // 站点中文名的唯一一份在 labels.ts（渲染进程也要显示，够不到这个文件）
 import { SITE_LABELS } from './labels.ts';
 
@@ -820,33 +824,23 @@ export function adapterForUrl(url: string): SiteAdapter | null {
 }
 
 /**
- * 把连载状态从 `unknown` 补成页面上明写的状态。
- * **只补 unknown**：ongoing/finished/abandoned 都是用户（或之前一轮）标过的，
- * 覆盖它等于毁用户数据——同 `applyCandidate`「只补空缺」一条判据。
+ * 从**已经在手**的 HTML 里**认出**连载状态，零额外请求。
+ *
+ * ⚠️ **只认不写**：写是落库的事，判据在 `enrich.ts` 的 `applySerialIfUnknown`
+ * （只补 unknown）。「页面上写着什么」和「能不能写进库」分两处，
+ * 免得同一件事长出两份实现——写的那份只在 `enrich.ts` 里。
  */
-export function applySerialIfUnknown(db: DatabaseSync, bookId: number, serial: SerialState): boolean {
-  const row = db.prepare('select serial_status from book where id = ?').get(bookId) as
-    | { serial_status: string }
-    | undefined;
-  if (!row || row.serial_status !== 'unknown') return false;
-  db.prepare('update book set serial_status = ? where id = ?').run(serial, bookId);
-  return true;
-}
-
-/** 搜索页 HTML 已经在手里（封面链抓的），顺手补一次连载状态，零额外请求 */
-export function backfillSerial(
-  db: DatabaseSync,
-  bookId: number,
+export function serialFromHtml(
   adapter: SiteAdapter,
   html: string,
+  bookTitle: string,
 ): SerialState | null {
   if (!adapter.parseSerial) return null;
-  const row = db.prepare('select title from book where id = ?').get(bookId) as
-    | { title: string }
-    | undefined;
-  if (!row) return null;
-  const serial = adapter.parseSerial(html, row.title);
-  if (!serial) return null;
-  return applySerialIfUnknown(db, bookId, serial) ? serial : null;
+  // 页面改版了也不该连累补全：认不出就是认不出
+  try {
+    return adapter.parseSerial(html, bookTitle) ?? null;
+  } catch {
+    return null;
+  }
 }
 

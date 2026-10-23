@@ -26,7 +26,8 @@ import {
 import {
   qidianAdapter, shuqiAdapter, doubanAdapter, adapterById,
   matchWithAliases, doubanAnswered, probeSaysHealthy, HEALTH_PROBE, SOURCE_PROBES,
-  backfillSerial, adapterForUrl, detailCandidateFromHtml,
+  serialFromHtml, adapterForUrl, detailCandidateFromHtml,
+  type SerialState,
 } from '../core/site-adapters.ts';
 import {
   parseByRules, parseSources, type CustomSource, type SourceTest,
@@ -669,7 +670,16 @@ export class CoverFetcher {
     const html = adapter?.needsBrowser
       ? await this.loadInHiddenWindow(url)
       : await this.getText(url, adapter?.label ?? '网页');
-    return detailCandidateFromHtml(url, html);
+    const cand = detailCandidateFromHtml(url, html);
+    if (!cand) return null;
+    /*
+     * **详情页上明写的连载状态也认一下**（认不出就算了，零额外请求）。
+     *
+     * 之前这条路上连载状态永远是「未知」——候选里压根没这一项，
+     * 而书表里明明有这一列。认页面和写进库分开：写按「只补 unknown」办。
+     */
+    const serial = adapter ? serialFromHtml(adapter, html, cand.title) : null;
+    return serial ? { ...cand, serialStatus: serial } : cand;
   }
 
   // ── 内部 ──────────────────────────────────────────
@@ -830,6 +840,8 @@ export class CoverFetcher {
     // 「链顺序」和「适配器表」隐式耦合，加内置源不等于自动进链。
     let hit: Candidate | null = null;
     let source = '';
+    /** 搜索页/详情页上明写的连载状态。**只认不写**——落库那步统一按「只补 unknown」办。 */
+    let serial: SerialState | null = null;
     for (const ad of [qidianAdapter, shuqiAdapter]) {
       const url = ad.searchUrl!(book.title);
       const html = ad.needsBrowser
@@ -842,9 +854,11 @@ export class CoverFetcher {
       if (found) {
         hit = found;
         source = ad.id;
-        // 搜索页已经在手里，顺手认连载状态（只补 unknown，零额外请求）；
-        // 回填是 best-effort：它炸了不能连累封面落库
-        try { backfillSerial(this.db, book.id, ad, html); } catch { /* 顺手回填失败不影响封面 */ }
+        // 搜索页已经在手里，顺手**认**连载状态（零额外请求）。
+        // **只认不写**：由候选带下去，落库那步统一按「只补 unknown」办
+        // （判据在 `core/enrich.ts` 的 `applySerialIfUnknown`）。
+        // 认页面是 best-effort：它炸了不能连累封面落库。
+        try { serial = serialFromHtml(ad, html, book.title); } catch { /* 认不出就算了 */ }
         break;
       }
     }
@@ -886,7 +900,7 @@ export class CoverFetcher {
     // 封面也优先用详情页的、搜索缩略图兜底（mergeCandidates）。
     // 读不了或认不出就直接落搜索候选——封面/作者/地址照拿，那是这条链的老行为。
     // 老自定义配置没有 urlRe → hit.url 为空，自然走这条老路，不破坏旧配置。
-    let candidate: Candidate = { ...hit, title: book.title };
+    let candidate: Candidate = { ...hit, title: book.title, ...(serial ? { serialStatus: serial } : {}) };
     if (hit.url) {
       try {
         const detail = await this.fetchDetailCandidate(hit.url);

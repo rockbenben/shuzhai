@@ -214,6 +214,51 @@ test('不走 trustIdentity 时，书名不一致照旧拒绝（搜索匹配的�
   );
 });
 
+/*
+ * **联网补全：空着的属性都尽量补上，标过的一律不碰。**
+ *
+ * 连载状态这一项原来**候选里压根没有**——书表里有这一列、网上也明写着，
+ * 可补全这条路从来不写它，于是书上的「连载状态」永远是「未知」。
+ * 来源站点是反过来：原来**无条件覆盖**，用户自己填的会被抓来的顶掉，
+ * 和本模块「只补空缺」那条判据不是一回事。
+ */
+test('连载状态：空着的补上，本地标过的不碰', async () => {
+  const r = await applyCandidate(
+    db, userData, bookId,
+    { ...good, serialStatus: 'ongoing' },
+    { fetchImpl: fakeFetch(routes) },
+  );
+  assert.ok(r.applied.includes('连载状态'), `这次补了什么：${r.applied.join('、')}`);
+  assert.equal(
+    (db.prepare('select serial_status from book where id = ?').get(bookId) as { serial_status: string }).serial_status,
+    'ongoing',
+  );
+
+  // 本地标过的一律不碰（同「只补空缺」）
+  db.prepare("update book set serial_status = 'finished' where id = ?").run(bookId);
+  const r2 = await applyCandidate(
+    db, userData, bookId,
+    { ...good, serialStatus: 'ongoing' },
+    { fetchImpl: fakeFetch(routes) },
+  );
+  assert.ok(r2.skipped.some((s) => s.includes('连载状态')));
+  assert.equal(
+    (db.prepare('select serial_status from book where id = ?').get(bookId) as { serial_status: string }).serial_status,
+    'finished',
+    '本地标过的不许被盖掉',
+  );
+});
+
+test('来源站点也是「只补空缺」：本地填过的不覆盖', async () => {
+  db.prepare("update book set source_site = '我自己填的' where id = ?").run(bookId);
+  const r = await applyCandidate(db, userData, bookId, good, { fetchImpl: fakeFetch(routes) });
+  assert.ok(r.skipped.some((s) => s.includes('来源站点')));
+  assert.equal(
+    (db.prepare('select source_site from book where id = ?').get(bookId) as { source_site: string }).source_site,
+    '我自己填的',
+  );
+});
+
 test('本地已有的简介和封面不被覆盖', async () => {
   db.prepare("update book set intro = '我自己写的简介' where id = ?").run(bookId);
   await applyCandidate(db, userData, bookId, good, { fetchImpl: fakeFetch(routes) });

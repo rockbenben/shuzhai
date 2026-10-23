@@ -18,6 +18,9 @@ import type { DatabaseSync } from 'node:sqlite';
 import { addLink } from './links.ts';
 import { tagBooks } from './library.ts';
 import { coverDir } from './cover.ts';
+// **只取类型**（编译期擦掉）——`site-adapters.ts` 在运行时要引本文件，
+// 反过来再引它就成了环。连载状态这个类型住那边（它认页面），判据住这边（它管落库）。
+import type { SerialState } from './site-adapters.ts';
 
 export interface Candidate {
   /** 对面站点上的书名，必须和本地完全一致才算匹配 */
@@ -30,8 +33,31 @@ export interface Candidate {
   category?: string;
   tags?: string[];
   intro?: string;
+  /**
+   * 连载状态。**页面上明写的才算数**——绝不从书名里猜「完本」
+   * （猜的翻车率极高，番茄那站就因为这个明确不提供）。
+   */
+  serialStatus?: SerialState;
   /** 数据来自哪个站，记进 source_site */
   site?: string;
+}
+
+/**
+ * 把连载状态从 `unknown` 补成页面上明写的状态。
+ *
+ * **只补 unknown**：ongoing/finished/abandoned 都是用户（或之前一轮）标过的，
+ * 覆盖它等于毁用户数据——同本文件「只补空缺」一条判据。
+ *
+ * ⚠️ **判据住在这边**（这个模块只管「找到之后怎么落库」），
+ * `site-adapters.ts` 从这里转出去一份——**同一件事两份实现必然分叉**。
+ */
+export function applySerialIfUnknown(db: DatabaseSync, bookId: number, serial: SerialState): boolean {
+  const row = db.prepare('select serial_status from book where id = ?').get(bookId) as
+    | { serial_status: string }
+    | undefined;
+  if (!row || row.serial_status !== 'unknown') return false;
+  db.prepare('update book set serial_status = ? where id = ?').run(serial, bookId);
+  return true;
 }
 
 /**
@@ -89,6 +115,7 @@ export function mergeCandidates(detail: Candidate, search: Candidate): Candidate
     intro: detail.intro ?? search.intro,
     category: detail.category ?? search.category,
     tags: tags.length ? tags : undefined,
+    serialStatus: detail.serialStatus ?? search.serialStatus,
     site: detail.site ?? search.site,
     coverUrl: detail.coverUrl ?? search.coverUrl,
     url: detail.url ?? search.url,
@@ -194,8 +221,8 @@ export async function applyCandidate(
   candidate: Candidate,
   opts: { fetchImpl?: FetchLike; overwriteCover?: boolean; trustIdentity?: boolean } = {},
 ): Promise<EnrichResult> {
-  const local = db.prepare('select id, title, author, intro, cover_path, category_id from book where id = ?').get(bookId) as
-    | { id: number; title: string; author: string | null; intro: string | null; cover_path: string | null; category_id: number | null }
+  const local = db.prepare('select id, title, author, intro, cover_path, category_id, source_site from book where id = ?').get(bookId) as
+    | { id: number; title: string; author: string | null; intro: string | null; cover_path: string | null; category_id: number | null; source_site: string | null }
     | undefined;
   if (!local) throw new Error('没有这本书（记录可能已被合并或删除）');
 
@@ -224,9 +251,24 @@ export async function applyCandidate(
     }
   }
 
+  if (candidate.serialStatus) {
+    /*
+     * **连载状态：只补 unknown。**
+     *
+     * 本地标过的一律不碰——`ongoing`/`finished`/`abandoned` 都是用户或之前
+     * 一轮标过的，覆盖它等于毁用户数据（同本文件「只补空缺」一条判据）。
+     * 判据本身在 `applySerialIfUnknown`（`site-adapters.ts` 从这里转出去一份）。
+     */
+    if (applySerialIfUnknown(db, bookId, candidate.serialStatus)) applied.push('连载状态');
+    else skipped.push('连载状态（本地已标过，不覆盖）');
+  }
+
   if (candidate.site) {
-    db.prepare('update book set source_site = ? where id = ?').run(candidate.site, bookId);
-    applied.push('来源站点');
+    if (local.source_site) skipped.push('来源站点（本地已有，不覆盖）');
+    else {
+      db.prepare('update book set source_site = ? where id = ?').run(candidate.site, bookId);
+      applied.push('来源站点');
+    }
   }
 
   if (candidate.url) {

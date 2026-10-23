@@ -5,7 +5,7 @@ import {
   adapterForUrl, qidianAdapter, shuqiAdapter, doubanAdapter, zonghengAdapter, fanqieAdapter,
   duyueduAdapter, jjwxcAdapter, falooAdapter,
   adapterById, matchWithAliases, probeSaysHealthy, doubanAnswered, HEALTH_PROBE,
-  applySerialIfUnknown, backfillSerial, parseOpenGraph, detailCandidateFromHtml,
+  applySerialIfUnknown, serialFromHtml, parseOpenGraph, detailCandidateFromHtml,
 } from './site-adapters.ts';
 import type { Candidate } from './enrich.ts';
 
@@ -489,24 +489,21 @@ test('applySerialIfUnknown：只补 unknown，用户标过的一律不碰', () =
   assert.equal(applySerialIfUnknown(db, finished, 'ongoing'), false);
 });
 
-test('backfillSerial：适配器认得出才补，豆瓣恒不补', () => {
+test('serialFromHtml：适配器认得出才认，豆瓣恒认不出，**而且只认不写**', () => {
   const db = openDb();
   const id = Number(db.prepare("insert into book(title) values('某书')").run().lastInsertRowid);
   const html = '<div class="matchbook"><a class="bname">某书</a><li>连载中</li></div>';
-  assert.equal(backfillSerial(db, id, shuqiAdapter, html), 'ongoing');
-  assert.equal((db.prepare('select serial_status from book where id=?').get(id) as {serial_status:string}).serial_status, 'ongoing');
+  assert.equal(serialFromHtml(shuqiAdapter, html, '某书'), 'ongoing');
+  // **只认不写**：写是落库的事，判据在 enrich 的 applyCandidate（只补 unknown）
+  assert.equal(
+    (db.prepare('select serial_status from book where id=?').get(id) as {serial_status:string}).serial_status,
+    'unknown',
+    '认出连载状态不该顺手写库——写那一步有它自己的一份判据',
+  );
 
   const id2 = Number(db.prepare("insert into book(title) values('豆瓣书')").run().lastInsertRowid);
-  assert.equal(backfillSerial(db, id2, doubanAdapter, '<html>whatever</html>'), null);
+  assert.equal(serialFromHtml(doubanAdapter, '<html>whatever</html>', '豆瓣书'), null);
   assert.equal((db.prepare('select serial_status from book where id=?').get(id2) as {serial_status:string}).serial_status, 'unknown');
-});
-
-test('backfillSerial：已经是 finished 的不覆盖', () => {
-  const db = openDb();
-  const id = Number(db.prepare("insert into book(title, serial_status) values('某书','finished')").run().lastInsertRowid);
-  const html = '<div class="matchbook"><a class="bname">某书</a><li>连载中</li></div>';
-  assert.equal(backfillSerial(db, id, shuqiAdapter, html), null);
-  assert.equal((db.prepare('select serial_status from book where id=?').get(id) as {serial_status:string}).serial_status, 'finished');
 });
 
 // ────────────────────────────────────────────────────────────────────────
