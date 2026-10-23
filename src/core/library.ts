@@ -853,9 +853,16 @@ const ORDER: Record<SortBy, string> = {
   words: 'ifnull(fl.word_count, 0) desc, b.id desc',
   // 「我的书评」这一档默认按它：最近写的排前面。没评价过的沉到最后而不是混在中间——
   // 这一档本来就是给「翻翻我写过什么」用的
+  //
+  // ⚠️ **比的是归一化之后的时间。**这一列是**按字符串比**的，而库里两种写法都有：
+  // `datetime('now')` 写的 `2026-10-25 08:00:00`，`toISOString()` 写的
+  // `2026-10-25T08:00:00.000Z`——而 `'T' > ' '`，混进来的那一条会永远排在最前面，
+  // 「我最近评过什么」的顺序是乱的（`format.ts` 的 `sqlTime` 记着同一个坑的另一半）。
+  // 归一化：T 换成空格、去掉 Z、只留前 19 位（秒级）。
   rated: `case when r.rated_at is null then 1 else 0 end,
-          r.rated_at desc, b.id desc`,
-  rating: 'ifnull(r.rating, -1) desc, r.rated_at desc, b.id desc',
+          substr(replace(replace(r.rated_at, 'T', ' '), 'Z', ''), 1, 19) desc, b.id desc`,
+  rating: `ifnull(r.rating, -1) desc,
+           substr(replace(replace(r.rated_at, 'T', ' '), 'Z', ''), 1, 19) desc, b.id desc`,
   // 「最近读完的在前」。没读完的沉到最后，不混在中间——同上面 `rated` 那条。
   // 表格视图那一列的表头点一下走的就是它；`finished_at` 在这之前
   // **界面上一处都没用过**（一直只在库里和备份里）

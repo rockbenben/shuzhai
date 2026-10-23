@@ -88,6 +88,19 @@ export function sqlTime(s: string | null | undefined): number | null {
 }
 
 /**
+ * **写成库里的时间格式。**`datetime('now')` 存的是 UTC 的
+ * `YYYY-MM-DD HH:MM:SS`，而 `toISOString()` 给的是 `2026-10-23T02:33:00.000Z`。
+ *
+ * ⚠️ **两种混在一列里，按字符串比就会错**：`'T' > ' '`，于是 ISO 那种
+ * 永远排在 sqlite 那种前面——「我最近评过什么」那一档的顺序是乱的
+ * （`sqlTime` 那一节记着同一个坑的另一半：显示那一头）。
+ * 所以**写进去的必须是这一种**，判据只此一份。
+ */
+export function sqlNow(d: Date = new Date()): string {
+  return d.toISOString().replace('T', ' ').slice(0, 19);
+}
+
+/**
  * 库里的时间文本 → 给人看的一句话。
  *
  * **必须走这里，别把那个字符串直接印出去。** 它是 sqlite 的 UTC 文本

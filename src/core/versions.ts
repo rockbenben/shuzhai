@@ -6,6 +6,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import { ensurePrimary, preferReadable } from './primary.ts';
+import { sqlNow } from './format.ts';
 
 export interface Version {
   fileId: number;
@@ -275,8 +276,13 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
     }
     const comment = comments.length ? comments.join('\n') : null;
     // 有任何评价内容就得有时间戳，否则「我的书评」那一档按 rated_at 排，它会消失
+    //
+    // ⚠️ **必须是 `datetime('now')` 那种写法**（`2026-10-25 08:00:00`）。
+    // 原来这里写的是 `toISOString()`（`2026-10-25T08:00:00.000Z`），
+    // 而这一列是**按字符串比**排序的（`library.ts` 的 `ORDER.rated`），
+    // `'T' > ' '` → 混进来的那一条永远排在最前面，「我最近评过什么」顺序是乱的。
     const ratedAt = rating != null || comment
-      ? (mine.ratedAt ?? rest.find((x) => x.ratedAt)?.ratedAt ?? new Date().toISOString())
+      ? (mine.ratedAt ?? rest.find((x) => x.ratedAt)?.ratedAt ?? sqlNow())
       : null;
 
     const status = (mine.readingStatus && mine.readingStatus !== 'none')
