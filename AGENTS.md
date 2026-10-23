@@ -394,8 +394,8 @@ React 界面：侧栏 + 封面墙 + 阅读器（spec §6 等）
 | `npm test` | 跑测试（Node 自带的 `node:test`） |
 | `npm run typecheck` | `tsc --noEmit`，只查类型不产出文件 |
 | `npm run font:scale` | **尺子不是守卫**（永远退出 0）：界面字号现在几档、各多少处、集中在哪几个文件。量出来是「没有刻度」，要不要收是设计决定，见 `DESIGN.md` 那一节 |
-| `npm run dist` | 出 NSIS 安装包 + 便携版 zip，产物在 `release/`。⚠️ **`npm ci` 之后第一次打包会失败**，见下 |
-| `npm run dist:dir` | 只打包不做安装器，用来快速验证打包后能不能跑 |
+| `npm run dist` | 出 NSIS 安装包 + 便携版 zip，产物在 `release/`。⚠️ **`npm ci` 之后第一次打包会失败**，见下。**打包走 `scripts/package.mjs`：暂存在工作区外，成品才搬进 `release/`**，见「只有一个输出目录」那节 |
+| `npm run dist:dir` | 只打包不做安装器，用来快速验证打包后能不能跑。产物在 `%TEMP%\shuzhai-dist\win-unpacked\`，**不进 `release/`** |
 
 ### `npm run lint:ui`：一组静态走查
 
@@ -681,6 +681,20 @@ node scripts/ui-check/find.mjs       # 端到端：书内搜索那条线（列�
 ```
 
 顺带一条 walk 的坑：**`walk.mjs` 要一个全新的档案目录**——它那步依赖「这本书还没被评过」，跑第二遍必然红（「已经评过的不问」是设计）。**别在这儿记它红在哪一步、也别在这儿列症状清单**：症状会飘，而清单抄两份就变成两份不重合的半份（这条今晚真的又犯了一次，已收回去）。判据只有一个：它自己打印的 `加书库目录 收进来 0 本`。见过的症状清单在 `scripts/ui-check/README.md` 那一条，那儿是正本。
+
+## 只有一个输出目录：`release/`
+
+**仓库里只该有 `release/` 一个打包输出目录。**（2026-10-23 一度有三个：`release/`、`release-new/`、`release-verify/`——后两个是绕下面那个坑时的临时产物，坑填了之后就该删掉。）
+
+坑是这样的：**这台机器上跑着这个仓库的桌面端，会把工作区里读过的文件以「共享读写、但不共享删除」的方式挂住不放**（用 Windows 的 Restart Manager 查出来，占着的是宿主自己的 `node.mojom.NodeService` 进程）。而 electron-builder 每打一次都要**重写** `app.asar`，于是同一个输出目录**连打两次，第二次一定 EBUSY**，并且那个 `app.asar` 从此**删不掉**——改属性、截断内容、`MoveFileEx` 登记「重启时删」全被拒（共享冲突，错误码 32），只有宿主退出才会松手。
+
+所以 `scripts/package.mjs` 把**暂存目录放到工作区外**（`%TEMP%\shuzhai-dist`），打完只把**成品**搬进 `release/`：
+
+- **工作区里一个 `app.asar` 都不留** → 锁不着、删不掉、也不会 EBUSY；
+- `release/` 里每次都是**这一次**打出来的那一套（安装器 + 便携 zip + `latest.yml` + blockmap），上一版的文件会被清掉；
+- `npm run dist:dir` 只出解包版，留在 `%TEMP%` 里，**不进 `release/`**——它那份带 `app.asar`，进了工作区等于把一个删不掉的文件请回来。
+
+⚠️ **别在仓库里直接跑 `electron-builder`**：那会把 `app.asar` 放回工作区，正好复现那个删不掉的局面。走 `npm run dist`。
 
 ## 打包基线：只记「结构对不对」，不记体积
 

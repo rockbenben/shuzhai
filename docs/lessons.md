@@ -10595,3 +10595,32 @@ App 在 `reading` / `viewing` 非空时**整个 return 掉书架**（那三行�
 | 渲染进程的 file:// 加载不再等主进程空闲 | 正文字体是 `file://` 加载的 |
 
 **没上的**：新的窗口状态 API（`windowStatePersistence` 在 44 就有了，这个项目早就在用 ✓）、`webFrameMain.printToPDF()`（能加「导出 PDF」，那是**新功能**，不做）、`localAIHandler`（本项目明写着「不做 AI」✗）、`protocol.registerSource()`（实验特性 ✗）。
+## 打包输出目录多了三个：一个文件被宿主挂住就删不掉了
+
+**现象**：`npm run dist` 第一次跑就挂在 `release\win-unpacked\resources\app.asar` 上（EBUSY），于是临时打到了 `release-new/`；2026-10-19 的打包基线核对留下一份 `release-verify/`；更早还有一份躺在 `tmpcheck/release2/`。到 2026-10-23 变成四份解包输出并存。
+
+**查的过程**：
+
+1. 先怀疑是**只读属性**——Windows 上删只读文件就是 `EPERM`，而且不需要任何人占着句柄。查了：那几个 `app.asar` 的 Attributes 只有 `Archive`，`IsReadOnly=False`。**不是它**。
+2. 用 `openSync(p, 'r')` 试开一把，**开得开**——但这说明不了什么：Node 在 Windows 上开文件默认带 `FILE_SHARE_READ|WRITE|DELETE`，别人占着也照样开得开。**这一步一开始把我带偏了，得出「没被占」的结论。**
+3. 改用**逐个删**定位到真正的节点：目录里别的都删得掉，剩下的就是那几个 `app.asar`。
+4. 问 Windows「谁占着」——Restart Manager（`rstrtmgr.dll`）报的是 `MiniMax Code.exe --type=utility node.mojom.NodeService`，`可重启=False`。**占着的是宿主自己跑这个 agent 的那个 Node 服务进程**，杀不得（杀了就是断掉当前会话）。
+
+**试过但不管用的**（负结果，省得下一个人再试一遍）：
+
+| 试的动作 | 结果 |
+|---|---|
+| 改文件时间戳（`utimesSync`） | 句柄不放 |
+| 截断内容（`ftruncateSync` 到 0 字节） | 句柄不放 |
+| 以 `r+` 打开再关（逼持有者重开） | 句柄不放 |
+| 改目录名（`renameSync`） | `EPERM` |
+| `rmSync` 带 `maxRetries: 10 / retryDelay: 500` | 还是 `EPERM` |
+| `MoveFileEx(..., MOVEFILE_DELAY_UNTIL_REBOOT)`（登记「重启时删」） | **失败**，Win32 错误码 **32**（共享冲突）——登记删除本身也要 DELETE 权限 |
+
+**「共享读、不共享删」就是全部**：读得开、写得了（能截断），唯独删除和改名被拒。
+
+**一个反直觉的量**：在同一个目录里**新造**几个 `.asar`（改扩展名的假 asar，和用 `@electron/asar` 造的真 asar），放 5–6 秒再删，**都能删掉**——宿主并不是「见到 `.asar` 就挂住」。它挂的是**具体那几份被读过的构建产物**，不是按扩展名扫的。**新造的文件是安全的，被读过的旧产物不是**——而这正好说明「再造一个目录打一次」那种绕法，每绕一次就多一个删不掉的目录。
+
+**最后的修法不是绕，是让工作区里一个 `app.asar` 都不留**：`scripts/package.mjs` 把 electron-builder 的输出目录指到 `%TEMP%\shuzhai-dist`，打完只把**成品**（安装器 + 便携 zip + `latest.yml` + blockmap）搬进 `release/`。暂存在工作区外，宿主挂不着；`release/` 里也只有成品，没有 `app.asar`。
+
+⚠️ **代价**：`npm run dist:dir`（只出解包版）现在**也不进 `release/`**了，留在 `%TEMP%\shuzhai-dist\win-unpacked\`——那份带 `app.asar`，进了工作区就等于把一个删不掉的文件请回来。
