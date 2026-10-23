@@ -2815,8 +2815,10 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
               笔记={看笔记.h.note}
               颜色={看笔记.h.color}
               存笔记={async (note) => {
-                await rpc('highlight.setNote', { id: 看笔记.h.id, note: note || null });
-                set看笔记((v) => (v ? { ...v, h: { ...v.h, note: note || null } } : v));
+                const id = 看笔记.h.id;
+                await rpc('highlight.setNote', { id, note: note || null });
+                // 同 Reader 那半：**只更新还是同一条划线的那张卡**（草稿可能晚回来）
+                set看笔记((v) => (v && v.h.id === id ? { ...v, h: { ...v.h, note: note || null } } : v));
                 重取划线();
               }}
               改颜色={async (c) => {

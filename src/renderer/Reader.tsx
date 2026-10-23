@@ -1972,8 +1972,15 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
               笔记={openMark.mark.note}
               颜色={openMark.mark.color}
               存笔记={async (note) => {
-                await rpc('highlight.setNote', { id: openMark.mark.id, note: note || null });
-                setOpenMark((m) => (m ? { ...m, mark: { ...m.mark, note: note || null } } : m));
+                const id = openMark.mark.id;
+                await rpc('highlight.setNote', { id, note: note || null });
+                /*
+                 * **只更新还是同一条划线的那张卡。**
+                 * 这条回调可能在这张卡已经换到另一条划线之后才回来
+                 * （草稿是在换之前存的）——那时候把新那条的笔记改成旧草稿，
+                 * 就成了「存 A 的字、写在 B 上」。
+                 */
+                setOpenMark((m) => (m && m.mark.id === id ? { ...m, mark: { ...m.mark, note: note || null } } : m));
                 await reloadMarks();
               }}
               改颜色={async (c) => {
