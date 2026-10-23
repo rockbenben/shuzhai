@@ -1,12 +1,13 @@
 node_modules/
 dist/
 release/
-# 打包实测的验证副本：把 `npm run dist` 出来的包解开放在这儿，用来核对
-# 打进 exe 的是不是那套图标和内容（AGENTS.md「打包基线」那条）。
-# 9.4 MB 的构建产物，和 `release/` 一个理由：不是源码。
+# 下面两个是**待删的残留**，不是「另一个输出目录」：
+#   release-verify/  2026-10-19 打包基线核对的副本
+#   release-new/     2026-10-23 打包时 `release/win-unpacked` 被桌面端占着，临时打到了那里
+# 删它们要桌面端退出一次（里面的 app.asar 被它挂住不放，共享冲突，删不掉），
+# 命令在 `scratchpad/clean-release.mjs`。删干净之后这两行连同注释一起去掉，
+# .gitignore 只留 `release/` 一条。
 release-verify/
-# 另一个输出目录：`release/win-unpacked` 被别的进程占着删不掉时，临时打到这里。
-# 和 `release/` 一个理由：构建产物，不是源码。（那个进程退出后可以删掉这个目录。）
 release-new/
 
 # 本机数据，不进版本库：库文件在 userData 下，不在仓库里，但别人可能软链过来

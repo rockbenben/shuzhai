@@ -16,8 +16,8 @@
     "dev": "vite",
     "build": "vite build",
     "start": "electron .",
-    "dist": "vite build && electron-builder",
-    "dist:dir": "vite build && electron-builder --dir",
+    "dist": "node scripts/package.mjs",
+    "dist:dir": "node scripts/package.mjs --dir",
     "test:bench": "node --test \"scripts/bench/*.test.mjs\""
   },
   "dependencies": {
