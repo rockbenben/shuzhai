@@ -30,7 +30,7 @@ import { ROOT } from './repo-root.mjs';
 const SKIP = new Set([
   // 产物和版本库外的东西。**别加 'images'**——`docs/images/*.png` 是**跟踪着的**，
   // 跳过它会让 byName 少两个文件，跟「本地和干净检出结果一致」这个目标正好相反
-  'node_modules', '.git', 'dist', 'release',
+  'node_modules', '.git', 'dist', 'release', 'release-new',
   // 没进版本库的：干跑脚本和各家工具的目录。不跳的话本地会报出 CI 复现不了的东西
   // `tmpcheck` 和 `scratchpad` 是同一类东西（抓回来的网页、解包的 release、一次性探针）的老目录名
   'scratchpad', 'tmpcheck', '.claude', '.superpowers',

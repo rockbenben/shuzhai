@@ -446,7 +446,7 @@ npx install-electron            # 或 node node_modules/electron/install.js
 
 1. **不用 `iconv-lite`。** Node 自带 ICU 的 `TextDecoder` 已经能解 gbk / gb18030 /big5 / utf-16，四种都实测过。少一个依赖，打包也少一份事。
 2. **只留 `gb18030`，不分 `gbk`。** gb18030 是 gbk 的超集，用它解 gbk 内容结果完全一致，分两档只是多一个永远选不中的分支。
-3. **不用 `better-sqlite3`，用 Node 自带的 `node:sqlite`。** Electron 40+ 直接自带 Node 24（44 稳定版是 24.22.0），38/39 是 22.22，都 ≥ 22.5，这个模块全都有（查的是 `releases.electronjs.org/releases.json`）。于是原生模块、`@electron/rebuild`、`asarUnpack` 整条链都不需要。代价是它会打一行 ExperimentalWarning。
+3. **不用 `better-sqlite3`，用 Node 自带的 `node:sqlite`。** Electron 40+ 直接自带 Node 24（45 稳定版是 24.22.0），38/39 是 22.22，都 ≥ 22.5，这个模块全都有（查的是 `releases.electronjs.org/releases.json`）。于是原生模块、`@electron/rebuild`、`asarUnpack` 整条链都不需要。代价是它会打一行 ExperimentalWarning。⚠️ **Electron 45 有一条会咬到预加载脚本的破坏性变更**：沙箱化的 preload 里 **`Buffer` / `events` / `timers` / `url` / `setImmediate` 没有了**（`sandbox` 默认就是开的，而 preload 默认是沙箱里的）。本项目的 `preload.cjs` 只用 `contextBridge` / `ipcRenderer` / `webUtils`（`webUtils.getPathForFile` 是 Electron 32 起的那条路），**不碰上面任何一个**——升之前核过这一条。
 
 ## ⚠️ 只读连接的选项名是 `readOnly`，大写 O
 

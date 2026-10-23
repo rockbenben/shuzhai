@@ -10549,3 +10549,25 @@ App 在 `reading` / `viewing` 非空时**整个 return 掉书架**（那三行�
 - **能写单测的写单测**：编码那条写了回归测试，并且**拆掉修复验过一次**（测试当场红）——不然「测试通过」说明不了它有判别力
 - **`.tsx` 测不了就对着真应用量**：笔记卡那条用 CDP 走了一遍真流程（造划线 → 打开阅读器 → 点开划线 → 写笔记 → 点关闭 → 查库），**同一个探针在修之前的构建上跑是红的、修之后是绿的**
 - ⚠️ **探针翻过两次车**：第一次点不到「扫描书库」（那是我把界面路径写成了裸 rpc，而 `report` 是 React 状态）；第二次探针跑的是**旧构建**（改完没重新 build），差点把「探针没驱动到界面」当成「修复没生效」——**每一条报错都要先分清是代码坏了还是探针坏了**
+
+## 升到 Electron 45：先核「沙箱预加载脚本」那一条
+
+45.0.0 带来 **Chromium 156.0.8078.48 / Node 24.22.0 / V8 15.6**（Node 与 44 相同 ✓，所以 `node:sqlite` 那条判据不用动）。破坏性变更里有一条**会直接咬到预加载脚本**：
+
+> Removed the `events`, `timers` and `url` modules and the `Buffer`, `setImmediate` and `clearImmediate` globals from sandboxed preload scripts; use a polyfill.
+
+`sandbox` 从 Electron 20 起**默认就是开的**（预加载脚本默认跑在沙箱里），所以这一条不是「要不要开沙箱」的问题，是**默认就会中**。本项目的 `preload.cjs` 只用 `contextBridge` / `ipcRenderer` / `webUtils`（`webUtils.getPathForFile` 是 Electron 32 起替掉被拿掉的 `File.path` 那条路），**不碰上面任何一个** → 一行都不用改。
+
+**另一条看着吓人、其实不咬人**：`fs.open` 打开 asar 里的文件**不再解出临时副本**，返回的 fd 只能读档案里的条目（`fs.read` / `fs.readFile(fd)` / `createReadStream` / `FileHandle` 都支持 ✓），但拿裸 fd 干别的事会 `EBADF`，用写模式打开会 `EACCES`（原来悄悄写进临时副本）。本项目读的是**用户硬盘上的书**（不在 asar 里 ✓），主进程自己的 `.ts` 源文件是模块加载器读的（不是 `fs.open` ✓）→ 不受影响。
+
+**这一轮白捡的性能**（正好都打在热路径上）：
+
+| 变化 | 对本项目意味着 |
+|---|---|
+| asar 里的文件直接读、不抽临时副本 | 主进程的 `.ts` 是从 asar 里直接跑的，启动少一轮临时文件 |
+| contextBridge 的调用更快 | 渲染进程所有操作都走 `window.novel.rpc` |
+| ipc 传大块数据的主线程开销变小 | 章节正文就是走 ipc 的 |
+| 主进程空闲时的 CPU 唤醒变少 | 封面抓取那一堆定时器 |
+| 渲染进程的 file:// 加载不再等主进程空闲 | 正文字体是 `file://` 加载的 |
+
+**没上的**：新的窗口状态 API（`windowStatePersistence` 在 44 就有了，这个项目早就在用 ✓）、`webFrameMain.printToPDF()`（能加「导出 PDF」，那是**新功能**，不做）、`localAIHandler`（本项目明写着「不做 AI」✗）、`protocol.registerSource()`（实验特性 ✗）。

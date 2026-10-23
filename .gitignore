@@ -5,6 +5,9 @@ release/
 # 打进 exe 的是不是那套图标和内容（AGENTS.md「打包基线」那条）。
 # 9.4 MB 的构建产物，和 `release/` 一个理由：不是源码。
 release-verify/
+# 另一个输出目录：`release/win-unpacked` 被别的进程占着删不掉时，临时打到这里。
+# 和 `release/` 一个理由：构建产物，不是源码。（那个进程退出后可以删掉这个目录。）
+release-new/
 
 # 本机数据，不进版本库：库文件在 userData 下，不在仓库里，但别人可能软链过来
 *.db
