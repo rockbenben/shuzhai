@@ -132,7 +132,7 @@ export function BatchStatusDialog({ filter, onClose }: Props) {
               {done.kept > 0 && (
                 <>
                   <br />
-                  有 <strong>{done.kept}</strong> 本你已经动过（读完了，或者读到过第几章），批量没有碰它们——不然会出现「想读，却已经读到一半」这种自相矛盾的记录，已读完那些还会丢掉读完的日期。要改的话，点开那本书自己改。
+                  有 <strong>{done.kept}</strong> 本你已经动过（读完了，或者读到过第几章），批量没有碰它们——不然会出现「想读，却已经读到一半」这种自相矛盾的记录。
                 </>
               )}
             </p>
@@ -157,7 +157,7 @@ export function BatchStatusDialog({ filter, onClose }: Props) {
               {plan != null && (plan.same > 0 || plan.kept > 0) && (
                 <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
                   {plan.same > 0 && `另外 ${plan.same} 本本来就是「${name}」。`}
-                  {plan.kept > 0 && `有 ${plan.kept} 本你已经动过（读完了，或者读到过第几章），批量不会碰——不然会变成「想读，却已经读到一半」这种说不通的记录。要改的话，点开那本书自己改。`}
+                  {plan.kept > 0 && `有 ${plan.kept} 本你已经动过（读完了，或者读到过第几章），批量不会碰——不然会变成「想读，却已经读到一半」这种自相矛盾的记录。要改的话，点开那本书自己改。`}
                 </p>
               )}
             </div>

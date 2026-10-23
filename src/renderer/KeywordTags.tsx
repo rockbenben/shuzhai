@@ -54,7 +54,7 @@ export function KeywordTags({ onPick, onClose }: Props) {
 
         {words && words.length === 0 && (
           <p className="muted" style={{ margin: '0.2rem 0 0' }}>
-            书名里没有反复出现的词，这一步帮不上忙——书名各不相同的库，关掉这个窗口，在书架顶上的搜索框里按关键词找，再点「批量打标签」。
+            书名里没有反复出现的词，这一步帮不上忙。关掉这个窗口，在书架顶上的搜索框里按关键词找，再点「批量打标签」。
           </p>
         )}
 

@@ -163,7 +163,7 @@ export function ExtractDialog({ bookIds, onClose }: Props) {
             {done < picked.size && (
               <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.85rem' }}>
                 勾了 {picked.size} 本，有 {picked.size - done} 本没能改——
-                多半是那条记录已经不在了（比如刚被合并或删掉）。文件还在的话重新扫描一次会重新收进来；记录本来就没有了，关掉这个窗口重开一次就干净了。
+                多半是那条记录已经不在了（刚被合并或删掉）。文件还在的话重新扫描一次就收回来了。
               </p>
             )}
           </div>
