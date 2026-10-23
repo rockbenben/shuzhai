@@ -60,15 +60,36 @@ export function FindInBook({ 搜, onJump, onClose, 上限, 层Ref }: Props) {
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
+  /**
+   * **请求的「第几代」。**晚回来的那一代不许盖掉新的。
+   *
+   * ⚠️ 书内搜索是**逐章读**的——大书上一次要几秒到十几秒。于是连按两次回车：
+   * 第二次的结果先回来，**第一次的晚回来把它盖掉** → 屏幕上是旧词的结果，
+   * 而输入框里是新词。点一条时按**当前输入框**的词去数旧词的第几处 → 落点错的。
+   *
+   * 判据同 `App.tsx` 的 `refresh`（那边叫 `gen`）和 `SearchPanel`：**后发的那次算数。**
+   */
+  const 代 = useRef(0);
+  /**
+   * 命中的是**哪个词**。结果和词必须成对——
+   * 拿当前输入框里的词去数上一轮的结果，落点位置就是错的。
+   */
+  const [结果的词, set结果的词] = useState('');
+
   useEffect(() => input.current?.focus(), []);
 
   const search = async () => {
-    if (!q.trim()) return;
+    const 词 = q.trim();
+    if (!词) return;
+    const 我的 = ++代.current;
     setBusy(true);
     try {
-      setHits(await 搜(q));
+      const r = await 搜(词);
+      if (代.current !== 我的) return;   // 晚回来的那一轮，不许盖掉新的
+      setHits(r);
+      set结果的词(词);
     } finally {
-      setBusy(false);
+      if (代.current === 我的) setBusy(false);
     }
   };
 
@@ -109,7 +130,7 @@ export function FindInBook({ 搜, onJump, onClose, 上限, 层Ref }: Props) {
       )}
 
       {hits?.map((h, i) => (
-        <button key={i} className="find-hit" onClick={() => { onJump(h, q.trim()); onClose(); }}>
+        <button key={i} className="find-hit" onClick={() => { onJump(h, 结果的词); onClose(); }}>
           <div className="muted" style={{ fontSize: '0.75rem' }}>{h.chapterTitle}</div>
           <div>
             {h.snippet.split(/(【[^】]*】)/).map((part, j) =>

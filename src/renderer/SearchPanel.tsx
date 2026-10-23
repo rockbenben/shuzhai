@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { loadShowRating } from './settings.ts';
 import { rpc } from './rpc.ts';
 
@@ -71,16 +71,32 @@ export function SearchPanel({ onOpen, onClose }: Props) {
 
   useEffect(() => { void reloadIndexed(); }, []);
 
+  /**
+   * **请求的「第几代」。**晚回来的那一代不许盖掉新的。
+   *
+   * ⚠️ **300ms 防抖只挡得住「还没发出去的那次」，挡不住「已经在飞的那次」。**
+   * 大库上 FTS 查询要几百毫秒到几秒，于是：搜「剑来」→ 补一个字成「剑来破」→
+   * 旧查询晚回来 → `setHits` 把它盖上去 → **屏幕上显示的是上一个词的结果**，
+   * 而输入框里是新词。点一条跳过去，落到的是旧词的位置。
+   *
+   * 判据和 `App.tsx` 的 `refresh` 一样（那边叫 `gen`）：**输入一变，旧结果立刻作废。**
+   */
+  const 代 = useRef(0);
+
   // 「给哪本书建索引」的书名搜索。走 searchMeta，不需要索引
   useEffect(() => {
+    const 我的 = ++代.current;
     if (!pick.trim()) { setPicks([]); return; }
     const t = setTimeout(() => {
-      rpc<MetaHit[]>('search.meta', { query: pick }).then((r) => setPicks(r.slice(0, 8))).catch(() => setPicks([]));
+      rpc<MetaHit[]>('search.meta', { query: pick })
+        .then((r) => { if (代.current === 我的) setPicks(r.slice(0, 8)); })
+        .catch(() => { if (代.current === 我的) setPicks([]); });
     }, 250);
     return () => clearTimeout(t);
   }, [pick]);
 
   useEffect(() => {
+    const 我的 = ++代.current;
     if (!q.trim()) {
       setMeta([]);
       setHits([]);
@@ -99,12 +115,19 @@ export function SearchPanel({ onOpen, onClose }: Props) {
        * 「工具静默地什么都没做，和没问题长得一模一样」——这里是它的反面，
        * 做错了却摆着一份看起来没问题的结果。
        */
-      const 出错 = (e: Error) => { setMeta([]); setHits([]); setError(e.message); };
+      const 出错 = (e: Error) => {
+        if (代.current !== 我的) return;
+        setMeta([]);
+        setHits([]);
+        setError(e.message);
+      };
       if (scope === 'meta') {
-        rpc<MetaHit[]>('search.meta', { query: q }).then(setMeta).catch(出错);
+        rpc<MetaHit[]>('search.meta', { query: q })
+          .then((r) => { if (代.current === 我的) setMeta(r); })
+          .catch(出错);
       } else {
         rpc<Hit[]>('search.fullText', { query: q })
-          .then(setHits)
+          .then((r) => { if (代.current === 我的) setHits(r); })
           .catch(出错);
       }
     }, 300);
