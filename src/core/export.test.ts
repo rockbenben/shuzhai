@@ -14,6 +14,7 @@ import { tagBooks } from './library.ts';
 import { labelOf, READING_STATUS } from './labels.ts';
 import { makeZip } from './zip.ts';
 import { setStatus } from './status.ts';
+import { setBookConvertMode } from './convert.ts';
 import { listBooks } from './library.ts';
 import { exportBackup } from './backup.ts';
 
@@ -123,6 +124,36 @@ test('按章节区间导出', async () => {
   assert.ok(!txt.includes('第三章 转'));
 
   await assert.rejects(() => exportTxt(db, cache, bookId, { fromIdx: 99 }), /没有章节/);
+});
+
+/*
+ * **导出的章名要和正文同一个字形。**
+ *
+ * 打开繁简转换之后 `readChapter` 返回的正文和章名都是转过的，而 `collect`
+ * 原来拿库里的 `c.title` 原样拼进去——于是导出的 txt / EPUB 里正文繁体、
+ * 章名简体。判据同 `reader.ts` 那段「章名不转的后果」：屏幕上是同一份字，
+ * 导出的也必须是一份。
+ */
+test('导出时章名跟着繁简模式转，和正文一致', async () => {
+  const lib = join(dir, 'books');
+  const 繁 = Array.from({ length: 500 }, () => '这里写着头发和发现。').join('\n');
+  writeFileSync(
+    join(lib, '繁简书.txt'),
+    `第一章 开始\n${繁}\n第二章 继续\n${繁}\n`,
+    'utf8',
+  );
+  const rootId = (db.prepare('select id from library_root').get() as { id: number }).id;
+  await scanRoot(db, { id: rootId, path: lib });
+  const id = (db.prepare("select id from book where title='繁简书'").get() as { id: number }).id;
+  setBookConvertMode(db, id, 'to-traditional');
+
+  const txt = await exportTxt(db, cache, id);
+  assert.match(txt, /第一章 開始/, '章名要跟正文一起转');
+  assert.doesNotMatch(txt, /第一章 开始/, '章名不该还是原字形');
+
+  const files = readZip(await exportEpub(db, cache, id));
+  const ch0 = files.get('OEBPS/ch0.xhtml')!.toString('utf8');
+  assert.match(ch0, /<h2>第一章 開始<\/h2>/);
 });
 
 test('导出默认套用清洗规则，和读到的一致', async () => {

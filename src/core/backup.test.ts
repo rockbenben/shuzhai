@@ -12,6 +12,7 @@ import { tagBooks } from './library.ts';
 import { addManualBook } from './manual.ts';
 import { addHighlight, tagHighlights, tagsOfHighlights } from './highlight.ts';
 import { setBookConvertMode, bookConvertMode } from './convert.ts';
+import { addLink, listLinks } from './links.ts';
 
 let dir: string;
 let lib: string;
@@ -304,6 +305,60 @@ test('认不回来的书列出来，不凭空建幽灵条目', async () => {
       '关联不上就不该建书——否则用户得到一堆点开就报「文件缺失」的条目',
     );
     assert.ok(report.unmatched[0].paths.length > 0, '要把原路径列出来，用户才认得出是哪本');
+  } finally {
+    fresh.close();
+  }
+});
+
+/*
+ * **导出了的东西，恢复时不能静默丢掉。**
+ *
+ * `exportBackup` 每本书都带 `onlineLinks`（用户粘的官网 / 详情页，里面还有他
+ * 手写的提取正则），而 `importBackup` 原来一个字都不读它。恢复到新库 / 新机器
+ * 之后那些地址全没了——它们不是「重抓就有」：手填的地址重抓不会回来。
+ * 这正是本文件开头那句「宁可备份里多带点东西，也不能少带」要防的形状。
+ */
+test('在线地址也要恢复，而且要落在恢复之后那本书上', async () => {
+  const id = await seed();
+  addLink(db, id, 'https://www.qidian.com/book/123/', {
+    isPrimary: true,
+    note: '用户自己粘的详情页',
+    selector: '<h1>(.*?)</h1>',
+  });
+  addLink(db, id, 'https://example.com/book');
+  const bk = exportBackup(db);
+  assert.equal(
+    bk.books.find((b) => b.title === '雪中悍刀行')!.onlineLinks.length,
+    2,
+    '导出要带上在线地址',
+  );
+
+  // 换一个库恢复，先塞两本占位书把自增顶掉（同 viewerPos / convertMode 那两条）
+  const fresh = openDb(join(dir, 'fresh-links.db'));
+  try {
+    fresh.prepare("insert into book(title, author) values('占位用的', '某某')").run();
+    fresh.prepare("insert into book(title, author) values('也是占位', '某某')").run();
+    const r2 = Number(fresh.prepare('insert into library_root(path) values(?)').run(lib).lastInsertRowid);
+    await scanRoot(fresh, { id: r2, path: lib });
+    importBackup(fresh, bk);
+
+    const 新 = (fresh.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+    const links = listLinks(fresh, 新);
+    assert.equal(links.length, 2, '两条地址都要回来');
+    assert.equal(
+      links.find((l) => l.is_primary === 1)?.url,
+      'https://www.qidian.com/book/123/',
+      '主地址也要回来',
+    );
+    assert.equal(
+      links.find((l) => l.is_primary === 0)?.url,
+      'https://example.com/book',
+    );
+    assert.equal(
+      links.find((l) => l.is_primary === 1)?.selector,
+      '<h1>(.*?)</h1>',
+      '用户手写的提取正则也是不可再生的',
+    );
   } finally {
     fresh.close();
   }

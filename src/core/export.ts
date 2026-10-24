@@ -89,7 +89,15 @@ async function collect(
     const ch = await readChapter(db, cache, bookId, r.idx, opts.clean === false);
     // 正文里去掉重复的标题行——EPUB 那边标题是单独的 <h2>
     const body = ch.text.startsWith(ch.title) ? ch.text.slice(ch.title.length) : ch.text;
-    out.push({ idx: r.idx, title: r.title, text: body.trim() });
+    /*
+     * **章名用 `readChapter` 给的那一份，不是库里的原样。**
+     *
+     * 打开繁简转换之后正文是转过的（`readChapter` 里先清洗再转换），而这里原来
+     * 用 `r.title`——库里那份原文。导出的文件于是正文繁体、章名简体，两种字形
+     * 混在同一本书里。`readChapter` 早就把章名一起转了（同样的理由：
+     * `text.startsWith(title)` 得成立），这里只是没接上。
+     */
+    out.push({ idx: r.idx, title: ch.title, text: body.trim() });
   }
   return out;
 }

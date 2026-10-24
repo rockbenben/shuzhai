@@ -34,6 +34,7 @@ import { READING_STATUS_IDS, asFinite, asText, asWhen } from './status.ts';
 import { sqlTime } from './format.ts';
 import { readOutline, writeOutline } from './outline.ts';
 import { bookConvertMode, setBookConvertMode, type ConvertMode } from './convert.ts';
+import { addLink } from './links.ts';
 
 /**
  * 备份格式版本。
@@ -853,6 +854,37 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
       }
 
       restoreUserData(db, bookId, bb, report);
+
+      /*
+       * **在线地址**（用户自己粘的官网 / 详情页，外加他写的提取正则）。
+       *
+       * 导出那头每本书都带着 `onlineLinks`（`exportBackup`），恢复这头原来
+       * 一个字都不读——于是恢复到新库 / 新机器之后它们全没了。它们**不是
+       * 「重抓就有」**：封面抓取顺手记的那些可以重抓，而用户手填的地址和
+       * 自己写的「最新章节」正则重扫、重抓都回不来。
+       *
+       * `id` / `book_id` 是旧库的，不能照搬；走 `addLink`——URL 校验和按
+       * 归一化地址去重都是同一份判据，所以导两次不会翻倍，也不会因为一条坏
+       * 地址让整份备份回滚（同 outline / convertMode 的处理）。
+       */
+      for (const raw of bb.onlineLinks ?? []) {
+        const l = raw as {
+          url?: unknown;
+          is_primary?: unknown;
+          selector?: unknown;
+          note?: unknown;
+        } | null;
+        if (typeof l?.url !== 'string' || !l.url.trim()) continue;
+        try {
+          addLink(db, bookId, l.url, {
+            isPrimary: l.is_primary === 1 || l.is_primary === true,
+            selector: typeof l.selector === 'string' && l.selector.trim() ? l.selector : undefined,
+            note: typeof l.note === 'string' && l.note.trim() ? l.note : undefined,
+          });
+        } catch {
+          report.fixed++;
+        }
+      }
 
       if (bb.parseRule) {
         db.prepare("delete from parse_rule where book_id = ? and scope = 'book'").run(bookId);
