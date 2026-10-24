@@ -10624,3 +10624,19 @@ App 在 `reading` / `viewing` 非空时**整个 return 掉书架**（那三行�
 **最后的修法不是绕，是让工作区里一个 `app.asar` 都不留**：`scripts/package.mjs` 把 electron-builder 的输出目录指到 `%TEMP%\shuzhai-dist`，打完只把**成品**（安装器 + 便携 zip + `latest.yml` + blockmap）搬进 `release/`。暂存在工作区外，宿主挂不着；`release/` 里也只有成品，没有 `app.asar`。
 
 ⚠️ **代价**：`npm run dist:dir`（只出解包版）现在**也不进 `release/`**了，留在 `%TEMP%\shuzhai-dist\win-unpacked\`——那份带 `app.asar`，进了工作区就等于把一个删不掉的文件请回来。
+
+## 升完 electron-builder 之后安装包大了 9 MB：不是应用变了
+
+升 electron-builder 26.15.3 → 26.18.0 之后，本地出的 NSIS 安装包从 120,025,836 字节变成 129,140,093 字节（+9,114,257，+7.6%），**而便携 zip 只长了 1,218 字节**——应用本身一个字节都没变，大的是安装器这一层。
+
+差在 electron-builder 给 NSIS 打的那个 7z 包上。26.15.3 的 `app-builder-lib/out/targets/nsis/NsisTarget.js` 里没有 `createAppPackageArchiveOptions`；26.18.0 有了，而它给 archive 选项加了一条 `installTimeDecodable: true`，旁边的注释写得很清楚：
+
+> The install-time Nsis7z extractor only decodes plain LZMA2/Copy and single-stream BCJ — not the CPU branch converters modern 7za applies to executables (BCJ2 on x86/x64, ARM64 on arm64), which it silently skips, dropping the main exe and every native binary from the install.
+
+也就是**新版把 BCJ2（给 x86/x64 可执行文件用的分支转换过滤器）关掉了**：它会让安装环节**静默丢掉主 exe 和所有原生库**（上游 #9983）。代价是那些 exe/dll 只能靠普通 LZMA2 压，压不动，于是安装包大了 9 MB。**这是拿体积换正确性**，不是回归。
+
+**判据：大小变了先别怀疑自己的改动——比 zip。** zip 装的是同一份 win-unpacked，zip 没变就说明 payload 没变，变的只有安装器怎么压。再对一下本机的 NSIS 工具集缓存（`%LOCALAPPDATA%\electron-builder\Cache\nsis-resources-*`）没换版本，「工具集换了」这个解释也排掉了。
+
+⚠️ **`store-asar` 那条不是原因**：它要 `nsis.differentialPackage: "store-asar"` 才开（源码里 `isStoreAsar` 要求这个值精确等于 `store-asar`），本仓库没配。26.17.0 release notes 里的 "store-asar mode for proportional differential updates" 是**要显式配的 opt-in**，看见它别以为默认开了。
+
+**顺带记一条负结果**：升完之后 `app-update.yml` 照样生成（`owner` / `repo` / `provider` / `updaterCacheDirName` 四项与升级前一字不差），`latest.yml` 与 blockmap 也照出——**这三条是应用内更新的命门**，换 builder 版本时必须当场验，别靠「版本号只涨了 patch」推断。
