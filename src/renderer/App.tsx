@@ -35,7 +35,7 @@ import { planOpen } from '../core/open.ts';
 import { UNREVIEWED } from '../core/library.ts';
 import type { DirNode } from '../core/library.ts';
 import type { SplitIssue as BadSplit } from '../core/health.ts';
-import { formatOf, extOf, BOOK_EXT, TEXT_EXT } from '../core/book-format.ts';
+import { formatOf, extOf, BOOK_EXT, TEXT_EXT, viewerOf } from '../core/book-format.ts';
 import { wan, relTime, sqlTime, whenAgo, activeFilterWords, displayChapters } from '../core/format.ts';
 // 类型是 import type，会被完全擦除——不会像值导入那样把扫描器拖进渲染包。
 // 手抄一份 interface 的代价是加一个字段要改三处，而漏抄不报错
@@ -107,6 +107,22 @@ export interface Book {
   /** 主文件的 mtime（毫秒 epoch）。没有文件的手工书是 null */
   mtime?: number | null;
   has_cover?: number;
+}
+
+/** 「继续阅读」入口要的那几样（`reading.recent` 返回的形状） */
+interface ResumeRow {
+  bookId: number;
+  title: string;
+  author: string | null;
+  status: string;
+  percent: number | null;
+  chapterIdx: number | null;
+  lastReadAt: string;
+  /**
+   * 主文件路径。**PDF / EPUB 不能报章号**：它们的位置存在 `viewer.<bookId>`，
+   * `reading_state.chapter_idx` 永远是 0（同书架卡片那一行，见 `位置名` 那套判据）。
+   */
+  path: string | null;
 }
 
 /**
@@ -449,6 +465,8 @@ export function App() {
   const updateIds = useMemo(() => new Set(hints.filter((h) => h.hasUpdate).map((h) => h.bookId)), [hints]);
 
   const [reading, setReading] = useState<{ id: number; title: string; at: number; off?: number } | null>(null);
+  /** 最近一本「在读」的书。跟着书架刷新一起取；没有就不显示入口 */
+  const [resume, setResume] = useState<ResumeRow | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [ruleFor, setRuleFor] = useState<{ id: number; title: string } | null>(null);
   const [linksFor, setLinksFor] = useState<{ id: number; title: string } | null>(null);
@@ -781,14 +799,27 @@ export function App() {
    */
   const loadCounts = useCallback(async () => {
     // 两趟互不依赖，并行发。串起来就是白等一个往返
-    const [c, tags, list] = await Promise.all([
+    const [c, tags, list, recent] = await Promise.all([
       // 形状从 core 引，别在这儿手抄一份——那是这个仓库栽过七次的形状
       rpc<ShelfCounts>('book.counts', { scope: crossFilter }),
       // 标签表跟着一起取：打完标签那一排开关要立刻能用，不然得重开应用才看得见
       rpc<Tag[]>('tag.list'),
       rpc<SmartShelf[]>('shelf.list'),
+      /*
+       * **「继续阅读」跟着这一趟走。** 它和侧栏计数是同一批刷新时机：回到书架、
+       * 改完状态、扫描完都会跑到这里。单挂一条 effect 的话，「在批量改状态里
+       * 把手上这本标成弃坑」不会触发它，入口还留在那儿。
+       * 失败只让这一块保持原样，不能连累计数和标签（所以自己 catch 成 null）。
+       */
+      rpc<ResumeRow[]>('reading.recent', { limit: 10 }).catch(() => null),
     ]);
     setCats(list);
+    /*
+     * **只在「在读」的书里挑。** 一本已经读完/弃坑的书 last_read_at 也可能是最新的，
+     * 但它不该出现在「继续阅读」里；没有在读的就整条隐藏，别摆一个空壳。
+     * 用 `reading.recent` 而不是 `reading.last`，因为后者不带状态。
+     */
+    if (recent) setResume(recent.find((r) => r.status === 'reading') ?? null);
     /*
      * **分类没了，按它筛的那一条也得跟着撤掉**——和下面标签那条是同一条规矩：
      * 界面必须显示正在生效的状态，做不到就别让那个状态继续生效。
@@ -1467,6 +1498,40 @@ export function App() {
             onChange={(e) => setTyped(e.target.value)}
             placeholder="搜书名 / 作者 / 别名"
           />
+        )}
+
+        {/*
+          * **继续阅读**：书架是「找书」的地方，但用户回来最常见的目的只有一个——
+          * 接着上次那本读。没有在读记录时整块不出现；有就直接打开上次的位置
+          * （`打开别的书` 会走 `book.detail`，位置已经在里面了）。
+          */}
+        {resume && (
+          <button
+            className="nav-resume"
+            onClick={() => 打开别的书(resume.bookId)}
+            title={`继续阅读《${resume.title}》`}
+          >
+            <span className="nav-resume-kicker">继续阅读</span>
+            <span className="nav-resume-title">《{resume.title}》</span>
+            <span className="nav-resume-meta">
+              {(() => {
+                /*
+                 * **PDF / EPUB 不报章号。** 它们的位置存在 `viewer.<bookId>`，
+                 * `reading_state.chapter_idx` 永远是 0——照直渲染的话，一本翻到
+                 * 第 100 页的 PDF 会在入口上写着「第 1 章」（同书架卡片那一行）。
+                 */
+                const viewer = viewerOf(resume.path);
+                if (viewer) return `${viewer.toUpperCase()} · 上次读到的位置`;
+                if (formatOf(resume.path) === 'text' && resume.chapterIdx != null) {
+                  return `第 ${resume.chapterIdx + 1} 章`
+                    + (resume.percent != null && resume.percent > 0 && resume.percent < 100
+                      ? ` · ${Math.round(resume.percent)}%`
+                      : '');
+                }
+                return '上次打开的那本';
+              })()}
+            </span>
+          </button>
         )}
 
         {/* 品牌、搜索框在这层外面（固定）；档位多到放不下时只滚这一段，

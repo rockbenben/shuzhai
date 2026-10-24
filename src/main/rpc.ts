@@ -289,6 +289,20 @@ function str(params: unknown, key: string): string {
 }
 
 /**
+ * 读一份备份 JSON。`backup.importFile` 和 `backup.linkFile` 共用——
+ * 「读文件 + 报一句人话」只此一份，别在两处各抄一遍。
+ */
+async function readBackupFile(path: string): Promise<BackupFile> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(path, 'utf8'));
+  } catch (e) {
+    throw new Error(`读不了这个备份文件：${e instanceof Error ? e.message : String(e)}`);
+  }
+  return parsed as BackupFile;
+}
+
+/**
  * 「哪个目录里的书是什么连载状态」的规则，存在设置里，用户自己定。
  * 存坏了不该让扫描挂掉——读不出来就当没配。
  */
@@ -2020,26 +2034,50 @@ export function createRpc(
     'backup.importFile': async (params) => {
       const { path } = asRecord(params);
       if (typeof path !== 'string' || !path) throw new Error('缺少 path');
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(await readFile(path, 'utf8'));
-      } catch (e) {
-        throw new Error(`读不了这个备份文件：${e instanceof Error ? e.message : String(e)}`);
-      }
-      return importBackup(db, parsed as BackupFile);
+      return importBackup(db, await readBackupFile(path));
     },
 
-    /** **写库**：把某本关联不上的备份记录手动指认到一本已有的书上 */
     /*
      * **写库**：把备份里认不回来的那一本手工指到某本书上。
      *
-     * 这条路**没有界面入口**（`unmatched` 在恢复报告里只是告知），是给外部工具的（§13）——
-     * 所以返回值要说清搬回了什么，别只回一句 `{ ok: true }`：
-     * 调用方看不见界面，那个报告就是它唯一的反馈。
+     * 外部工具直接传 `BackupBook`；界面走下面的 `backup.linkFile`——
+     * 恢复报告里只带一个备份序号，按序号从备份文件取回同一个 `BackupBook`，
+     * 不靠书名/作者猜（同名书会认错人，文件在恢复后被改过也会认错）。
+     * 返回值要说清搬回了什么，别只回一句 `{ ok: true }`：
+     * 那个报告是调用方唯一的反馈。
      */
     'backup.link': (params) => {
       const { backupBook } = asRecord(params);
       return linkManually(db, backupBook as BackupBook, num(params, 'bookId'));
+    },
+
+    /**
+     * **写库**：把恢复报告里某一条 unmatched 指认到一本已有的书上。
+     *
+     * `backupIndex` 来自 `RestoreReport.unmatched`，是这份备份 `books` 数组的
+     * 下标；重新读一遍备份文件按它取回 `BackupBook`。文件被改过、下标越界
+     * 就当场报错，不拿一个来路不明的记录去覆盖。
+     */
+    'backup.linkFile': async (params) => {
+      const { path, title } = asRecord(params);
+      if (typeof path !== 'string' || !path) throw new Error('缺少 path');
+      const backup = await readBackupFile(path);
+      if (!Array.isArray(backup.books)) throw new Error('备份文件格式不对：里面没有书的记录');
+      const index = num(params, 'backupIndex');
+      if (!Number.isInteger(index) || index < 0 || index >= backup.books.length) {
+        throw new Error('这份备份里没有这一本了——文件可能被改过，重新导入一次再试');
+      }
+      const book = backup.books[index];
+      /*
+       * **下标对得上不等于还是同一本。** 恢复报告和这次指认之间，备份文件
+       * 可能被同步盘覆盖、被用户用文本编辑器改过（它是能打开的 JSON）。
+       * 书名是报告里给用户看的那一行，对不上就当场停——拿一条来路不明的
+       * 记录去覆盖本地评价，比报一句错糟得多。
+       */
+      if (typeof title === 'string' && title !== book.title) {
+        throw new Error('备份文件里的这一条和刚才恢复时不一样了——文件可能被改过，重新导入一次再试');
+      }
+      return linkManually(db, book, num(params, 'bookId'));
     },
 
     // ── M4 可选项（spec §2.5 / §10）────────────────────────────────

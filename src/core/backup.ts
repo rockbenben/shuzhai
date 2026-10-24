@@ -366,8 +366,14 @@ export interface RestoreReport {
    * 所以：**收拾掉，然后照实报几处**。
    */
   fixed: number;
-  /** 认不回来的书，列出来让用户手动指认（spec §10） */
-  unmatched: Array<{ title: string; author: string | null; paths: string[] }>;
+  /**
+   * 认不回来的书，列出来让用户手动指认（spec §10）。
+   *
+   * `backupIndex` 是它在**这份备份** `books` 数组里的下标。界面手动指认时
+   * 要拿原来的 `BackupBook` 去 `linkManually`，而按书名/作者找会在同名书、
+   * 或备份文件在恢复后被改过时认错人；存下标是一一对应的。
+   */
+  unmatched: Array<{ title: string; author: string | null; paths: string[]; backupIndex: number }>;
   createdCategories: number;
   createdTags: number;
   /**
@@ -740,7 +746,7 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
       }
     }
 
-    for (const bb of backup.books) {
+    for (const [backupIndex, bb] of backup.books.entries()) {
       let bookId: number | null = null;
 
       // 1. hash 和路径同时命中，最可靠
@@ -800,7 +806,12 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
       if (bookId !== null) claimed.add(bookId);
 
       if (bookId === null) {
-        report.unmatched.push({ title: bb.title, author: bb.author, paths: bb.files.map((f) => f.path) });
+        report.unmatched.push({
+          title: bb.title,
+          author: bb.author,
+          paths: bb.files.map((f) => f.path),
+          backupIndex,
+        });
         continue;
       }
 

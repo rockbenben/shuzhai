@@ -39,6 +39,16 @@ export interface ParseResult {
   ruleName: string;
   /** false 表示没识别出章节、走了机械分段（spec §2.2 兜底策略） */
   recognized: boolean;
+  /**
+   * 参选的规则里，命中最多的那条认出了**多少行标题**（去重之后）。
+   *
+   * **`recognized` 答不了「这条规则到底认没认出来」。** 一本有卷标记的书，
+   * 一条一条都不匹配的自定义标题规则会被卷兜底接住：`ruleName` 是
+   * `volume-only`、`recognized` 是 true，而用户写的正则**一行都没命中**。
+   * 规则编辑器要在落库前问一句「你这条规则一条标题都没认出来」，
+   * 判据只能是这个数，不能是 `recognized`。
+   */
+  titleHits: number;
 }
 
 export interface ParseRule {
@@ -845,8 +855,11 @@ export function parseChapters(
   const volumeHits = VOLUME_RULES.map((r) => matchLines(lines, r)).sort((a, b) => b.length - a.length)[0] ?? [];
 
   let best: { rule: ParseRule; hits: Line[]; score: number } | null = null;
+  // 「这条规则认出几行标题」和「最终用了哪条路」是两件事，见 `ParseResult.titleHits`
+  let titleHits = 0;
   for (const rule of rules) {
     const hits = dropRepeatedTitleLines(matchLines(lines, rule));
+    if (hits.length > titleHits) titleHits = hits.length;
     const score = scoreRule(hits, totalBytes);
     if (score > 0 && (best === null || score > best.score)) best = { rule, hits, score };
   }
@@ -856,6 +869,7 @@ export function parseChapters(
       chapters: buildChapters(best.hits, totalBytes, volumeHits, MIN_CHAPTER_CHARS * bytesPerChar(encoding)),
       ruleName: best.rule.name,
       recognized: true,
+      titleHits,
     };
   }
 
@@ -870,10 +884,11 @@ export function parseChapters(
       chapters: buildChapters(volumeHits, totalBytes, []),
       ruleName: 'volume-only',
       recognized: true,
+      titleHits,
     };
   }
 
-  return { chapters: fallbackChunks(lines, totalBytes), ruleName: 'fallback-chunk', recognized: false };
+  return { chapters: fallbackChunks(lines, totalBytes), ruleName: 'fallback-chunk', recognized: false, titleHits };
 }
 
 export interface Progress {

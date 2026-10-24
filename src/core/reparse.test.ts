@@ -119,6 +119,40 @@ test('清掉自定义规则会回到内置规则', async () => {
   assert.equal(p.recognized, false, '内置规则依然认不出，回到机械分段');
 });
 
+/*
+ * **`recognized` 挡不住「这条规则一条标题都没认出来」。**
+ *
+ * 一本有卷标记的书：一条啥都不匹配的自定义标题规则，会被 `parseChapters`
+ * 的按卷兜底接住——`recognized` 是 true、`ruleName` 是 `volume-only`，
+ * 而用户写的正则**一行都没命中**。规则编辑器如果拿 `recognized` 当
+ * 「要不要问一句」的判据，这条规则会被**直接落库**，以后每次追更都按卷切。
+ * 走查里真实撞到过（一本 60 章的书，输入一条不可能匹配的规则，点「应用」
+ * 没有任何确认就存进去了）。
+ *
+ * 判据只能是「这条规则认出几行标题」，也就是 `titleHits`。
+ */
+test('一条都不匹配的规则：titleHits 如实报 0，哪怕 recognized 被按卷兜底置为 true', async () => {
+  const lib = join(dir, 'books');
+  const rootId = (db.prepare('select id from library_root').get() as { id: number }).id;
+  const filler = Array.from({ length: 80 }, () => '风雪夜归人，孤灯照旧影。').join('\n');
+  const text = ['第一卷 少年游', '第一章 出发', '第二章 抵达',
+    '第二卷 江湖路', '第三章 重逢', '第四章 归途']
+    .map((t) => `${t}\n${filler}\n`).join('');
+  writeFileSync(join(lib, '有卷标记的书.txt'), text, 'utf8');
+  await scanRoot(db, { id: rootId, path: lib });
+  const id = (db.prepare("select id from book where title = '有卷标记的书'").get() as { id: number }).id;
+
+  const none = await previewChapters(db, id, '^一条都匹配不上的标题$');
+  assert.equal(none.titleHits, 0, '这条规则一行标题都没认出来');
+  assert.equal(none.recognized, true, '前置：卷标记把它接住了——这正是只看 recognized 会漏掉的情形');
+  assert.equal(none.ruleName, 'volume-only');
+  assert.equal(none.count, 2, '两卷各成一章');
+
+  const some = await previewChapters(db, id, '^第[一二三四]章');
+  assert.equal(some.titleHits, 4, '真认出标题时也要报对数，不能恒为 0');
+  assert.ok(some.titles.includes('第一章 出发') && some.titles.includes('第四章 归途'));
+});
+
 test('坏正则要报清楚，且不能留下半截状态', async () => {
   await assert.rejects(() => previewChapters(db, bookId, '('), /正则无效/);
   await assert.rejects(() => applyRule(db, bookId, '['), /正则无效/);

@@ -305,6 +305,10 @@ test('认不回来的书列出来，不凭空建幽灵条目', async () => {
       '关联不上就不该建书——否则用户得到一堆点开就报「文件缺失」的条目',
     );
     assert.ok(report.unmatched[0].paths.length > 0, '要把原路径列出来，用户才认得出是哪本');
+    // 界面手动指认靠这个下标取回原来的 BackupBook（按书名找会在同名时认错）
+    for (const u of report.unmatched) {
+      assert.equal(bk.books[u.backupIndex]?.title, u.title);
+    }
   } finally {
     fresh.close();
   }

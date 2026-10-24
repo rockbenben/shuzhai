@@ -1618,7 +1618,7 @@ until curl -s --max-time 2 http://127.0.0.1:30036/api/stats >/dev/null; do sleep
 
 两条路现在共用 `restoreUserData`（阅读状态 + 书签 + 划线 + 会话，去重和计数都在里面），`linkManually` 返回 `LinkResult`。破坏一次验过（把它退回「自己抄一份」→ 红 2 条）。
 
-顺带：`backup.link` 原来只回 `{ ok: true }`。**这条路没有界面入口**（`unmatched` 在恢复报告里只是告知，spec §10 那个「手动指认」界面一直没做），是给外部工具的——调用方看不见界面，返回值就是它唯一的反馈，所以现在把搬回了什么原样回出去。
+顺带：`backup.link` 原来只回 `{ ok: true }`。**这条 rpc 至今没有界面入口**——恢复报告里那几条 unmatched 现在可以手动指认（2026-10-24 补的），但界面走的是 `backup.linkFile`（按备份下标取回原来的 `BackupBook`，不靠书名猜，同名书和恢复后被改过的文件都不会认错）；`backup.link` 仍留给外部工具，调用方看不见界面，返回值就是它唯一的反馈，所以现在把搬回了什么原样回出去。
 
 ## 「添读过的书」会把那本书几个月前写的评价盖掉
 
@@ -10640,3 +10640,17 @@ App 在 `reading` / `viewing` 非空时**整个 return 掉书架**（那三行�
 ⚠️ **`store-asar` 那条不是原因**：它要 `nsis.differentialPackage: "store-asar"` 才开（源码里 `isStoreAsar` 要求这个值精确等于 `store-asar`），本仓库没配。26.17.0 release notes 里的 "store-asar mode for proportional differential updates" 是**要显式配的 opt-in**，看见它别以为默认开了。
 
 **顺带记一条负结果**：升完之后 `app-update.yml` 照样生成（`owner` / `repo` / `provider` / `updaterCacheDirName` 四项与升级前一字不差），`latest.yml` 与 blockmap 也照出——**这三条是应用内更新的命门**，换 builder 版本时必须当场验，别靠「版本号只涨了 patch」推断。
+
+## 一条啥都不匹配的章节规则被「按卷兜底」接住了——`recognized` 说它是好的
+
+**现象**：规则编辑器要在落库前问一句「这条规则一条标题都没认出来」。第一版拿 `preview.recognized` 当判据，走查时在一本 60 章、带 3 卷的书上输入 `^走查绝不匹配的标题$`：
+
+- 预览显示「会切成 3 章」（`第1卷 卷名1` 那几条）；
+- 点「应用这条规则」**没有任何确认**，规则当场落库（`chapter.rule` 查得到）；
+- `recognized` 是 **true**、`ruleName` 是 **`volume-only`**。
+
+**原因**：`parseChapters` 在没有标题规则得分时会退到卷标记（`volume-only`），并把它算作识别成功。这个兜底本身是对的——但 `recognized` 回答的是「最终用了哪条路」，不是「用户写的这条规则认没认出来」。在它上面加判据，等于问错了问题。
+
+**修法**：`ParseResult` / `ParsePreview` 增加 `titleHits`——参选规则里命中最多的那条认出了**几行标题**（去重之后）。规则编辑器只认 `titleHits === 0`；确认文案按 `recognized` 分两句：按固定字数分段，还是「这本书有卷标记，会按卷切成 N 章，你写的规则一条都没生效」。`reparse.test.ts` 里那本带卷标记的书同时钉住两半：零命中时 `titleHits === 0` 而 `recognized === true`，真命中时 `titleHits === 4`。
+
+**顺带一条同源的**：「继续阅读」入口不能给 PDF / EPUB 报「第 N 章」——`reading_state.chapter_idx` 对只编目的格式永远是 0，真实位置在 `app_setting` 的 `viewer.<bookId>`。书架卡片那行早就有这条判据（「一本翻到第 100 页的 PDF 在卡片上写着『第 1 章』——一个凭空捏出来的数」），入口这边复用了 `viewerOf(path)`；走查里第一本最近的恰好就是 PDF，当场抓到了。三项功能（规则确认、备份手动指认、继续阅读）的界面路径逐条断言，全部在隔离档案 + 测试库上真跑过。

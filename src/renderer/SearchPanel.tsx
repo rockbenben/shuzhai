@@ -16,7 +16,7 @@ interface IndexedBook {
   chapters: number;
 }
 
-interface MetaHit {
+export interface MetaHit {
   bookId: number;
   title: string;
   author: string | null;

@@ -7,6 +7,8 @@ interface Preview {
   titles: string[];
   recognized: boolean;
   ruleName: string;
+  /** 这条规则认出了几行标题；0 = 一条都没认出来（`recognized` 挡不住按卷兜底） */
+  titleHits: number;
 }
 
 interface Props {
@@ -41,9 +43,19 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
   const [pattern, setPattern] = useState('');
   const [saved, setSaved] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  /**
+   * 这份预览是拿哪条 pattern 算出来的。
+   *
+   * ⚠️ **不能只看「preview 非空」就允许应用。** 预览是 350ms 防抖的，用户敲完
+   * 立刻点「应用」时手里还是上一条规则的预览——旧版会拿旧结论放行，于是
+   * 「先预览再落库」这句话在新规则上是假的。零章确认也靠它判断，先钉住。
+   */
+  const [previewOf, setPreviewOf] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [changed, setChanged] = useState(false);
+  /** 一条标题都没认出来的规则，先问一句再落库 */
+  const [确认未识别, set确认未识别] = useState(false);
   /** null = 还在算。空数组 = 算完了但一条都没猜出来 */
   const [suggests, setSuggests] = useState<Suggestion[] | null>(null);
   /**
@@ -60,8 +72,10 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
       setError(null);
       try {
         setPreview(await rpc<Preview>('chapter.preview', { bookId, pattern: p || undefined }));
+        setPreviewOf(p);
       } catch (e) {
         setPreview(null);
+        setPreviewOf(null);
         setError((e as Error).message);
       }
     },
@@ -75,10 +89,14 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
       setPattern(cur ?? '');
       const p = await rpc<Preview>('chapter.preview', { bookId, pattern: cur ?? undefined });
       setPreview(p);
+      setPreviewOf(cur ?? '');
       // 记下「本来的样子」，后面所有说法都拿它当参照
       setBase({ count: p.count, recognized: p.recognized });
     })();
   }, [bookId]);
+
+  // 规则一改，刚才那份「零章确认」就作废——它问的是上一条规则
+  useEffect(() => { set确认未识别(false); }, [pattern]);
 
   // 猜规则要整本扫一遍（34MB 的书约 0.8 秒），和上面的预览并行跑，别让它卡住开场
   useEffect(() => {
@@ -100,6 +118,7 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
     setError(null);
     try {
       setPreview(await rpc<Preview>('chapter.applyRule', { bookId, pattern }));
+      setPreviewOf(pattern);
       setSaved(pattern);
       setChanged(true);
     } catch (e) {
@@ -107,6 +126,28 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
     } finally {
       setBusy(false);
     }
+  };
+
+  /**
+   * 点「应用」。
+   *
+   * **一条标题都没认出来的规则先问一句**：它落库之后就是这本书的永久规则，
+   * 以后每次重新解析都按固定字数硬分——用户看到预览里一串「未识别章节 N」
+   * 还点下去，多半是没意识到这件事会跟着书走。
+   */
+  const 申请应用 = () => {
+    if (!preview || previewOf !== pattern) return;
+    /*
+     * **判据是「这条规则认出几行标题」，不是 `recognized`。**
+     * 一本有卷标记的书，一条啥都不匹配的自定义规则会被按卷兜底接住：
+     * `recognized` 是 true、`ruleName` 是 `volume-only`，而用户写的正则
+     * 一行都没命中。按 `recognized` 判会直接放行——走查里当场撞上过。
+     */
+    if (preview.titleHits === 0 && pattern !== (saved ?? '')) {
+      set确认未识别(true);
+      return;
+    }
+    void apply();
   };
 
   const clear = async () => {
@@ -235,8 +276,14 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
             <strong>
               {/* 「将切出」对没改过任何东西的人是句怪话——那是现状不是「将」 */}
               {pattern === (saved ?? '') ? '现在切成' : '会切成'} {preview.count} 章
-              {/* 「按固定字数硬分的段」开场已经说过一次了，没改过规则就别在这里再说第二遍 */}
-              {pattern !== (saved ?? '') && !preview.recognized && '——一条标题都没认出来，这是按固定字数硬分的段'}
+              {/* 「按固定字数硬分的段」开场已经说过一次了，没改过规则就别在这里再说第二遍。
+                  零命中要照实说：`recognized` 为 true 也可能是按卷兜底接住了 */}
+              {pattern !== (saved ?? '') && preview.recognized && preview.titleHits === 0
+                && '——你的规则一条标题都没认出来，这是按卷切的'}
+              {pattern !== (saved ?? '') && !preview.recognized
+                && (preview.titleHits === 0
+                  ? '——一条标题都没认出来，这是按固定字数硬分的段'
+                  : `——只认出 ${preview.titleHits} 行标题，够不上目录，这是按固定字数硬分的段`)}
             </strong>
             <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.4rem', fontSize: '0.87rem', maxHeight: '13rem', overflowY: 'auto' }}>
               {preview.titles.map((t, i) => (
@@ -248,6 +295,28 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
                 只列出前 {preview.titles.length} 章
               </p>
             )}
+          </div>
+        )}
+
+        {确认未识别 && (
+          <div className="card" style={{ marginTop: '.7rem', borderColor: 'var(--danger)' }}>
+            <strong>这条规则一条标题都没认出来</strong>
+            <p className="muted" style={{ margin: '.3rem 0 .5rem', fontSize: '.82rem' }}>
+              {preview?.recognized
+                /* 按卷兜底：规则一行都没命中，但书里的卷标记被当成了章 */
+                ? `这本书里有卷标记，应用后会按卷切成 ${preview.count} 章——你写的规则一条都没生效。这条规则还是会存下来，以后每次重新解析都用它。确定要应用吗？`
+                : '应用后会按固定字数分段，目录里是「未识别章节 N」；而且这条规则会存下来，以后每次重新解析都用它。确定要应用吗？'}
+            </p>
+            <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <button onClick={() => set确认未识别(false)} disabled={busy}>再改改</button>
+              <button
+                className="danger"
+                disabled={busy}
+                onClick={() => { set确认未识别(false); void apply(); }}
+              >
+                仍然应用
+              </button>
+            </div>
           </div>
         )}
 
@@ -265,8 +334,9 @@ export function RuleEditor({ bookId, bookTitle, onClose }: Props) {
           <button onClick={() => onClose(changed)}>关闭</button>
           <button
             className="primary"
-            onClick={apply}
-            disabled={busy || !pattern || !preview || !!error || pattern === saved}
+            onClick={申请应用}
+            disabled={busy || !pattern || !preview || previewOf !== pattern || !!error
+              || pattern === saved || 确认未识别}
           >
             {pattern === saved && saved ? '已应用' : '应用这条规则'}
           </button>

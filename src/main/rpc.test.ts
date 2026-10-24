@@ -507,3 +507,75 @@ test('归类：shelf.forBook / addBooks / removeBooks 三个 rpc 都接上了', 
 test('shelf.forBook 缺 bookId 要抛，不能拿 NaN 去查库', async () => {
   await assert.rejects(async () => rpc['shelf.forBook']!({}), /bookId/);
 });
+
+test('backup.linkFile：按备份序号把 unmatched 书指认到本地已有的书', async () => {
+  const target = Number(
+    db.prepare("insert into book(title, author) values('指认目标', '某人')").run().lastInsertRowid,
+  );
+  const backup = {
+    version: 1,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    books: [{
+      title: '备份里的书',
+      author: '某作者',
+      aliases: null,
+      intro: null,
+      serialStatus: 'unknown',
+      sourceSite: null,
+      note: null,
+      chapterCountOverride: null,
+      categoryName: null,
+      tags: [],
+      files: [],
+      reading: {
+        status: 'finished',
+        chapterIdx: 3,
+        charOffset: 0,
+        percent: 100,
+        rating: 5,
+        comment: '从备份搬回来的一句话',
+        ratedAt: null,
+        dropReason: null,
+        rereadCount: 0,
+        lastReadAt: null,
+        finishedAt: null,
+      },
+      highlights: [],
+      sessions: [],
+      bookmarks: [],
+      parseRule: null,
+      viewerPos: null,
+      onlineLinks: [],
+    }],
+    cleanRules: [],
+    categories: [],
+    shelves: [],
+    settings: {},
+  };
+  const path = join(dir, 'link-backup.json');
+  writeFileSync(path, JSON.stringify(backup), 'utf8');
+
+  const r = await rpc['backup.linkFile']!({ path, backupIndex: 0, bookId: target }) as {
+    restored: { reviews: number };
+  };
+  assert.equal(r.restored.reviews, 1);
+  const s = db.prepare(
+    'select rating, comment, chapter_idx from reading_state where book_id = ?',
+  ).get(target) as { rating: number; comment: string; chapter_idx: number };
+  assert.equal(s.rating, 5);
+  assert.equal(s.comment, '从备份搬回来的一句话');
+  assert.equal(s.chapter_idx, 3);
+
+  await assert.rejects(
+    async () => rpc['backup.linkFile']!({ path, backupIndex: 9, bookId: target }),
+    /没有这一本/,
+    '越界下标要报错，不能拿一条不相干的记录去覆盖',
+  );
+
+  // 备份文件在恢复之后被改过：同一下标已经不是刚才那本书了
+  await assert.rejects(
+    async () => rpc['backup.linkFile']!({ path, backupIndex: 0, title: '改过的书名', bookId: target }),
+    /不一样/,
+    '书名对不上要当场停，不能把别人的评价写进来',
+  );
+});

@@ -16,8 +16,22 @@ interface AutoConfig {
  * 这个仓库栽在「手抄的第二份先掉队」上已经第五次了
  * （`Filter` / `RepairReport` / `Version` / 评分刻度 / 现在这个）。
  */
-import type { RestoreReport } from '../core/backup.ts';
+import type { RestoreReport, LinkResult } from '../core/backup.ts';
+/** `search.meta` 的返回形状——**从已有的那份引，别在这儿再抄一个**（`dup-decls.mjs` 看着） */
+import type { MetaHit } from './SearchPanel.tsx';
 import { whenAgo } from '../core/format.ts';
+
+/** 正在给某一条 unmatched 挑本地书 */
+interface Linking {
+  backupIndex: number;
+  title: string;
+  query: string;
+  hits: MetaHit[];
+  /** 搜索在飞——别在这时候说「没有找到」 */
+  searching: boolean;
+  busy: boolean;
+  error: string | null;
+}
 
 /**
  * 备份与恢复（spec §10）。
@@ -33,6 +47,9 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
   const [changed, setChanged] = useState(false);
   /** 已经选好、但还没确认要不要覆盖的备份文件 */
   const [pendingFile, setPendingFile] = useState<string | null>(null);
+  /** 刚才恢复的是哪个文件——手动指认要重新读它，按序号取回 BackupBook */
+  const [restoredPath, setRestoredPath] = useState<string | null>(null);
+  const [linking, setLinking] = useState<Linking | null>(null);
 
   const reload = useCallback(async () => {
     setCfg(await rpc<AutoConfig>('backup.autoConfig'));
@@ -62,6 +79,70 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
     await rpc('setting.set', { key: 'backup.dir', value: next.dir });
     await rpc('setting.set', { key: 'backup.everyDays', value: String(next.everyDays) });
     await rpc('setting.set', { key: 'backup.keep', value: String(next.keep) });
+  };
+
+  // 指认候选：按输入框里的词搜书名/作者，停手 180ms 再查
+  useEffect(() => {
+    if (!linking) return;
+    const query = linking.query.trim();
+    if (!query) {
+      setLinking((l) => (l ? { ...l, hits: [], searching: false, error: null } : l));
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(() => {
+      void rpc<MetaHit[]>('search.meta', { query })
+        .then((rows) => {
+          if (!alive) return;
+          setLinking((l) => (l && l.backupIndex === linking.backupIndex
+            ? { ...l, hits: rows.slice(0, 8), searching: false, error: null }
+            : l));
+        })
+        .catch((e: Error) => {
+          if (!alive) return;
+          setLinking((l) => (l && l.backupIndex === linking.backupIndex
+            ? { ...l, hits: [], searching: false, error: e.message }
+            : l));
+        });
+    }, 180);
+    return () => { alive = false; clearTimeout(t); };
+  }, [linking?.backupIndex, linking?.query]);
+
+  /**
+   * 把这一条 unmatched 指认到选中的本地书。
+   *
+   * 走 `backup.linkFile`（按备份序号取回原来的 BackupBook）而不是把书名传下去：
+   * 同名书会认错，文件在恢复后被改过也会认错。
+   */
+  const 指认 = async (book: MetaHit) => {
+    if (!linking || !restoredPath) return;
+    const { backupIndex, title } = linking;
+    setLinking((l) => (l ? { ...l, busy: true, error: null } : l));
+    try {
+      const r = await rpc<LinkResult>('backup.linkFile', {
+        path: restoredPath,
+        backupIndex,
+        title,
+        bookId: book.bookId,
+      });
+      const got = [
+        r.restored.reviews && `书评 ${r.restored.reviews} 条`,
+        r.restored.highlights && `划线 ${r.restored.highlights} 处`,
+        r.restored.bookmarks && `书签 ${r.restored.bookmarks} 个`,
+        r.restored.sessions && `阅读记录 ${r.restored.sessions} 次`,
+      ].filter(Boolean).join('、');
+      setRestore((prev) => (prev
+        ? { ...prev, unmatched: prev.unmatched.filter((u) => u.backupIndex !== backupIndex) }
+        : prev));
+      setChanged(true);
+      setMsg(
+        `已把《${title}》指认到《${book.title}》${got ? `：${got}` : '（备份里没有可恢复的数据）'}。`
+        + (r.overwrote > 0 ? ` 其中 ${r.overwrote} 条把本地原来的评价换成了备份里的那份。` : ''),
+      );
+      setLinking(null);
+    } catch (e) {
+      setLinking((l) => (l ? { ...l, busy: false, error: (e as Error).message } : l));
+    }
   };
 
   if (!cfg) {
@@ -140,8 +221,10 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
                 className="danger"
                 disabled={busy !== null}
                 onClick={() => void run('正在恢复…', async () => {
-                  const r = await rpc<RestoreReport>('backup.importFile', { path: pendingFile });
+                  const path = pendingFile;
+                  const r = await rpc<RestoreReport>('backup.importFile', { path });
                   setPendingFile(null);
+                  setRestoredPath(path);
                   setRestore(r);
                   setChanged(true);
                   /*
@@ -214,15 +297,88 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
               <br />
               文件确实不在这台机器上的话，那几本就先留在备份里——
               <strong>程序不会凭空建条目</strong>，那样只会得到一堆点开就报错的幽灵。
+              <br />
+              文件就在本地、只是改过名所以没认出来的，可以逐本<strong>指认到已有的书上</strong>：备份里的阅读进度、评分和短评会写回去，书名简介这些不动。
             </p>
-            <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.8rem' }}>
-              {restore.unmatched.slice(0, 10).map((u, i) => (
-                <li key={i}>
-                  {u.title}
-                  {u.author && <span className="muted"> / {u.author}</span>}
-                  <div className="muted" style={{ fontSize: '0.75rem', overflowWrap: 'anywhere' }}>
-                    {u.paths[0]}
+            <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.8rem', maxHeight: '17rem', overflowY: 'auto' }}>
+              {restore.unmatched.map((u) => (
+                <li key={u.backupIndex} style={{ marginBottom: '.4rem' }}>
+                  <div>
+                    {u.title}
+                    {u.author && <span className="muted"> / {u.author}</span>}
+                    {restoredPath && !linking && (
+                      <button
+                        style={{ marginLeft: '.5rem', fontSize: '0.75rem', padding: '0 .35rem' }}
+                        onClick={() => setLinking({
+                          backupIndex: u.backupIndex,
+                          title: u.title,
+                          query: u.title,
+                          hits: [],
+                          searching: true,
+                          busy: false,
+                          error: null,
+                        })}
+                      >
+                        指认到现有书…
+                      </button>
+                    )}
                   </div>
+                  <div className="muted" style={{ fontSize: '0.75rem', overflowWrap: 'anywhere' }}>
+                    {u.paths[0] ?? '（备份里没有本地路径）'}
+                  </div>
+
+                  {linking?.backupIndex === u.backupIndex && (
+                    <div className="card" style={{ marginTop: '.35rem' }}>
+                      <div style={{ fontSize: '0.8rem' }}>
+                        把备份里的《{u.title}》指认到哪本本地书？
+                      </div>
+                      <input
+                        autoFocus
+                        aria-label="搜索要指认到的本地书"
+                        value={linking.query}
+                        onChange={(e) => setLinking((l) => (l ? { ...l, query: e.target.value, hits: [], searching: true, error: null } : l))}
+                        placeholder="输入本地书名或作者"
+                        style={{ width: '100%', marginTop: '.35rem' }}
+                      />
+                      {linking.searching && (
+                        <p className="muted" style={{ fontSize: '0.78rem', margin: '.3rem 0 0' }}>正在找…</p>
+                      )}
+                      {!linking.searching && linking.error && (
+                        <p className="danger" style={{ fontSize: '0.78rem', margin: '.3rem 0 0' }}>{linking.error}</p>
+                      )}
+                      {!linking.searching && !linking.error && !linking.query.trim() && (
+                        <p className="muted" style={{ fontSize: '0.78rem', margin: '.3rem 0 0' }}>
+                          输入书名或作者，从本地已经入库的书里挑一本。
+                        </p>
+                      )}
+                      {!linking.searching && !linking.error && !!linking.query.trim() && linking.hits.length === 0 && (
+                        <p className="muted" style={{ fontSize: '0.78rem', margin: '.3rem 0 0' }}>
+                          本地没有书名或作者含「{linking.query.trim()}」的书——换个词试试，或者先把文件扫进来。
+                        </p>
+                      )}
+                      {linking.hits.length > 0 && (
+                        <div className="row" style={{ flexWrap: 'wrap', gap: '.3rem', marginTop: '.35rem' }}>
+                          {linking.hits.map((b) => (
+                            <button
+                              key={b.bookId}
+                              disabled={linking.busy}
+                              onClick={() => void 指认(b)}
+                              style={{ fontSize: '0.8rem' }}
+                            >
+                              {b.title}
+                              {b.author && <span className="muted"> / {b.author}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {linking.busy && (
+                        <p className="muted" style={{ fontSize: '0.78rem', margin: '.3rem 0 0' }}>正在写回…</p>
+                      )}
+                      <div className="row" style={{ justifyContent: 'flex-end', marginTop: '.45rem' }}>
+                        <button onClick={() => setLinking(null)} disabled={linking.busy}>取消</button>
+                      </div>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

@@ -63,6 +63,52 @@
 }
 
 
+/*
+ * **继续阅读**：搜索框下面的一块常驻入口。
+ * 和搜索一样留在 `.nav-scroll` 外面——它是「回来就点」的动作，不该跟着档位滚走。
+ * 两行：小字说明 + 书名（长书名省略，完整书名在 title 里）；第三行是位置。
+ */
+.nav-resume {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 0.8rem;
+  padding: 0.5rem 0.8rem 0.55rem;
+  text-align: left;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  color: var(--fg);
+  cursor: pointer;
+}
+.nav-resume:hover {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.nav-resume-kicker {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.nav-resume-title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.nav-resume-meta {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
 .nav-brand {
   flex: none;
   display: flex;

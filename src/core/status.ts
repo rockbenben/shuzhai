@@ -670,7 +670,8 @@ export function recentBooks(db: DatabaseSync, limit = 10): unknown[] {
   return db
     .prepare(
       `select b.id as bookId, b.title, b.author, r.status, r.percent,
-              r.chapter_idx as chapterIdx, r.last_read_at as lastReadAt
+              r.chapter_idx as chapterIdx, r.last_read_at as lastReadAt,
+              (select f.path from book_file f where f.book_id = b.id and f.is_primary = 1) as path
          from reading_state r join book b on b.id = r.book_id
         where r.last_read_at is not null
         order by r.last_read_at desc limit ?`,

@@ -18,6 +18,8 @@ export interface ParsePreview {
   titles: string[];
   recognized: boolean;
   ruleName: string;
+  /** 这条（或这几条）规则认出了几行标题。0 = 一条都没认出来，见 `ParseResult.titleHits` */
+  titleHits: number;
 }
 
 /**
@@ -76,13 +78,14 @@ export async function previewChapters(
    */
   const encoding = 这本书的编码(db, fileId, buf);
   const rules = pattern ? [compile(pattern)] : undefined;
-  const { chapters, recognized, ruleName } = parseChapters(buf, encoding, rules);
+  const { chapters, recognized, ruleName, titleHits } = parseChapters(buf, encoding, rules);
 
   return {
     count: chapters.length,
     titles: chapters.slice(0, PREVIEW_TITLES).map((c) => c.title),
     recognized,
     ruleName,
+    titleHits,
   };
 }
 
