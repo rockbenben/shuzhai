@@ -30,6 +30,8 @@ import {
 import { parseFilename, countWords } from './filename.ts';
 import { claimFileless, filelessIndex } from './manual.ts';
 import { DEFAULT_IGNORE } from './ignore.ts';
+// 重切章节要让全文索引作废（判据在 `db.ts` 的 clearBookIndex 上）
+import { clearBookIndex } from './db.ts';
 
 /** 指纹取样大小。大文件只读首尾各这么多，不整本读（spec §1.3） */
 const FINGERPRINT_EDGE = 64 * 1024;
@@ -311,6 +313,7 @@ interface FileRow {
   chapter_count: number;
   /** 什么时候解析过。**null 表示从来没有**——那条记录不能走「没变就跳过」那一档 */
   parsed_at: string | null;
+  status: string;
 }
 
 /**
@@ -437,6 +440,19 @@ export async function parseAndStore(
     const bookId = (
       db.prepare('select book_id from book_file where id = ?').get(fileId) as { book_id: number }
     ).book_id;
+    /*
+     * **章节被整批替换了，全文索引必须作废。**
+     *
+     * `chapter_fts` 是按「这本书 + 章号」存的派生数据，而 `buildIndex` 之后
+     * 没人清过它：追更、换章节规则、批量重新解析都只换 `chapter` 表。于是
+     * `search.fullText` 会拿**旧正文**命中、带着**旧章号**——点过去要么落到
+     * 另一章，要么直接报「这本书没有第 N 章」。而「搜到的句子不在那里」比
+     * 搜不到更难被发现。
+     *
+     * 清掉而不是重建：重建要把每一章重新读一遍，而清掉之后用户再点一次建索引
+     * 就行（搜索面板本来就按书列着「已索引」）。
+     */
+    clearBookIndex(db, bookId);
     // 列名必须在 SQL 里就改成驼峰：库里是 snake_case，Progress 是 camelCase，
     // 直接当对象用会全取到 undefined，再被 `?? 0` 兜成 0——进度悄悄跳回第一章，
     // 不报错、不留痕。这个 bug 真发生过，scan.test.ts 的「追更」那条钉着它。
@@ -609,6 +625,23 @@ export async function scanRoot(
        */
       if (byPath && byPath.parsed_at && byPath.size === st.size && byPath.mtime === mtime) {
         seen.add(byPath.id);
+        /*
+         * **文件回来了，状态也得回来。**
+         *
+         * 上一轮标成 missing 的记录，如果文件原样放回（从回收站还原、把挪走的
+         * 那份搬回来），size + mtime 一模一样，就走到这一档直接 continue——
+         * status 于是永远停在 missing。而 `planOpen` 见到 missing 就拒绝打开，
+         * 提示里还写着「扫描一次就能认回来」：用户对着一个明明在磁盘上、
+         * 也读得出来的文件，再扫多少遍都被告知「文件不见了」。
+         *
+         * `parse_failed` 同理：失败那条路**不更新 size/mtime**，所以这两列与
+         * 上次解析成功时一致，说明当前内容就是那份能解析的（用户把文件改回去了）。
+         */
+        if (byPath.status !== 'ok') {
+          db.prepare(
+            "update book_file set status = 'ok', parse_error = null, failed_at = null where id = ?",
+          ).run(byPath.id);
+        }
         report.unchanged++;
         continue;
       }
@@ -619,11 +652,10 @@ export async function scanRoot(
         seen.add(byPath.id);
         if (byPath.content_hash === hash && byPath.parsed_at) {
           // 只是时间戳被碰了一下，内容没变（**解析过的才算「没变」**，理由见上面那段）
-          db.prepare('update book_file set mtime = ?, size = ? where id = ?').run(
-            mtime,
-            st.size,
-            byPath.id,
-          );
+          // 从别处复制回来的文件走这一档：内容一致但 mtime 变了，status 同样要复位
+          db.prepare(
+            "update book_file set mtime = ?, size = ?, status = 'ok', parse_error = null, failed_at = null where id = ?",
+          ).run(mtime, st.size, byPath.id);
           report.unchanged++;
         } else {
           // 第 3 档：内容更新（追更覆盖写入），重新解析并尽量保住进度

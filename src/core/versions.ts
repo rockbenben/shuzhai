@@ -7,6 +7,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { ensurePrimary, preferReadable } from './primary.ts';
 import { sqlNow } from './format.ts';
+import { clearBookIndex } from './db.ts';
 
 export interface Version {
   fileId: number;
@@ -167,6 +168,7 @@ export function setPrimary(db: DatabaseSync, fileId: number): void {
   try {
     db.prepare('update book_file set is_primary = 0 where book_id = ?').run(row.book_id);
     db.prepare('update book_file set is_primary = 1 where id = ?').run(fileId);
+    clearBookIndex(db, row.book_id);
     db.exec('commit');
   } catch (e) {
     db.exec('rollback');

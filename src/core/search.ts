@@ -9,7 +9,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { ratedSql, likeArg } from './library.ts';
 import { makeSnippet } from './snippet.ts';
-import { getSetting, setSetting } from './db.ts';
+import { getSetting, setSetting, clearBookIndex, SEARCH_INDEX_KEY } from './db.ts';
 import { readChapter, openBook, type FileCache } from './reader.ts';
 import { splitLines } from './chapter.ts';
 import { loadCleanRules } from './clean.ts';
@@ -20,8 +20,6 @@ import type { Encoding } from './encoding.ts';
 
 /** trigram 能用的最短查询长度 */
 export const MIN_TRIGRAM = 3;
-
-const INDEXED_KEY = 'search.indexed';
 
 /**
  * 有没有任何书建过索引。
@@ -34,7 +32,7 @@ const INDEXED_KEY = 'search.indexed';
  * 现在按书建。这个函数保留给「能不能搜正文」的总判断用。
  */
 export function isIndexed(db: DatabaseSync): boolean {
-  if (getSetting(db, INDEXED_KEY) === '1') return true;
+  if (getSetting(db, SEARCH_INDEX_KEY) === '1') return true;
   return (db.prepare('select count(*) n from chapter_fts').get() as { n: number }).n > 0;
 }
 
@@ -87,8 +85,7 @@ export interface SearchHit {
  */
 function clearIndex(db: DatabaseSync, bookIds?: number[]): void {
   if (bookIds?.length) {
-    const del = db.prepare('delete from chapter_fts where book_id = ?');
-    for (const id of bookIds) del.run(id);
+    for (const id of bookIds) clearBookIndex(db, id);
   } else {
     db.exec('delete from chapter_fts');
   }
@@ -134,7 +131,7 @@ export async function buildIndex(
     onProgress?.(done, chapters.length);
   }
 
-  setSetting(db, INDEXED_KEY, '1');
+  setSetting(db, SEARCH_INDEX_KEY, '1');
   return { chapters: done };
 }
 
@@ -142,7 +139,7 @@ export async function buildIndex(
 export function dropIndex(db: DatabaseSync, bookIds?: number[]): void {
   clearIndex(db, bookIds);
   if (!(db.prepare('select count(*) n from chapter_fts').get() as { n: number }).n) {
-    setSetting(db, INDEXED_KEY, '0');
+    setSetting(db, SEARCH_INDEX_KEY, '0');
   }
 }
 

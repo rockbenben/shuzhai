@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { formatOf } from './book-format.ts';
+// 换了主文件，这本书的全文索引就指向另一份章节了（判据在 clearBookIndex 上）
+import { clearBookIndex } from './db.ts';
 
 /*
  * **主文件坏了就换一份还好的。**
@@ -48,6 +50,7 @@ export function ensurePrimary(db: DatabaseSync, bookId: number): boolean {
 
   db.prepare('update book_file set is_primary = 0 where book_id = ?').run(bookId);
   db.prepare('update book_file set is_primary = 1 where id = ?').run(best.id);
+  clearBookIndex(db, bookId);
   return true;
 }
 
@@ -90,6 +93,7 @@ export function preferReadable(db: DatabaseSync, bookId: number): boolean {
   const best = 能读的[0];
   db.prepare('update book_file set is_primary = 0 where book_id = ?').run(bookId);
   db.prepare('update book_file set is_primary = 1 where id = ?').run(best.id);
+  clearBookIndex(db, bookId);
   return true;
 }
 

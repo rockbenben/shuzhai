@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -14,6 +14,7 @@ import {
 } from './search.ts';
 import { tagBooks } from './library.ts';
 import { setBookConvertMode } from './convert.ts';
+import { setPrimary } from './versions.ts';
 
 let dir: string;
 let db: DatabaseSync;
@@ -109,6 +110,84 @@ test('关掉索引会清空并禁用正文搜索', async () => {
   assert.equal(isIndexed(db), false);
   assert.equal((db.prepare('select count(*) n from chapter_fts').get() as { n: number }).n, 0);
   assert.throws(() => searchFullText(db, '客栈里'), /没有任何书建过正文索引/);
+});
+
+/*
+ * **章节换了，索引就得作废。**
+ *
+ * `chapter_fts` 是按「书 + 章号」存的派生数据。追更、换章节规则、批量重新解析
+ * 都只换 `chapter` 表，索引原来一直没人清：搜出来的是旧正文、旧章号，
+ * 点过去会落到另一章、或者直接报「这本书没有第 N 章」。
+ */
+test('重新解析之后，这本书的旧索引要作废（不能搜出已经不存在的章）', async () => {
+  const id = (db.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+  const file = (
+    db.prepare('select path from book_file where book_id = ? and is_primary = 1').get(id) as {
+      path: string;
+    }
+  ).path;
+  await buildIndex(db, cache);
+  assert.ok(searchFullText(db, '少年提剑出门').length >= 1, '夹具：先确认旧正文搜得到');
+
+  // 追更 / 换规则：正文整体换掉，size + mtime 都变，扫描就会重新解析
+  writeFileSync(
+    file,
+    [
+      `第一章 新篇\n这里换成了全新的句子。\n${filler}`,
+      `第二章 又一篇\n另一段全新的内容。\n${filler}`,
+    ].join('\n'),
+    'utf8',
+  );
+  const 未来 = new Date(Date.now() + 10_000);
+  utimesSync(file, 未来, 未来);
+  const root = db.prepare('select id, path from library_root').get() as { id: number; path: string };
+  await scanRoot(db, { id: root.id, path: root.path });
+
+  assert.equal(
+    searchFullText(db, '少年提剑出门').length,
+    0,
+    '旧正文不能还从索引里冒出来——它已经不在任何一章里了',
+  );
+  assert.ok(
+    !indexedBooks(db).some((b) => b.bookId === id),
+    '这本书的索引行要清掉（剩下的那一本书还在索引里）',
+  );
+});
+
+test('删掉建过索引的书，它的索引行要一起没——不留点不开的幽灵结果', async () => {
+  const id = (db.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+  await buildIndex(db, cache, undefined, [id]);
+  assert.ok(searchFullText(db, '少年提剑出门').length >= 1);
+
+  db.prepare('delete from book where id = ?').run(id);
+
+  assert.equal(
+    (db.prepare('select count(*) n from chapter_fts where book_id = ?').get(id) as { n: number }).n,
+    0,
+    '书没了，指向它的搜索结果也不该留着',
+  );
+});
+
+test('换主文件之后这本书的索引也要作废——索引跟着主文件的章节走', async () => {
+  const id = (db.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+  await buildIndex(db, cache, undefined, [id]);
+  assert.ok(searchFullText(db, '少年提剑出门').length >= 1);
+
+  const f = db.prepare(
+    'select id, root_id, path, size, mtime from book_file where book_id = ? and is_primary = 1',
+  ).get(id) as { id: number; root_id: number | null; path: string; size: number; mtime: number };
+  const 第二份 = Number(
+    db.prepare(
+      'insert into book_file(book_id, root_id, path, size, mtime, is_primary) values(?,?,?,?,?,0)',
+    ).run(id, f.root_id, `${f.path}.第二版`, f.size, f.mtime).lastInsertRowid,
+  );
+  setPrimary(db, 第二份);
+
+  assert.equal(
+    (db.prepare('select count(*) n from chapter_fts where book_id = ?').get(id) as { n: number }).n,
+    0,
+    '主文件换了，旧索引指向的是另一份章节，必须清掉',
+  );
 });
 
 test('书内搜索不依赖索引', async () => {

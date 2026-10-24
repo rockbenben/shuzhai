@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, utimesSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, utimesSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -272,6 +272,61 @@ test('文件消失只标 missing，不删记录', async () => {
   assert.equal(r.missing, 1);
   assert.equal(books().length, 1, '记录必须还在');
   assert.equal((db.prepare('select status from book_file').get() as { status: string }).status, 'missing');
+});
+
+/*
+ * **文件回来了，status 也得回来。**
+ *
+ * missing 的记录如果文件原样放回（回收站还原、把挪走的那份搬回来），
+ * size + mtime 一模一样，扫描走「没变就跳过」那一档直接 continue——
+ * 不改 status 的话它永远停在 missing，而 `planOpen` 见到 missing 就拒绝打开，
+ * 提示还写着「扫描一次就能认回来」。用户对着一个明明在磁盘上的文件再扫多少遍，
+ * 都被告知「文件不见了」。
+ */
+test('文件原样还原（size + mtime 都没变）后，missing 要恢复成 ok', async () => {
+  const path = join(root.path, '还原的书.txt');
+  writeBook(path, ['第一章 起', '第二章 承']);
+  await scanRoot(db, root);
+  const st = statSync(path);
+
+  rmSync(path);
+  await scanRoot(db, root);
+  assert.equal((db.prepare('select status from book_file').get() as { status: string }).status, 'missing');
+
+  // 从回收站还原：Windows 保留原 mtime，大小也一样
+  writeBook(path, ['第一章 起', '第二章 承']);
+  utimesSync(path, st.atime, st.mtime);
+
+  const r = await scanRoot(db, root);
+  assert.equal(r.unchanged, 1);
+  assert.equal(
+    (db.prepare('select status from book_file').get() as { status: string }).status,
+    'ok',
+    '文件已经回来了，status 必须恢复',
+  );
+});
+
+test('文件复制回来（内容相同、mtime 变了）后，missing 也要恢复成 ok', async () => {
+  const path = join(root.path, '复制回来的书.txt');
+  writeBook(path, ['第一章 起', '第二章 承']);
+  await scanRoot(db, root);
+
+  rmSync(path);
+  await scanRoot(db, root);
+  assert.equal((db.prepare('select status from book_file').get() as { status: string }).status, 'missing');
+
+  // 从别处复制回来：内容 hash 相同，mtime 是新的 → 走 hash 相同那一档
+  writeBook(path, ['第一章 起', '第二章 承']);
+  const 未来 = new Date(Date.now() + 10_000);
+  utimesSync(path, 未来, 未来);
+
+  const r = await scanRoot(db, root);
+  assert.equal(r.unchanged, 1);
+  assert.equal(
+    (db.prepare('select status from book_file').get() as { status: string }).status,
+    'ok',
+    '内容 hash 相同、文件确实在，status 必须恢复',
+  );
 });
 
 test('忽略规则和体积下限都生效', async () => {

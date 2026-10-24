@@ -11,6 +11,8 @@ import { PROBLEM_FILE_STATUS, TOUCHED_STATUS } from './labels.ts';
 // 格式那一档认哪些扩展名，只此一份（`book-format.ts` 一个依赖都不 import）
 import { BOOK_EXT } from './book-format.ts';
 import { bookConvertMode } from './convert.ts';
+// 这里有两处直接改主文件（整理数据库时的那两条），索引也要跟着作废
+import { clearBookIndex } from './db.ts';
 
 export interface Category {
   id: number;
@@ -1467,6 +1469,7 @@ export function repairLibrary(db: DatabaseSync, dryRun = false): RepairReport {
           `update book_file set is_primary = 1 where id = (
              select id from book_file where book_id = ? order by ifnull(word_count,0) desc, id limit 1)`,
         ).run(m.book_id);
+        clearBookIndex(db, m.book_id);
       }
     }
 
@@ -1484,6 +1487,7 @@ export function repairLibrary(db: DatabaseSync, dryRun = false): RepairReport {
           `update book_file set is_primary = 1 where id = (
              select id from book_file where book_id = ? order by ifnull(word_count,0) desc, id limit 1)`,
         ).run(f.book_id);
+        clearBookIndex(db, f.book_id);
       }
     }
 

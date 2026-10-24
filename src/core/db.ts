@@ -639,6 +639,28 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
     );
     create index if not exists idx_shelf_member_book on shelf_member(book_id);
   `),
+
+  /*
+   * 28：删书时顺手删掉它的全文索引（`chapter_fts`）。
+   *
+   * `chapter_fts` 没有外键——FTS5 虚拟表挂不了 `references book(id)`。
+   * 于是删掉一本建过索引的书之后，那些行还在：`search.fullText` 会照旧把
+   * 它们当命中列出来，点过去是一本不存在的书（或者更糟：`book.id` 被复用之后，
+   * 旧正文被当成新书的搜索结果）。
+   *
+   * 和 20 / 24 / 26 那三条同一个形状：**能靠结构保证的，就别靠调用方记得**。
+   * 迁移时顺手清一次已经存在的孤儿行——它们指向的书早就没了，谁也修不回来。
+   */
+  (db) => {
+    db.prepare('delete from chapter_fts where book_id not in (select id from book)').run();
+    db.exec(`
+      create trigger if not exists 删书时清掉全文索引
+        after delete on book
+      begin
+        delete from chapter_fts where book_id = old.id;
+      end;
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
@@ -717,4 +739,30 @@ export function setSetting(db: DatabaseSync, key: string, value: string): void {
   db.prepare(
     'insert into app_setting(key, value) values(?, ?) on conflict(key) do update set value = excluded.value',
   ).run(key, value);
+}
+
+/**
+ * 「有没有书建过正文索引」那个开关的键。**放这儿而不是 `search.ts`**：
+ * 作废索引的写入点（换主文件、重切章）在最底层，`search.ts` 反而引着
+ * `library.ts` ——让 `primary.ts` 去引它会把依赖反过来。
+ */
+export const SEARCH_INDEX_KEY = 'search.indexed';
+
+/**
+ * **这本书的全文索引作废。**
+ *
+ * `chapter_fts` 是按「书 + 章号」存的派生数据，只在「索引建好之后，这本书的
+ * 章节和主文件都没换过」时有效。换章节（`parseAndStore`）、换主文件
+ * （`primary.ts` / `versions.setPrimary`）、删书（迁移 28 的触发器）都会让
+ * 它指向不存在的章、或者另一份正文——`search.fullText` 于是返回旧片段，
+ * 点过去落在别的章上，或者直接报「这本书没有第 N 章」。
+ *
+ * 清掉而不是重建：重建要把每一章重新读一遍；清掉之后搜索面板会把这本书从
+ * 「已索引」里去掉，用户再点一次就行。
+ */
+export function clearBookIndex(db: DatabaseSync, bookId: number): void {
+  db.prepare('delete from chapter_fts where book_id = ?').run(bookId);
+  if (!(db.prepare('select count(*) n from chapter_fts').get() as { n: number }).n) {
+    setSetting(db, SEARCH_INDEX_KEY, '0');
+  }
 }
