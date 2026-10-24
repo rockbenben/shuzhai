@@ -238,6 +238,30 @@ test('本地章数手填后重新解析不碰它', async () => {
   assert.equal(d.chapter_count, 3, '自动识别那本就是 3 章');
 });
 
+/*
+ * **读到的位置必须在这个 payload 里。**
+ *
+ * `Detail` 类型一直声明着 `chapter_idx` / `char_offset`，`BookEditor` 也拿它们
+ * 判断「已读完 → 在读」要不要问一句，而 SQL 里从来没 select 过——两处读到的
+ * 永远是 `undefined`：
+ *   - 「其实还没读完（留着第 N 章）」那条确认永远不出现，用户改回「在读」
+ *     时进度被静默清零、还记一次重读；
+ *   - 从全库搜索点一本读过的书，会从第 1 章打开，并把已存进度覆盖掉。
+ * 判据不是「字段存在」，是**取到的是库里的那个数**。
+ */
+test('bookDetail 要带出阅读位置和重读次数', () => {
+  const a = ids()[0];
+  db.prepare(
+    'update reading_state set chapter_idx = 2, char_offset = 77, reread_count = 3 where book_id = ?',
+  ).run(a);
+  const d = bookDetail(db, a) as {
+    chapter_idx: number | null; char_offset: number | null; reread_count: number;
+  };
+  assert.equal(d.chapter_idx, 2);
+  assert.equal(d.char_offset, 77);
+  assert.equal(d.reread_count, 3, '编辑弹窗的「已重读 N 次」靠它');
+});
+
 test('bookDetail 带出主在线地址：「来源站点」显示的就是它', () => {
   const [a, b] = ids();
   // 没地址：两个字段都是 null，界面显示「未记录」

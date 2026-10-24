@@ -60,7 +60,20 @@ export function StarRating({ value, onChange, hover, onHover }: Props) {
       ))}
       {/* 0 是合法评分（`status.ts` 只挡 <0 和 >5，0.4 会 round 成 0），
           说成「未评分」就和旁边那列「—」和书评册那枚 0 印对不上 */}
-      <span className="muted">{value == null ? '未评分' : `${value} 星`}</span>
+      {/*
+        * **1–2 星会联动成「弃坑」**，四个用到这个控件的地方都一样
+        * （评价浮层、阅读器那张评价卡、编辑一本书、添读过的书），
+        * 所以提示收在这一个标签里，别在四处各抄一句。不写出来的话，
+        * 用户以为只是打了个分，而那本书会从「全部」里消失（默认不含弃坑）。
+        */}
+      <span className="muted">
+        {value == null ? '未评分' : (
+          <>
+            {`${value} 星`}
+            {value > 0 && value <= 2 ? <span className="muted">（会弃坑）</span> : null}
+          </>
+        )}
+      </span>
     </div>
   );
 }

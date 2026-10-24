@@ -29,7 +29,12 @@ interface MetaHit {
 }
 
 interface Props {
-  onOpen: (bookId: number, chapterIdx: number) => void;
+  /**
+   * 打开一本书。`chapterIdx` **只有正文命中时才传**（落在命中的那一章）；
+   * 书名/作者那档不传——让书自己接着上次读到的地方，而不是从第 1 章重开
+   * 并把已存进度覆盖掉。
+   */
+  onOpen: (bookId: number, chapterIdx?: number) => void;
   onClose: () => void;
 }
 
@@ -345,7 +350,7 @@ export function SearchPanel({ onOpen, onClose }: Props) {
                       <td>
                         <button
                           style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left' }}
-                          onClick={() => onOpen(m.bookId, 0)}
+                          onClick={() => onOpen(m.bookId)}
                         >
                           {m.title}
                         </button>

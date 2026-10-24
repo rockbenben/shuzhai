@@ -268,6 +268,10 @@ export function bookDetail(db: DatabaseSync, id: number): unknown {
       `select b.*, f.path, f.encoding, f.encoding_locked, f.size, f.word_count, f.chapter_count,
               f.status as file_status, f.parsed_at,
               r.status as reading_status, r.percent, r.rating, r.comment, r.drop_reason,
+              -- 读到的位置：BookEditor 的「已读完 → 在读」确认和「从搜索打开」都要它
+              r.chapter_idx as chapter_idx, r.char_offset as char_offset,
+              -- 编辑弹窗里「已重读 N 次」那一行（Detail 声明了 number，别给 undefined）
+              ifnull(r.reread_count, 0) as reread_count,
               -- 标签。编辑弹窗要就地打标签，而在这之前标签只有一个入口：
               -- 卡片上那个评价浮层（RatePopover）。于是「我要编辑这本书」
               -- 点进来是找不到标签的。取法和 book.list 那份逐字相同——

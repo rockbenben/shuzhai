@@ -1149,10 +1149,11 @@ export function App() {
       setViewing(null);
       if (!d) { setError('这本书找不到了——可能已经从书库里移走。'); return; }
       /*
-       * `Detail` 比书架上那个 `Book` 少几样（阅读进度、标签、字数……），
+       * `Detail` 比书架上那个 `Book` 少几样显示字段（标签、字数、上次读……），
        * 而 `planOpen` 只认六个字段（见 `core/open.ts` 的 `OpenBook`）。
-       * 缺的那几样在这条路上都用不到：`at` 是**显式传进来的**（笔记记着位置），
-       * 而「只有记录没有文件」那一档根本不会有笔记。补成 null，不硬转类型。
+       * **阅读位置必须带过来**：从全库搜索点一本读过的书时没有显式 `at`，
+       * 靠的就是这两个数——补成 null 会让它从第 1 章打开，并把已存进度覆盖掉。
+       * 其余显示字段在这条路上用不到，补 null 不硬转类型。
        */
       const b: Book = {
         id: d.id, title: d.title, author: d.author, path: d.path,
@@ -1160,7 +1161,8 @@ export function App() {
         chapter_count_override: d.chapter_count_override ?? null,
         serial_status: d.serial_status ?? null, comment: d.comment ?? null,
         rating: d.rating ?? null, reading_status: d.reading_status ?? null,
-        chapter_idx: null, char_offset: null, word_count: null, percent: null,
+        chapter_idx: d.chapter_idx ?? null, char_offset: d.char_offset ?? null,
+        word_count: null, percent: null,
         last_read_at: null, chapter_title: null, tags: null, drop_reason: null,
         // 这条路只喂 `planOpen`（它只认六个字段），补 null 不硬转类型
         rated_at: null, finished_at: null,

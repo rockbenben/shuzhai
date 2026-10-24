@@ -202,7 +202,7 @@ export function RatePopover({ bookId, bookTitle, rating, comment, tags, onChange
           不去加一颗假的「记下来」（那是骗人，它本来就是即时保存） */}
       <h3 className="rate-title" title={bookTitle}>记一句《{bookTitle}》</h3>
       <p className="muted" style={{ margin: '.1rem 0 .35rem', fontSize: '.74rem' }}>
-        点星、打完字就记下了，不用按保存。
+        点星、打完字就记下了，不用按保存。1–2 星会把它标成弃坑。
       </p>
 
       <StarRating value={stars} hover={hover} onHover={setHover} onChange={setStar} />
