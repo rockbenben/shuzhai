@@ -51,7 +51,8 @@ extraResources:
 asar: true
 
 # 更新用的发布地址。**只用来生成 latest.yml 里的下载地址**，不代表由 electron-builder
-# 去建 release——CI 的打包那步一律 --publish never，release 由 workflow 单独建。
+# 去建 release——CI 的打包那步也走 scripts/package.mjs，那边把 --publish never 写死，
+# release 由 workflow 单独建。
 # 少了这一段，打出来的包里就没有 app-update.yml，应用内更新无从查起。
 publish:
   provider: github

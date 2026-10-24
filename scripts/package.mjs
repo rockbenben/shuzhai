@@ -29,6 +29,11 @@
  * ⚠️ `--publish never` 是本地打包该有的默认：electron-builder 配了
  * `publish.provider: github`，不加这个参数时它在 CI 环境变量下会去推 GitHub。
  * 本地只想出包，不该有推送。
+ *
+ * **这地方是唯一的决断点。** CI 的打包那步（`.github/workflows/release.yml`）
+ * **不传**这个参数——传了也到不了这儿：`package.mjs` 只认 `--dir`，其余 argv
+ * 一律不转发。workflow 那边原来写的是 `npm run dist -- --publish never`，看着
+ * 像两道保险，其实那一道是装饰（2026-10-24 删掉了，让这儿说了算）。
  */
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';

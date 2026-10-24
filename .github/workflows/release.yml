@@ -99,11 +99,16 @@ jobs:
           npm test
           npm run lint:ui
 
-      # `npm run dist` 自己带 `vite build`。`--publish never` 是防 electron-builder
-      # 在 CI + tag 下自作主张去发布——这一步刻意不给它 token，发也发不成，
-      # 但显式写出来比靠「它没有 token」兜着强。
+      # `npm run dist` 自己带 `vite build`。
+      #
+      # ⚠️ **`--publish never` 只写在 `scripts/package.mjs` 里，不在这里传。**
+      # 原来这行是 `npm run dist -- --publish never`，看着像一道保险，其实
+      # **那个 `--` 后面的参数根本到不了 electron-builder**——`package.mjs` 只认
+      # `--dir`，其余 argv 一律不转发（它自己把 `'--publish','never'` 写死在
+      # electron-builder 的参数里）。**这里再写一遍是装饰**，还会让人以为有两道保险。
+      # 真要改成转发参数，那是 `package.mjs` 那边的决定，那边改了这里才跟着改。
       - name: 打包
-        run: npm run dist -- --publish never
+        run: npm run dist
 
       # ⚠️ **校验和只覆盖安装包和免安装 zip。** `.blockmap` 和 `latest.yml` 是给
       # 应用内更新用的两样东西：latest.yml 写着「去哪儿下、下的是哪个版本」，
