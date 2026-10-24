@@ -152,7 +152,8 @@ jobs:
         with:
           subject-checksums: release/SHA256SUMS.txt
 
-      # ⚠️ **草稿**。理由在文件头：CI 打的包在你点 Publish 之前没人运行过。
+      # ⚠️ **不是草稿**：`draft: false`（见下面那行）。发版这一步不再有人按按钮——
+      # 「先把 exe 下下来真跑一次」挪到**打 tag 之前**（本地跑），理由在文件头。
       #
       # **用 softprops 而不是 runner 自带的 `gh`**，和 008 / 010 / 020 / 023 / 033
       # 同一套。理由是 `020-Clockwork` 记下来的那条：**它对已存在的 release 是覆盖更新**，
@@ -226,6 +227,12 @@ jobs:
       # 判据是**看 API 指到谁**，不是看 release 的字段：字段全对而指针没挪，端点照样 404。
       # CDN 那层重定向会再滞后几分钟，属正常——这里判 API，不判 CDN。
       - name: 发布这个 release，并把 latest 指到它
+        # ⚠️ **这个 `if` 不能省。**
+        # `workflow_dispatch` 时 `github.ref_name` 是**分支名**（main），不是 tag——
+        # 下面按 tag_name 找 release 找不到，`id` 为空就当失败退出了。而
+        # `release.yml` 头注释和 AGENTS.md「发版规矩」都写着「改过之后手跑一次
+        # workflow_dispatch」：**没有这道守卫，手跑一次会以红收场**（发不出去倒是真的）。
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -248,3 +255,35 @@ jobs:
             exit 1
           fi
           echo "release ${tag} 已发布，releases/latest 指向它"
+
+      # ⚠️ **这一步是 2026-10-24 加的，理由是一次真事故。**
+      # v1.2.1 发出去时**没有 `latest.yml`**，而那次 workflow 跑得**全绿**：
+      # release 建成了、`releases/latest` 也指对了——缺的是**资产**。
+      # 没有它，应用内更新器连「有没有新版」都问不出来（electron-updater 找的是
+      # `releases/download/<tag>/latest.yml`，找不到就抛 ERR_UPDATER_CHANNEL_FILE_NOT_FOUND）。
+      # 上一步那个 `make_latest` 断言只能证明**指针**挪了，证明不了**资产在不在**。
+      #
+      # ⚠️ **判据取 API，不判 CDN**（同上面那步的理由：CDN 那层重定向会滞后几分钟，
+      # 拿它当闸门会误伤）。要判的就是「这个 release 上挂着那三样东西」——
+      # 清单（latest.yml）、被下的那个安装包、增量下载用的 blockmap。
+      - name: 确认更新器要的东西真的挂在 release 上
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          names="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.assets[].name')"
+          missing=""
+          for want in "latest.yml" "shuzhai-${VERSION}-x64-setup.exe" "shuzhai-${VERSION}-x64-setup.exe.blockmap"; do
+            echo "${names}" | grep -qx "${want}" || missing="${missing} ${want}"
+          done
+          if [ -n "${missing}" ]; then
+            echo "::error::release ${tag} 上缺：${missing}"
+            echo "实际挂着的资产："
+            echo "${names}" | sed 's/^/  - /'
+            exit 1
+          fi
+          echo "release ${tag} 上更新器要的三样都在：latest.yml / 安装包 / blockmap"
