@@ -674,7 +674,12 @@ export function recentBooks(db: DatabaseSync, limit = 10): unknown[] {
               (select f.path from book_file f where f.book_id = b.id and f.is_primary = 1) as path
          from reading_state r join book b on b.id = r.book_id
         where r.last_read_at is not null
-        order by r.last_read_at desc limit ?`,
+        -- **按解析出来的时刻排，不按字符串比。** 库里可以同时有
+        -- 「2026-08-12 10:00:00」（datetime('now')）和「2026-08-12T09:00:00Z」
+        -- （备份恢复 / 外部写入；asWhen 认这两种）。字符串比时 'T' > ' '，
+        -- ISO 那条会凭空压过晚一个小时的 SQL 那条——而「继续阅读」浮钮
+        -- 就认这个排序的第一本，指错书不报任何错。同 library.ts 的 ORDER.time。
+        order by strftime('%s', r.last_read_at) desc, b.id desc limit ?`,
     )
     .all(limit);
 }

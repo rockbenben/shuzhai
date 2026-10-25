@@ -154,6 +154,24 @@ test('「最近在读」按最后阅读时间排序，没读过的不出现', ()
   assert.deepEqual(recent.map((r) => r.bookId), [other, bookId]);
 });
 
+/*
+ * **「最近」要按解析出来的时刻比，不能按字符串。**
+ *
+ * 库里可以同时有两种写法：`datetime('now')` 的 `… 10:00:00`，以及备份恢复
+ * 或外部工具写进来的 `…T09:00:00Z`（`asWhen` 两种都收）。字符串比时
+ * 第 11 位 `'T' > ' '`，ISO 那条会凭空压过晚一个小时的 SQL 那条——
+ * 而「继续阅读」浮钮认的就是这个排序的第一本，**指到另一本书、一句错都不报**。
+ */
+test('「最近在读」按时刻排序，SQL 与 ISO 两种写法混着也对', () => {
+  const other = Number(db.prepare("insert into book(title) values('ISO 时间那本')").run().lastInsertRowid);
+  db.prepare("insert into reading_state(book_id, status) values(?, 'reading')").run(other);
+  db.prepare("update reading_state set last_read_at = '2026-08-12 10:00:00' where book_id = ?").run(bookId);
+  db.prepare("update reading_state set last_read_at = '2026-08-12T09:00:00Z' where book_id = ?").run(other);
+
+  const recent = recentBooks(db) as Array<{ bookId: number }>;
+  assert.equal(recent[0]?.bookId, bookId, '10:00 比 09:00 晚——哪怕后者带一个 T');
+});
+
 test('离开「已读完」要清掉读完时间——不然记录自相矛盾', () => {
   setStatus(db, bookId, { status: 'finished' });
   assert.ok((db.prepare('select finished_at from reading_state where book_id = ?')

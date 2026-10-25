@@ -443,6 +443,27 @@ tbody tr:hover {
   flex: 1;
   padding: 0.3rem 0;
 }
+/*
+ * 目录认不出章节时的修复提示。**只在硬分段的书上出现**（判据 `是机械分段`）。
+ * 放在列表外面，不跟章节一起滚走——看到「未识别章节」时它就在那儿。
+ */
+.toc-unrecognized {
+  margin: 0.55rem 0.8rem 0.15rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  font-size: 0.78rem;
+}
+.toc-unrecognized p {
+  margin: 0.25rem 0 0.45rem;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+.toc-unrecognized .mini {
+  font-size: 0.75rem;
+}
 .toc-item {
   /* 原来是 block + 自己截字。现在右边还挂一个「这一章有笔记」的记号，
      所以改成 flex：**截字的活儿交给里面那个 .toc-t**，记号 flex-shrink: 0

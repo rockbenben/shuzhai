@@ -1217,7 +1217,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                 set导出中(true);
                 set导出到(null);
                 try {
-                  const dir = await rpc<string | null>('ui.pickFolder');
+                  const dir = await rpc<string | null>('ui.pickFolder', { title: '选择导出笔记的文件夹' });
                   if (!dir) return;                   // 用户取消了选目录
                   const r = await rpc<{ path: string }>('export.allNotes', { dir });
                   set导出到(r.path);

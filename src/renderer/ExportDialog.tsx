@@ -28,7 +28,7 @@ export function ExportDialog({ book, onClose }: Props) {
     setError(null);
     setDone(null);
     try {
-      const dir = await rpc<string | null>('ui.pickFolder');
+      const dir = await rpc<string | null>('ui.pickFolder', { title: '选择导出文件夹' });
       if (!dir) return; // 用户取消了选目录
       const r =
         kind === 'epub' || kind === 'txt'

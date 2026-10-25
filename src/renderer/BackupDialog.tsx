@@ -1,22 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { rpc } from './rpc.ts';
 
-interface AutoConfig {
-  enabled: boolean;
-  dir: string;
-  everyDays: number;
-  keep: number;
-  lastAt: string | null;
-}
-
 /*
  * **从 core 引，别在这儿手抄一份。**
- * 这里原来内联写着一份只有两个字段的 `RestoreReport`，而 core 那份一直在长——
- * 于是「恢复完回来了多少书评/划线」在界面这一侧**根本不存在**。
- * 这个仓库栽在「手抄的第二份先掉队」上已经第五次了
- * （`Filter` / `RepairReport` / `Version` / 评分刻度 / 现在这个）。
+ * 这里原来内联着 `RestoreReport` 和 `AutoConfig` 两份手抄：core 那份一长，
+ * 界面这边就跟不上——「恢复完回来了多少书评/划线」曾经整段不存在，
+ * 而 `AutoConfig` 和 core 的返回类型各算各的。
+ * 这个仓库被「手抄的第二份先掉队」咬过不止一次
+ * （`Filter` / `RepairReport` / `Version` / 评分刻度 / `RestoreReport` / `AutoConfig`）。
  */
 import type { RestoreReport, LinkResult } from '../core/backup.ts';
+import type { AutoBackupStatus } from '../core/autobackup.ts';
 /** `search.meta` 的返回形状——**从已有的那份引，别在这儿再抄一个**（`dup-decls.mjs` 看着） */
 import type { MetaHit } from './SearchPanel.tsx';
 import { whenAgo } from '../core/format.ts';
@@ -37,9 +31,11 @@ interface Linking {
  * 备份与恢复（spec §10）。
  * 这个界面要说清一件事：**备的是重扫恢复不了的那些东西**——阅读进度、书签、
  * 评分短评。书本身丢不了，它们才丢得了。
+ *
+ * 还没选目录时点「立刻备份一次」会先让用户选，选完接着备——第一步不该是一句红字。
  */
 export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void }) {
-  const [cfg, setCfg] = useState<AutoConfig | null>(null);
+  const [cfg, setCfg] = useState<AutoBackupStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -52,7 +48,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
   const [linking, setLinking] = useState<Linking | null>(null);
 
   const reload = useCallback(async () => {
-    setCfg(await rpc<AutoConfig>('backup.autoConfig'));
+    setCfg(await rpc<AutoBackupStatus>('backup.autoConfig'));
   }, []);
 
   useEffect(() => {
@@ -72,9 +68,11 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
     }
   };
 
-  const save = async (patch: Partial<AutoConfig>) => {
+  const save = async (patch: Partial<AutoBackupStatus>) => {
     const next = { ...cfg!, ...patch };
     setCfg(next);
+    // 配置变了：关掉时让书架重取，侧栏那条「尚未备份」才知道自动备份是否配全（enabled && dir）
+    setChanged(true);
     await rpc('setting.set', { key: 'backup.auto', value: next.enabled ? '1' : '0' });
     await rpc('setting.set', { key: 'backup.dir', value: next.dir });
     await rpc('setting.set', { key: 'backup.everyDays', value: String(next.everyDays) });
@@ -168,12 +166,17 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
             className="primary"
             disabled={busy !== null}
             onClick={() => void run('正在备份…', async () => {
+              // 还没选目录就先让用户选，选完直接接着备——别把第一下点成一句红字
               if (!cfg.dir) {
-                setError('先选一个备份文件夹');
-                return;
+                const picked = await rpc<string | null>('ui.pickFolder', { title: '选择备份文件夹' });
+                if (!picked) return;
+                await save({ dir: picked });
               }
               const r = await rpc<{ path: string; pruned: string[] }>('backup.runAuto');
               setMsg(`已备份到 ${r.path}${r.pruned.length ? `，清理了 ${r.pruned.length} 份旧的` : ''}`);
+              // 备份成功也算这一屏的状态变了：关掉时让书架重取 lastAt，
+              // 侧栏那条「尚未备份」才会收起来
+              setChanged(true);
               await reload();
             })}
           >
@@ -420,7 +423,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
         <div className="row" style={{ marginTop: '.5rem' }}>
           <button
             onClick={() => void run('', async () => {
-              const dir = await rpc<string | null>('ui.pickFolder');
+              const dir = await rpc<string | null>('ui.pickFolder', { title: '选择备份文件夹' });
               if (dir) await save({ dir });
             })}
           >
@@ -448,7 +451,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
           {cfg.lastAt
             ? <span title={whenAgo(cfg.lastAt)?.title}>上次备份：{whenAgo(cfg.lastAt)?.text}</span>
             : '还没有备份过'}
-          。每次打开程序都会看一眼该不该备，之后开着的时候再隔一段时间备一次。
+          。开启定期备份后，每次打开程序都会看一眼该不该备；之后开着的时候再隔一段时间备一次。
         </p>
 
         <div className="row modal-actions" style={{ marginTop: '.9rem', justifyContent: 'flex-end' }}>

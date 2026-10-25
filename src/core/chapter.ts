@@ -10,6 +10,7 @@
 // 字符下标 ×2 就是精确字节偏移（代理对是两个码元 4 字节，JS 的 length 也按码元算，仍然对得上）。
 
 import { bomLength, type Encoding } from './encoding.ts';
+import { fallbackTitle } from './labels.ts';
 
 export interface Line {
   text: string;
@@ -822,7 +823,7 @@ function fallbackChunks(lines: Line[], totalBytes: number): Chapter[] {
     if (chars >= FALLBACK_CHUNK_CHARS) {
       chapters.push({
         index: chapters.length,
-        title: `未识别章节 ${chapters.length + 1}`,
+        title: fallbackTitle(chapters.length + 1),
         offset: chunkStart,
         length: line.byteOffset - chunkStart,
       });
@@ -833,7 +834,7 @@ function fallbackChunks(lines: Line[], totalBytes: number): Chapter[] {
   }
   chapters.push({
     index: chapters.length,
-    title: `未识别章节 ${chapters.length + 1}`,
+    title: fallbackTitle(chapters.length + 1),
     offset: chunkStart,
     length: totalBytes - chunkStart,
   });

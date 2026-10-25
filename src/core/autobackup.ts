@@ -43,6 +43,11 @@ export interface AutoBackupConfig {
   keep: number;
 }
 
+/** `backup.autoConfig` 的返回：配置 + 上次备份时间。**界面和对话框共用这一份** */
+export interface AutoBackupStatus extends AutoBackupConfig {
+  lastAt: string | null;
+}
+
 export const DEFAULT_AUTOBACKUP: AutoBackupConfig = {
   enabled: false,
   dir: '',

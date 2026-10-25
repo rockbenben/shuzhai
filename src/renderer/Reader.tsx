@@ -28,6 +28,7 @@ import { TtsPanel } from './TtsPanel.tsx';
 import { NightToggle, TocHead, TtsEnginesModal } from './ReaderChrome.tsx';
 import { HighlightsPanel } from './HighlightsPanel.tsx';
 import { splitParagraphs, sliceByMarks, speakingParagraph, splitImages, 第n处, type Mark } from '../core/paragraphs.ts';
+import { 是机械分段 } from '../core/labels.ts';
 import { useTts } from './useTts.ts';
 
 interface TocEntry {
@@ -48,6 +49,8 @@ interface Props {
   /** 就地盖一层「编辑书信息」弹窗改这本书的资料——**不退出阅读**。阅读位置是
       边读边存的（翻章/滚动都写库），关了弹窗还在这本书的原处。 */
   onEdit?: () => void;
+  /** 目录里认出是硬分段时，直接开这本书的章节规则编辑器 */
+  onChapters: (title: string) => void;
   /** App 层弹窗（编辑 / 在线地址 / 改名…）压在阅读器上时为 true：键盘全让给弹窗，
       别在背后翻页或退出（Esc 关弹窗由 App 那条 window 监听管） */
   modalOpen?: boolean;
@@ -109,7 +112,7 @@ function BodyImage({ src }: { src: string }) {
   );
 }
 
-export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, onEdit, modalOpen = false, onExit }: Props) {
+export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, onEdit, onChapters, modalOpen = false, onExit }: Props) {
   /** 每种颜色代表什么，用户自己定。见 `highlight-view.ts` 的 `use色名` */
   const 色名 = use色名();
   /** 「试着重新对上」跑着没有 / 跑完说了什么。**结果要照实说三个数**，见那个按钮 */
@@ -117,6 +120,11 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
   const [对完, set对完] = useState<string | null>(null);
   const [settings, setSettings] = useState<ReadSettings>(loadSettings);
   const [toc, setToc] = useState<TocEntry[]>([]);
+  /**
+   * 目录是不是机械分段（「未识别章节 N」）。**只有这种书才在目录里给修复入口**；
+   * 真切出来的书多一行提示只会碍事。判据在 `labels.ts`，两种繁简写法都认。
+   */
+  const 未识别 = useMemo(() => 是机械分段(toc.map((c) => c.title)), [toc]);
   /**
    * 屏幕上挂着的那几章，**连续、按 idx 升序**。
    *
@@ -1590,6 +1598,22 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           setFilter={setTocFilter}
           onClose={() => setTocOpen(false)}
         />
+        {/*
+          * **把「为什么目录里全是『未识别章节』」和修法放在这里。**
+          *
+          * 原来只有一条死路：目录里摆着「未识别章节 1/2」，而修它的
+          * 「章节怎么切…」藏在「编辑 → 文件与解析」里，要穿三层菜单。
+          * 认不出章节的 txt 正是这个应用的目标用户最常见的一类书，
+          * 所以在这条症状出现的地方给一个入口——不另写解析器，直接开
+          * 已有的规则编辑器。规则改完由 `App.tsx` 退出并用新目录重开。
+          */}
+        {未识别 && (
+          <div className="toc-unrecognized">
+            <strong>这本书的章节标题没认出来</strong>
+            <p className="muted">现在按固定字数分段，下面这些「未识别章节 N」不是真的章名。</p>
+            <button className="mini" onClick={() => onChapters(bookTitle)}>换一条章节规则…</button>
+          </div>
+        )}
         <div className="toc-list">
           {/* 往前的哨兵。滚到这儿自动补上一段——**滚动本身就表达了「往那边看」，
               再要一次点击是多余的**。它同时也能点，理由和下面那个一样：

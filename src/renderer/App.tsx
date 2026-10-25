@@ -18,6 +18,8 @@ import { LinksDialog } from './LinksDialog.tsx';
 import { VersionsDialog } from './VersionsDialog.tsx';
 import { BackupDialog } from './BackupDialog.tsx';
 import { Cover } from './Cover.tsx';
+import { ICO } from './icons.tsx';
+import { 续读进度, 续读提示, 选续读, type ResumeRow } from './resume.ts';
 import { LibraryDirs } from './LibraryDirs.tsx';
 import { RatePopover } from './RatePopover.tsx';
 import { ReviewShelf } from './ReviewShelf.tsx';
@@ -35,17 +37,21 @@ import { planOpen } from '../core/open.ts';
 import { UNREVIEWED } from '../core/library.ts';
 import type { DirNode } from '../core/library.ts';
 import type { SplitIssue as BadSplit } from '../core/health.ts';
-import { formatOf, extOf, BOOK_EXT, TEXT_EXT, viewerOf } from '../core/book-format.ts';
+import { formatOf, extOf, BOOK_EXT, TEXT_EXT } from '../core/book-format.ts';
 import { wan, relTime, sqlTime, whenAgo, activeFilterWords, displayChapters } from '../core/format.ts';
 // 类型是 import type，会被完全擦除——不会像值导入那样把扫描器拖进渲染包。
 // 手抄一份 interface 的代价是加一个字段要改三处，而漏抄不报错
 import type { ScanReport } from '../core/scan.ts';
 import type { UpdateHint } from '../core/links.ts';
+import type { AutoBackupStatus } from '../core/autobackup.ts';
 import {
   loadSort, saveSort, loadView, saveView, type ViewKind,
   hydrateUserThemes, applySettings, loadSettings,
 } from './settings.ts';
 import { PROBLEM_FILE_STATUS, FILE_STATUS, READING_STATUS, SERIAL_STATUS, labelOf } from '../core/labels.ts';
+
+/** 「备份提示看过了」的设置键。**一次性**，不是「备份过没有」的判据 */
+const BACKUP_PROMPT_KEY = 'backup.promptSeen';
 
 /**
  * 书架上一本书的形状——**`book.list` 回来的行就长这样**。
@@ -107,22 +113,6 @@ export interface Book {
   /** 主文件的 mtime（毫秒 epoch）。没有文件的手工书是 null */
   mtime?: number | null;
   has_cover?: number;
-}
-
-/** 「继续阅读」入口要的那几样（`reading.recent` 返回的形状） */
-interface ResumeRow {
-  bookId: number;
-  title: string;
-  author: string | null;
-  status: string;
-  percent: number | null;
-  chapterIdx: number | null;
-  lastReadAt: string;
-  /**
-   * 主文件路径。**PDF / EPUB 不能报章号**：它们的位置存在 `viewer.<bookId>`，
-   * `reading_state.chapter_idx` 永远是 0（同书架卡片那一行，见 `位置名` 那套判据）。
-   */
-  path: string | null;
 }
 
 /**
@@ -390,6 +380,12 @@ export function App() {
   const [typed, setTyped] = useState('');
   const [books, setBooks] = useState<Book[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  /** 备份配置和上次备份时间。`lastAt === null` 就是「一次都没备过」 */
+  const [backup, setBackup] = useState<AutoBackupStatus | null>(null);
+  /** 一次性备份提示是否已经看过（存在设置里，重启也不反复弹） */
+  const [backupPrompted, setBackupPrompted] = useState(false);
+  /** 「稍后」按下的即时反馈；不用等下一次 loadCounts 回来 */
+  const [backupNudgeDismissed, setBackupNudgeDismissed] = useState(false);
   const [rootCount, setRootCount] = useState(0);
   // 大库上一次铺几千张封面会卡死，按页加载
   const PAGE = 120;
@@ -465,10 +461,31 @@ export function App() {
   const updateIds = useMemo(() => new Set(hints.filter((h) => h.hasUpdate).map((h) => h.bookId)), [hints]);
 
   const [reading, setReading] = useState<{ id: number; title: string; at: number; off?: number } | null>(null);
+  /**
+   * 阅读器的重开计数。**从目录里改完章节规则要用它强制换一个 Reader 实例。**
+   *
+   * 只把 `reading` 设成同一个 id 时 React 会复用原来的 Reader，它的
+   * `chapters`/`toc` 还是旧章节表——实测改完规则回来标题仍是「未识别章节 1」。
+   */
+  const [readerReload, setReaderReload] = useState(0);
   /** 最近一本「在读」的书。跟着书架刷新一起取；没有就不显示入口 */
   const [resume, setResume] = useState<ResumeRow | null>(null);
+  /** 浮钮的提示正文和进度弧；纯判断在 `resume.ts`，这里只算一次给两块用 */
+  const resumeMeta = resume ? 续读提示(resume) : '';
+  const resumePct = resume ? 续读进度(resume) : null;
+  /**
+   * **库里有书、一次都没备份过**才提醒。
+   * 已经开了自动备份并选好目录的，不再唠叨——第一次自动备份可能还没跑，
+   * 但用户已经把这件事托付给程序了；备份过一次（`lastAt` 有值）同样不再提。
+   */
+  const autoBackupReady = !!backup && backup.enabled && !!backup.dir;
+  const needBackup = !!backup && (counts.total ?? 0) > 0 && backup.lastAt === null && !autoBackupReady;
+  /** 一次性横幅：看过「稍后」或点过设置就收起来。侧栏那条在横幅收起后才出现，不叠在一起 */
+  const showBackupNudge = needBackup && !backupPrompted && !backupNudgeDismissed;
   const [editing, setEditing] = useState<number | null>(null);
   const [ruleFor, setRuleFor] = useState<{ id: number; title: string } | null>(null);
+  /** 从阅读器目录打开的规则编辑器：改完要退出旧阅读器、按新目录重开 */
+  const ruleFromReader = useRef<number | null>(null);
   const [linksFor, setLinksFor] = useState<{ id: number; title: string } | null>(null);
   const [renaming, setRenaming] = useState<number[] | null>(null);
   /** 正在评价哪一本。浮层贴着卡片，不是全屏对话框 */
@@ -517,6 +534,17 @@ export function App() {
   const [dialog, setDialog] = useState<
     'settings' | 'clean' | 'search' | 'notes' | 'versions' | 'backup' | 'extract' | 'dirs' | 'batchTag' | 'batchStatus' | 'tags' | 'keywords' | 'addBook' | 'exportMeta' | null
   >(null);
+
+  /** 收起一次性备份横幅；**侧栏那条「尚未备份」不跟着消失，等横幅收起后才出现** */
+  const 收起备份提示 = () => {
+    setBackupNudgeDismissed(true);
+    setBackupPrompted(true);
+    void rpc('setting.set', { key: BACKUP_PROMPT_KEY, value: '1' }).catch(() => {});
+  };
+  const 去设置备份 = () => {
+    收起备份提示();
+    setDialog('backup');
+  };
 
   /**
    * **Esc 关掉最上面那一层浮层。**
@@ -799,7 +827,7 @@ export function App() {
    */
   const loadCounts = useCallback(async () => {
     // 两趟互不依赖，并行发。串起来就是白等一个往返
-    const [c, tags, list, recent] = await Promise.all([
+    const [c, tags, list, recent, backupNow, promptSeen] = await Promise.all([
       // 形状从 core 引，别在这儿手抄一份——那是这个仓库栽过七次的形状
       rpc<ShelfCounts>('book.counts', { scope: crossFilter }),
       // 标签表跟着一起取：打完标签那一排开关要立刻能用，不然得重开应用才看得见
@@ -812,14 +840,21 @@ export function App() {
        * 失败只让这一块保持原样，不能连累计数和标签（所以自己 catch 成 null）。
        */
       rpc<ResumeRow[]>('reading.recent', { limit: 10 }).catch(() => null),
+      /*
+       * **备份提醒也跟这一趟走。** 扫描完、备份完都要重新判断要不要提醒；
+       * 失败只是让这一块保持原样，不影响书架本身。
+       */
+      rpc<AutoBackupStatus>('backup.autoConfig').catch(() => null),
+      rpc<string>('setting.get', { key: BACKUP_PROMPT_KEY }).catch(() => ''),
     ]);
+    if (backupNow) setBackup(backupNow);
+    setBackupPrompted(promptSeen === '1');
     setCats(list);
     /*
-     * **只在「在读」的书里挑。** 一本已经读完/弃坑的书 last_read_at 也可能是最新的，
-     * 但它不该出现在「继续阅读」里；没有在读的就整条隐藏，别摆一个空壳。
-     * 用 `reading.recent` 而不是 `reading.last`，因为后者不带状态。
+     * **只挑在读、而且真有文件的**——读完/弃坑的不算，手工书点开是评价浮层。
+     * 判据和理由在 `resume.ts` 的 `选续读`，别在这儿再抄一份。
      */
-    if (recent) setResume(recent.find((r) => r.status === 'reading') ?? null);
+    if (recent) setResume(选续读(recent));
     /*
      * **分类没了，按它筛的那一条也得跟着撤掉**——和下面标签那条是同一条规矩：
      * 界面必须显示正在生效的状态，做不到就别让那个状态继续生效。
@@ -1156,7 +1191,7 @@ export function App() {
    * 退出查看器会掉回**上一本书的阅读器**——而用户以为自己回的是书架。
    */
   const 打开别的书 = (bookId: number, at?: number) => {
-    void (async () => {
+    return (async () => {
       /*
        * ⚠️ **类型要和别处一致**（`dup-decls.mjs` 盯着「同一个 rpc 两种返回类型」）：
        * `book.detail` 在 `BookEditor` / `ReviewCard` 里都是 `Detail`，这儿也是。
@@ -1291,7 +1326,21 @@ export function App() {
         <RuleEditor
           bookId={ruleFor.id}
           bookTitle={ruleFor.title}
-          onClose={(c) => { setRuleFor(null); if (c) void refresh(); }}
+          onClose={(c) => {
+            setRuleFor(null);
+            const back = ruleFromReader.current;
+            ruleFromReader.current = null;
+            if (c) void refresh();
+            /*
+             * **从阅读器打开的：旧章节表已经过期。** 规则改了之后阅读器里
+             * 还挂着旧的 `toc`/`chapters`，不退出重开就会继续显示「未识别章节」。
+             * 等 `打开别的书` 把新的 `reading`（重解析后的位置）落下来，
+             * 再换一个 Reader 实例——只改 props 的话 React 会复用旧实例。
+             */
+            if (c && back !== null) {
+              void 打开别的书(back).then(() => setReaderReload((n) => n + 1));
+            }
+          }}
         />
       )}
       {linksFor && (
@@ -1332,6 +1381,7 @@ export function App() {
     return (
       <>
       <Reader
+        key={readerReload}
         bookId={reading.id}
         bookTitle={reading.title}
         startAt={reading.at}
@@ -1339,6 +1389,10 @@ export function App() {
         onOpenBook={打开别的书}
         // 就地盖编辑弹窗，不退出阅读器（位置边读边存，关了弹窗还在这本书里）
         onEdit={() => setEditing(reading.id)}
+        onChapters={(title) => {
+          ruleFromReader.current = reading.id;
+          setRuleFor({ id: reading.id, title });
+        }}
         onExit={() => {
           setReading(null);
           void refresh();
@@ -1500,40 +1554,6 @@ export function App() {
           />
         )}
 
-        {/*
-          * **继续阅读**：书架是「找书」的地方，但用户回来最常见的目的只有一个——
-          * 接着上次那本读。没有在读记录时整块不出现；有就直接打开上次的位置
-          * （`打开别的书` 会走 `book.detail`，位置已经在里面了）。
-          */}
-        {resume && (
-          <button
-            className="nav-resume"
-            onClick={() => 打开别的书(resume.bookId)}
-            title={`继续阅读《${resume.title}》`}
-          >
-            <span className="nav-resume-kicker">继续阅读</span>
-            <span className="nav-resume-title">《{resume.title}》</span>
-            <span className="nav-resume-meta">
-              {(() => {
-                /*
-                 * **PDF / EPUB 不报章号。** 它们的位置存在 `viewer.<bookId>`，
-                 * `reading_state.chapter_idx` 永远是 0——照直渲染的话，一本翻到
-                 * 第 100 页的 PDF 会在入口上写着「第 1 章」（同书架卡片那一行）。
-                 */
-                const viewer = viewerOf(resume.path);
-                if (viewer) return `${viewer.toUpperCase()} · 上次读到的位置`;
-                if (formatOf(resume.path) === 'text' && resume.chapterIdx != null) {
-                  return `第 ${resume.chapterIdx + 1} 章`
-                    + (resume.percent != null && resume.percent > 0 && resume.percent < 100
-                      ? ` · ${Math.round(resume.percent)}%`
-                      : '');
-                }
-                return '上次打开的那本';
-              })()}
-            </span>
-          </button>
-        )}
-
         {/* 品牌、搜索框在这层外面（固定）；档位多到放不下时只滚这一段，
             底部工具（`.nav-foot`）也在外面、始终够得到。判据在 shell.css 的 `.nav` */}
         <div className="nav-scroll">
@@ -1597,6 +1617,24 @@ export function App() {
 
         <div className="nav-spacer" />
         </div>
+
+        {/*
+          * **一次都没备份过，就一直在侧栏这儿。**
+          *
+          * 一次性横幅还在时不画：同一条提醒不说两遍；横幅「稍后」收起之后才出现。
+          * 它不挡路、不自动消失，真的备份过（`lastAt` 有值）或自动备份配全之后才收。
+          * 放在 `.nav-foot` 外面，不跟书架档位一起滚走。
+          */}
+        {needBackup && !showBackupNudge && (
+          <button
+            className="nav-backup-warn"
+            onClick={去设置备份}
+            title="书评、笔记和阅读进度重新扫描恢复不了；点这里设置备份"
+          >
+            <span className="nav-backup-warn-main">尚未备份</span>
+            <span className="nav-backup-warn-sub">书评和笔记丢了找不回</span>
+          </button>
+        )}
 
         {/*
           * 管理功能沉到底部：一天用不到一次的东西，不该占着最显眼的一横排。
@@ -2107,6 +2145,26 @@ export function App() {
           * 无限滚动哨兵的 observer root 也是这一层（见 attachSentinel）。
           */}
         <div className="main-scroll">
+        {/*
+          * **第一次有书、还没备份过时提醒一次。**
+          *
+          * 不是「再加一个功能」——备份本来就在「更多工具」里，问题是它
+          * 出现在用户已经写了几百条书评之后，而那时用户已经以为应用会自己记着。
+          * 只提醒一次，可跳过；它在的时候侧栏那条不画，收起后才出现，
+          * 并一直留到真的备份过、或自动备份配全。
+          */}
+        {showBackupNudge && (
+          <div className="backup-nudge">
+            <div className="backup-nudge-copy">
+              <strong>书评、笔记和阅读进度，重新扫描也找不回来</strong>
+              <p className="muted">有空时选一个备份文件夹就行——以后写下的书评、笔记和进度都会存一份；想上云就选网盘同步文件夹。</p>
+            </div>
+            <div className="row" style={{ gap: '.4rem', flex: 'none' }}>
+              <button onClick={收起备份提示}>稍后</button>
+              <button className="primary" onClick={去设置备份}>设置备份</button>
+            </div>
+          </div>
+        )}
         {shelf === 'excluded' && books.length > 0 && (
           <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
             这些书<strong>没有被删除</strong>，只是不在书架上显示、扫描时也跳过。来由有两种：被屏蔽规则挡到，或者它所在的书库文件夹被移除了。去掉那条规则、或者把文件夹加回来重新扫描，它们连着阅读进度会原样回来。
@@ -2827,6 +2885,53 @@ export function App() {
           </div>
         )}
         </div>
+
+        {/*
+          * **继续阅读**：右下角一枚圆形浮钮（同 `.toasts` 一个角，两边都不让）。
+          *
+          * 平时是一枚开卷图标 + 一圈细进度弧——鼠标停上去才展开书名、
+          * 章号和进度、上次读多久前（`.resume-fab-tip`，键盘聚焦也展开）。
+          * 这样它不和书架第一张卡重复：默认排序下第一张卡就是这本书，
+          * 摆一整块信息等于说两遍。
+          *
+          * **弧只画 txt。** PDF / EPUB 的位置在 `viewer.<bookId>`，库里没有
+          * 总页数可当分母，`reading_state.percent` 对它们恒为 0——画出来
+          * 就是一个假进度（同「不给 PDF 报第 N 章」那条判据）。
+          *
+          * **不用播放三角**：那枚图标在阅读器里是「自动滚」，摆在书架上
+          * 会被认成播放/朗读，而不是「接着读」。
+          *
+          * 换到别的档位或筛选之后它照样在，那才是它最有用的场合；
+          * 没有在读记录时整块不出现。点开走 `打开别的书`，位置在 `book.detail` 里。
+          *
+          * ⚠️ **右下角是通知的地方**：有这枚键时 `.toasts` 抬到它上面
+          * （`.app:has(.resume-fab)`，见 shell.css）；扫描时底部有状态条，
+          * 浮钮和通知一起再让一截（`.resume-fab-lift` / `.toasts-lift`）。
+          */}
+        {resume && (
+          <button
+            className={`resume-fab${busy ?? progress ? ' resume-fab-lift' : ''}`}
+            onClick={() => 打开别的书(resume.bookId)}
+            aria-label={`继续阅读《${resume.title}》，${resumeMeta}`}
+          >
+            {resumePct != null && (
+              <svg className="resume-fab-ring" viewBox="0 0 36 36" aria-hidden="true">
+                <circle className="resume-fab-ring-track" cx="18" cy="18" r="16" pathLength="100" />
+                <circle
+                  className="resume-fab-ring-bar"
+                  cx="18" cy="18" r="16" pathLength="100"
+                  strokeDasharray={`${resumePct} 100`}
+                />
+              </svg>
+            )}
+            {ICO.book}
+            <span className="resume-fab-tip" aria-hidden="true">
+              <span className="resume-fab-kicker">继续阅读</span>
+              <span className="resume-fab-title">《{resume.title}》</span>
+              <span className="resume-fab-meta">{resumeMeta}</span>
+            </span>
+          </button>
+        )}
       </main>
 
       {(busy ?? progress) && (

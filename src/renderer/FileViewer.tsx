@@ -1758,7 +1758,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
       );
 
       set存图('选个文件夹…');
-      const dir = await rpc<string | null>('ui.pickFolder');
+      const dir = await rpc<string | null>('ui.pickFolder', { title: '选择保存图片的文件夹' });
       if (!dir) { set存图(null); return; }
       const out = await rpc<{ path: string }>('highlight.exportImage', {
         id: h.id, dir, dataUrl: 块.toDataURL('image/png'),

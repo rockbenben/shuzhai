@@ -114,3 +114,30 @@ export const META_LABELS: Record<string, string> = {
   source_site: '来源站点',
   note: '备注',
 };
+
+/*
+ * ── 机械分段的章名 ────────────────────────────────────────────
+ *
+ * **生成和识别共用这一份。** 名字由 `chapter.ts` 的 `fallbackChunks` 造，
+ * 阅读器靠它认「这本书的目录是硬分的、不是真的章名」。两处各写一个字面量
+ * 的话，改一处漏一处，界面上就会把一本真书当成没切出来（或反过来）。
+ *
+ * ⚠️ **两种写法都要认。** `book.chapters` 会按这本书的繁简模式转换章名，
+ * `未识别章节` 在繁体模式下是 `未識別章節`；只认简体的话，开着繁体的那本书
+ * 永远看不到这条提示。
+ */
+export const FALLBACK_TITLE = '未识别章节';
+
+export function fallbackTitle(n: number): string {
+  return `${FALLBACK_TITLE} ${n}`;
+}
+
+/** 目录里这一串是不是 `fallbackChunks` 造的机械分段（序号必须从 1 连上来） */
+export function 是机械分段(titles: string[]): boolean {
+  if (titles.length === 0) return false;
+  const re = /^(?:未识别章节|未識別章節) (\d+)$/;
+  return titles.every((t, i) => {
+    const m = re.exec(t);
+    return !!m && Number(m[1]) === i + 1;
+  });
+}

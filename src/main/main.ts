@@ -329,10 +329,17 @@ app.whenReady().then(async () => {
       })(),
     ),
 
-    /** 打开系统的选目录对话框，返回选中的路径（取消则 null）。不写任何东西 */
-    'ui.pickFolder': async () => {
+    /**
+     * 打开系统的选目录对话框，返回选中的路径（取消则 null）。不写任何东西。
+     * 标题由调用方给：同一个框在加书库、备份、导出之间复用，写死就会和当下的事对不上。
+     */
+    'ui.pickFolder': async (params) => {
+      const rawTitle = (params as { title?: unknown } | undefined)?.title;
+      const title = typeof rawTitle === 'string' && rawTitle.trim()
+        ? rawTitle.trim()
+        : '选择放书的文件夹';
       const r = await dialog.showOpenDialog({
-        title: '选择放书的文件夹',
+        title,
         properties: ['openDirectory'],
       });
       return r.canceled ? null : r.filePaths[0];

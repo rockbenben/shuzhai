@@ -98,7 +98,7 @@ export function LibraryDirs({ onClose }: { onClose: (changed: boolean) => void }
 
   const pickDirToBlock = async () => {
     setError(null);
-    const dir = await rpc<string | null>('ui.pickFolder');
+    const dir = await rpc<string | null>('ui.pickFolder', { title: '选择要屏蔽的文件夹' });
     if (!dir) return;
     try {
       const { pattern } = await rpc<{ pattern: string }>('ignore.globForDir', { dir });
