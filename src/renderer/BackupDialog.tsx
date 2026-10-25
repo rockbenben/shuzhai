@@ -69,14 +69,17 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
   };
 
   const save = async (patch: Partial<AutoBackupStatus>) => {
-    const next = { ...cfg!, ...patch };
+    // 换目录或关掉自动备份后，旧的失败原因就不再适用；清掉它，让新配置重新开始。
+    const clearError = patch.dir !== undefined || patch.enabled === false;
+    const next = { ...cfg!, ...patch, ...(clearError ? { lastError: null } : {}) };
     setCfg(next);
-    // 配置变了：关掉时让书架重取，侧栏那条「尚未备份」才知道自动备份是否配全（enabled && dir）
+    // 配置变了：关掉时让书架重取，一次性备份说明才知道自动备份是否已配全（enabled && dir）
     setChanged(true);
     await rpc('setting.set', { key: 'backup.auto', value: next.enabled ? '1' : '0' });
     await rpc('setting.set', { key: 'backup.dir', value: next.dir });
     await rpc('setting.set', { key: 'backup.everyDays', value: String(next.everyDays) });
     await rpc('setting.set', { key: 'backup.keep', value: String(next.keep) });
+    if (clearError) await rpc('setting.set', { key: 'backup.lastError', value: '' });
   };
 
   // 指认候选：按输入框里的词搜书名/作者，停手 180ms 再查
@@ -174,8 +177,8 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
               }
               const r = await rpc<{ path: string; pruned: string[] }>('backup.runAuto');
               setMsg(`已备份到 ${r.path}${r.pruned.length ? `，清理了 ${r.pruned.length} 份旧的` : ''}`);
-              // 备份成功也算这一屏的状态变了：关掉时让书架重取 lastAt，
-              // 侧栏那条「尚未备份」才会收起来
+              // 备份成功也算这一屏的状态变了：关掉时让书架重取 lastAt / 最后错误，
+              // 说明和弹窗都按最新状态显示
               setChanged(true);
               await reload();
             })}
@@ -453,6 +456,11 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
             : '还没有备份过'}
           。开启定期备份后，每次打开程序都会看一眼该不该备；之后开着的时候再隔一段时间备一次。
         </p>
+        {cfg.lastError && (
+          <p className="danger" style={{ fontSize: '0.82rem', marginTop: '.4rem', overflowWrap: 'anywhere' }}>
+            上次自动备份失败：{cfg.lastError}。检查备份文件夹是否可写，或者换一个位置再试。
+          </p>
+        )}
 
         <div className="row modal-actions" style={{ marginTop: '.9rem', justifyContent: 'flex-end' }}>
           <button onClick={() => onClose(changed)} disabled={busy !== null}>关闭</button>

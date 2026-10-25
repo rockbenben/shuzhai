@@ -115,7 +115,7 @@ import {
   checkLinks,
   updateHints,
 } from '../core/links.ts';
-import { maybeBackup, runBackup, readConfig, lastBackupAt } from '../core/autobackup.ts';
+import { maybeBackup, runBackup, readConfig, lastBackupAt, lastBackupError } from '../core/autobackup.ts';
 import {
   exportBackup,
   importBackup,
@@ -366,8 +366,14 @@ async function runScan(
   db: DatabaseSync,
   rootId: number | undefined,
   onScanProgress?: (p: { file: string; done: number; root: string }) => void,
+  onScanDone?: () => void,
 ): Promise<ScanReport> {
-  return 只干一次(`scan:${rootId ?? 'all'}`, () => doScan(db, rootId, onScanProgress));
+  return 只干一次(`scan:${rootId ?? 'all'}`, async () => {
+    const report = await doScan(db, rootId, onScanProgress);
+    // 同一次扫描只通知一次：并发调用拿到的是同一个 promise，不会各调一遍
+    onScanDone?.();
+    return report;
+  });
 }
 
 async function doScan(
@@ -427,6 +433,11 @@ export function createRpc(
    * 用户只能盯着一个不动的「正在建索引…」猜是不是死了。
    */
   onIndexProgress?: (p: { done: number; total: number }) => void,
+  /**
+   * 扫描完成的回调。主进程用它立刻检查自动备份——默认目录 + 自动备份开启后，
+   * 首扫完不该等到 6 小时后的下一轮检查才备份。
+   */
+  onScanDone?: () => void,
 ): RpcMethods {
   /**
    * 这台机器上有哪些在线朗读引擎。
@@ -1068,7 +1079,7 @@ export function createRpc(
 
       db.prepare('insert or ignore into library_root(path) values(?)').run(path);
       const root = db.prepare('select * from library_root where path = ?').get(path) as unknown as RootRow;
-      const report = await runScan(db, root.id, onScanProgress);
+      const report = await runScan(db, root.id, onScanProgress, onScanDone);
       return { ...root, report };
     },
 
@@ -1119,7 +1130,7 @@ export function createRpc(
      * **读磁盘 + 写库**：扫描全部启用的目录。不修改任何 txt。
      * 返回各目录的报告合并结果（spec §1.4）。
      */
-    'library.scan': (params) => runScan(db, ((p) => (p === undefined ? undefined : Number(p)))(asRecord(params).rootId), onScanProgress),
+    'library.scan': (params) => runScan(db, ((p) => (p === undefined ? undefined : Number(p)))(asRecord(params).rootId), onScanProgress, onScanDone),
 
     // ── 重命名（spec §3.3）：唯一会改用户磁盘文件的一组方法 ──────────────
 
@@ -2024,8 +2035,12 @@ export function createRpc(
      */
     'backup.import': (params) => importBackup(db, asRecord(params).backup as BackupFile),
 
-    /** 只读。自动备份的配置和上次备份时间 */
-    'backup.autoConfig': () => ({ ...readConfig(db), lastAt: lastBackupAt(db) }),
+    /** 只读。自动备份的配置、上次备份时间和上次自动备份错误 */
+    'backup.autoConfig': () => ({
+      ...readConfig(db),
+      lastAt: lastBackupAt(db),
+      lastError: lastBackupError(db),
+    }),
 
     /** **写盘（新文件）**：立刻备份一次到配置的目录，并按保留份数清理旧的 */
     'backup.runAuto': () => runBackup(db, readConfig(db), new Date()),

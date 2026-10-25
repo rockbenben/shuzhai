@@ -12,7 +12,10 @@ import {
   runBackup,
   maybeBackup,
   lastBackupAt,
+  lastBackupError,
+  recordBackupError,
   readConfig,
+  ensureDefaultBackupConfig,
   PREFIX,
   DEFAULT_AUTOBACKUP,
   type AutoBackupConfig,
@@ -139,6 +142,51 @@ test('maybeBackup：不该备时什么都不做', async () => {
   const later = new Date('2026-08-25T10:00:00Z');
   assert.ok(await maybeBackup(db, later), '过了 12 天该备了');
   assert.equal(files().length, 2);
+});
+
+test('默认备份：新库装上默认目录并打开自动备份', () => {
+  const 默认 = join(dir, '默认备份');
+  ensureDefaultBackupConfig(db, 默认);
+  const c = readConfig(db);
+  assert.equal(c.dir, 默认);
+  assert.equal(c.enabled, true);
+});
+
+test('默认备份：用户已经选过目录就不替他开自动备份', () => {
+  const 自己的 = join(dir, '自己的备份');
+  setSetting(db, 'backup.dir', 自己的);
+  ensureDefaultBackupConfig(db, join(dir, '默认备份'));
+  const c = readConfig(db);
+  assert.equal(c.dir, 自己的);
+  assert.equal(c.enabled, false);
+});
+
+test('默认备份：明确关过 / 已经备份过都不重新打开', () => {
+  setSetting(db, 'backup.dir', out);
+  setSetting(db, 'backup.auto', '0');
+  ensureDefaultBackupConfig(db, join(dir, '默认备份'));
+  assert.equal(readConfig(db).enabled, false, '明确关过的不能偷偷打开');
+
+  setSetting(db, 'backup.auto', '');
+  setSetting(db, 'backup.lastAt', now.toISOString());
+  ensureDefaultBackupConfig(db, join(dir, '默认备份'));
+  assert.equal(readConfig(db).enabled, false, '已经备份过的不能重新打开');
+});
+
+test('空库不自动备份——不拿空库占一份备份', async () => {
+  setSetting(db, 'backup.auto', '1');
+  setSetting(db, 'backup.dir', out);
+  db.exec('delete from reading_state; delete from book;');
+  assert.equal(await maybeBackup(db, now), null);
+  assert.equal(files().length, 0);
+  assert.equal(lastBackupAt(db), null);
+});
+
+test('自动备份失败会被记下来，成功备份后清掉', async () => {
+  recordBackupError(db, '磁盘满了');
+  assert.equal(lastBackupError(db), '磁盘满了');
+  await runBackup(db, cfg(), now);
+  assert.equal(lastBackupError(db), null, '成功备份之后旧错误不能再挂着');
 });
 
 test('设置读写往返', () => {

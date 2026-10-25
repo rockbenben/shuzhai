@@ -33,6 +33,7 @@ import { exportBackup } from './backup.ts';
  */
 export const PREFIX = 'shuzhai-backup-';
 const LAST_KEY = 'backup.lastAt';
+const LAST_ERROR_KEY = 'backup.lastError';
 
 export interface AutoBackupConfig {
   enabled: boolean;
@@ -43,9 +44,11 @@ export interface AutoBackupConfig {
   keep: number;
 }
 
-/** `backup.autoConfig` 的返回：配置 + 上次备份时间。**界面和对话框共用这一份** */
+/** `backup.autoConfig` 的返回：配置 + 上次备份时间 + 上次自动备份错误。**界面和对话框共用这一份** */
 export interface AutoBackupStatus extends AutoBackupConfig {
   lastAt: string | null;
+  /** 上次自动备份失败的原因；成功备份后清掉 */
+  lastError: string | null;
 }
 
 export const DEFAULT_AUTOBACKUP: AutoBackupConfig = {
@@ -54,6 +57,29 @@ export const DEFAULT_AUTOBACKUP: AutoBackupConfig = {
   everyDays: 7,
   keep: 5,
 };
+
+/** 默认备份文件夹名。**位置由主进程按系统「文档」目录拼**——core 不 import electron */
+export const DEFAULT_BACKUP_FOLDER = '书斋备份';
+
+/**
+ * 给没配过目录的库装上默认目录；**只有从没配过目录、也从没备份过的库**才顺手打开自动备份。
+ * 用户明确关过（`backup.auto = '0'`）或已经备份过的，不替他们打开自动备份；
+ * 但目录为空时仍会补上默认目录，用户之后想开自动备份就有落点。
+ *
+ * 放在主进程 `openDb` 之后、窗口打开之前调。`defaultDir` 由主进程用
+ * `app.getPath('documents')` 拼出来；core 拿不到那个路径，也不该 import electron。
+ */
+export function ensureDefaultBackupConfig(db: DatabaseSync, defaultDir: string): void {
+  const hadDir = !!getSetting(db, 'backup.dir');
+  const autoSet = !!db
+    .prepare('select 1 from app_setting where key = ?')
+    .get('backup.auto');
+  const lastAt = getSetting(db, 'backup.lastAt');
+
+  if (!hadDir) setSetting(db, 'backup.dir', defaultDir);
+  // 只有「三样都没有」的新库才默认打开：用户已经选过目录的，不替他改主意。
+  if (!hadDir && !autoSet && !lastAt) setSetting(db, 'backup.auto', '1');
+}
 
 export function readConfig(db: DatabaseSync): AutoBackupConfig {
   return {
@@ -127,6 +153,7 @@ export async function runBackup(
   // 先写新的再删旧的：反过来的话中途失败会既没新的也少了旧的
   const pruned = await prune(cfg.dir, cfg.keep);
   setSetting(db, LAST_KEY, iso);
+  clearBackupError(db);
   return { path, pruned };
 }
 
@@ -134,11 +161,28 @@ export function lastBackupAt(db: DatabaseSync): string | null {
   return getSetting(db, LAST_KEY) || null;
 }
 
-/** 启动时和每隔一段时间调一次；不该备就什么都不做 */
+/** 上次自动备份失败的原因。**成功备份后由 `runBackup` 清掉** */
+export function lastBackupError(db: DatabaseSync): string | null {
+  return getSetting(db, LAST_ERROR_KEY) || null;
+}
+
+/** 记下自动备份失败的原因；下一次成功备份由 `runBackup` 清掉 */
+export function recordBackupError(db: DatabaseSync, message: string): void {
+  setSetting(db, LAST_ERROR_KEY, message.trim() || '未知错误');
+}
+
+function clearBackupError(db: DatabaseSync): void {
+  setSetting(db, LAST_ERROR_KEY, '');
+}
+
+/** 启动、定时和扫描完成后都会来问一句；不该备就什么都不做 */
 export async function maybeBackup(
   db: DatabaseSync,
   now: Date,
 ): Promise<AutoBackupResult | null> {
+  // 空库不备：默认自动备份开着时，第一次开机还没有书，没必要在文档目录里
+  // 留一份空 JSON；等扫描完成后的那次检查再备。
+  if (!db.prepare('select 1 from book limit 1').get()) return null;
   const cfg = readConfig(db);
   if (!shouldBackup(cfg, lastBackupAt(db), now)) return null;
   return runBackup(db, cfg, now);

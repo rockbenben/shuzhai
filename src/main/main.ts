@@ -19,7 +19,7 @@ import {
 import { createApiServer, listen, callRpc, DEFAULT_PORT, type RpcMethods } from '../server/api.ts';
 import { FileCache } from '../core/reader.ts';
 import { LibraryWatcher } from '../core/watcher.ts';
-import { maybeBackup } from '../core/autobackup.ts';
+import { maybeBackup, ensureDefaultBackupConfig, DEFAULT_BACKUP_FOLDER, recordBackupError } from '../core/autobackup.ts';
 import { createRpc } from './rpc.ts';
 import { CoverFetcher } from './cover-fetcher.ts';
 import { checkForUpdates } from './update.ts';
@@ -245,6 +245,15 @@ app.whenReady().then(async () => {
   applyIgnoreToLibrary(db);
 
   /*
+   * **给备份一个默认落点。**
+   *
+   * 放在系统「文档」下，不放 `userData`：AppData 里的备份用户找不到，
+   * 而且盘坏了会和书库一起没；「文档」通常还会被 OneDrive / 坚果云一起同步。
+   * 只给从没配过、也从没备份过的库打开自动备份，用户明确关过的不动。
+   */
+  ensureDefaultBackupConfig(db, join(app.getPath('documents'), DEFAULT_BACKUP_FOLDER));
+
+  /*
    * `book://f/<bookId>` 的处理器。查的是**主文件**，和 `book.list` 的 `path`
    * 取的是同一个（`is_primary = 1`）——不然「卡片上写着这本能看、点开却是另一份」。
    *
@@ -293,6 +302,20 @@ app.whenReady().then(async () => {
   setupMenu();
   const win = createWindow();
 
+  /**
+   * 扫描完成后要立刻检查一次自动备份。**先声明成空函数**：`createRpc` 在这一行
+   * 就拿到回调，而真正的 `checkBackup` 在后面才定义——扫描只可能发生在主进程
+   * 跑完这段初始化之后，闭包到时已经拿到真函数。
+   */
+  let checkBackup: () => void = () => {};
+  /**
+   * 自动备份的串行闸。30 秒定时器和扫描完成回调可能同时叫到它；
+   * 两个 `maybeBackup` 都看到 `lastAt === null` 会各写一份。
+   * 后到的只记一个标记，等当前这趟收尾再补跑一次。
+   */
+  let backupChecking = false;
+  let backupAgain = false;
+
   // 需要 electron 能力的方法拼在这里，rpc.ts 本身保持可在普通 Node 测试里跑
   const rpc: RpcMethods = {
     ...createRpc(
@@ -327,6 +350,8 @@ app.whenReady().then(async () => {
           if (gate(p.done, Date.now())) win.webContents.send('index-progress', p);
         };
       })(),
+      // 首扫完成后马上看一次要不要备份：默认自动备份的库不该等到 6 小时后的下一轮
+      () => checkBackup(),
     ),
 
     /**
@@ -615,13 +640,29 @@ app.whenReady().then(async () => {
 
   // 自动备份（spec §10）。判据是「距上次多久」而不是固定时刻——
   // 桌面应用不常驻，按时刻排的话好几天不开机的人一次都轮不到，
-  // 而他恰恰最需要备份。这里只是定期来问一句「该备了吗」。
-  const checkBackup = () => {
+  // 而他恰恰最需要备份。定时器和扫描完成回调都来问一句「该备了吗」。
+  checkBackup = () => {
+    if (backupChecking) {
+      backupAgain = true;
+      return;
+    }
+    backupChecking = true;
     void maybeBackup(db, new Date())
       .then((r) => {
         if (r) console.log(`[backup] 自动备份完成：${r.path}（清理 ${r.pruned.length} 份旧的）`);
       })
-      .catch((e: Error) => console.warn('[backup] 自动备份失败：', e.message));
+      .catch((e: Error) => {
+        // **失败不能只留在日志里**：默认目录不可写时用户会以为自动备份已经生效。
+        recordBackupError(db, e.message);
+        console.warn('[backup] 自动备份失败：', e.message);
+      })
+      .finally(() => {
+        backupChecking = false;
+        if (backupAgain) {
+          backupAgain = false;
+          checkBackup();
+        }
+      });
   };
   /*
    * ⚠️ **开机那一次要往后挪。** `exportBackup` 是**同步**读整个库拼 JSON——

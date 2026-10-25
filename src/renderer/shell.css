@@ -294,38 +294,6 @@
   cursor: default;
 }
 
-/*
- * 「尚未备份」的常驻提醒：**只在有书、一次都没备过、且顶部横幅已经收起时出现**，
- * 备份成功或自动备份配全后自己消失（判据在 App 的 `needBackup` / `showBackupNudge`）。
- * 放在工具区上面，不跟书架档位滚走。
- * 用 danger 的淡色——它不是错误，但这是会丢数据的提醒。
- */
-.nav-backup-warn {
-  flex: none;
-  margin: 0 0.5rem 0.45rem;
-  padding: 0.4rem 0.55rem;
-  text-align: left;
-  border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--line));
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--danger) 6%, transparent);
-  color: var(--danger);
-  cursor: pointer;
-}
-.nav-backup-warn:hover {
-  background: color-mix(in srgb, var(--danger) 11%, transparent);
-}
-.nav-backup-warn-main {
-  display: block;
-  font-size: 0.74rem;
-  font-weight: 600;
-}
-.nav-backup-warn-sub {
-  display: block;
-  margin-top: 0.05rem;
-  font-size: 0.67rem;
-  color: var(--muted);
-}
-
 /* ── 主区 ─────────────────────────────────── */
 
 /*
@@ -362,9 +330,9 @@
 }
 
 /*
- * 书架顶部的**一次性**备份提醒。不是错误，用 accent 的淡底；
- * 点「稍后」或点过「设置备份」就不再出现（判据在 App 的 `showBackupNudge`），
- * 它在的时候侧栏那条也不画。窄窗时按钮换到下一行，不硬挤。
+ * 书架顶部的**一次性**备份说明。默认目录和自动备份由主进程装好，这条只负责
+ * 说一次「东西存在哪、怎么改」；看过或点过设置就不再出现（判据在 App 的
+ * `showBackupNudge`），没有侧栏常驻提醒。窄窗时按钮换到下一行，不硬挤。
  */
 .backup-nudge {
   display: flex;
@@ -388,6 +356,8 @@
 .backup-nudge-copy p {
   margin: 0.15rem 0 0;
   font-size: 0.78rem;
+  /* 备份目录可能很长（`D:\...`），别把横幅撑出屏幕 */
+  overflow-wrap: anywhere;
 }
 
 .main-head {

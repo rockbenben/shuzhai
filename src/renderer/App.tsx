@@ -50,7 +50,7 @@ import {
 } from './settings.ts';
 import { PROBLEM_FILE_STATUS, FILE_STATUS, READING_STATUS, SERIAL_STATUS, labelOf } from '../core/labels.ts';
 
-/** 「备份提示看过了」的设置键。**一次性**，不是「备份过没有」的判据 */
+/** 「备份说明看过了」的设置键。正常说明一次性；失败是另一种状态，不走这个键 */
 const BACKUP_PROMPT_KEY = 'backup.promptSeen';
 
 /**
@@ -382,9 +382,9 @@ export function App() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   /** 备份配置和上次备份时间。`lastAt === null` 就是「一次都没备过」 */
   const [backup, setBackup] = useState<AutoBackupStatus | null>(null);
-  /** 一次性备份提示是否已经看过（存在设置里，重启也不反复弹） */
+  /** 正常备份说明是否已经看过（存在设置里，重启也不反复弹；失败状态另算） */
   const [backupPrompted, setBackupPrompted] = useState(false);
-  /** 「稍后」按下的即时反馈；不用等下一次 loadCounts 回来 */
+  /** 「知道了」按下的即时反馈；不用等下一次 loadCounts 回来 */
   const [backupNudgeDismissed, setBackupNudgeDismissed] = useState(false);
   const [rootCount, setRootCount] = useState(0);
   // 大库上一次铺几千张封面会卡死，按页加载
@@ -473,15 +473,26 @@ export function App() {
   /** 浮钮的提示正文和进度弧；纯判断在 `resume.ts`，这里只算一次给两块用 */
   const resumeMeta = resume ? 续读提示(resume) : '';
   const resumePct = resume ? 续读进度(resume) : null;
-  /**
-   * **库里有书、一次都没备份过**才提醒。
-   * 已经开了自动备份并选好目录的，不再唠叨——第一次自动备份可能还没跑，
-   * 但用户已经把这件事托付给程序了；备份过一次（`lastAt` 有值）同样不再提。
-   */
+  /** 自动备份配置是否齐全。下面那条一次性说明靠它换文案；已备份过时也靠它决定还说不说一次 */
   const autoBackupReady = !!backup && backup.enabled && !!backup.dir;
-  const needBackup = !!backup && (counts.total ?? 0) > 0 && backup.lastAt === null && !autoBackupReady;
-  /** 一次性横幅：看过「稍后」或点过设置就收起来。侧栏那条在横幅收起后才出现，不叠在一起 */
-  const showBackupNudge = needBackup && !backupPrompted && !backupNudgeDismissed;
+  /** 已经选过备份目录、但可能没开自动备份 */
+  const backupHasDir = !!backup?.dir;
+  /** 上次自动备份失败的原因；成功备份后主进程会清掉 */
+  const backupError = backup?.lastError ?? null;
+  /**
+   * **有书时只说明一次**：没备份过要提醒；自动备份已开启也要说一声，
+   * 否则首份备份可能在界面取到状态之前就完成了，用户永远不知道存到了哪里；
+   * 上次自动备份失败时优先说失败。自动备份没开、但已经手动备份过的不用再说。
+   */
+  const needsBackupNotice = !!backup && (counts.total ?? 0) > 0
+    && (backup.lastAt === null || autoBackupReady || !!backupError);
+  /**
+   * 正常说明只出现一次；**失败是持续状态**——`lastError` 没清掉就继续显示，
+   * 不能因为用户以前看过说明就把后来的失败一起吞掉。本次点过「知道了」仍会
+   * 先收起，下一次启动/重取配置还会出现，直到成功备份或改目录/关自动备份。
+   */
+  const showBackupNudge = needsBackupNotice && !backupNudgeDismissed
+    && (!!backupError || !backupPrompted);
   const [editing, setEditing] = useState<number | null>(null);
   const [ruleFor, setRuleFor] = useState<{ id: number; title: string } | null>(null);
   /** 从阅读器目录打开的规则编辑器：改完要退出旧阅读器、按新目录重开 */
@@ -535,7 +546,7 @@ export function App() {
     'settings' | 'clean' | 'search' | 'notes' | 'versions' | 'backup' | 'extract' | 'dirs' | 'batchTag' | 'batchStatus' | 'tags' | 'keywords' | 'addBook' | 'exportMeta' | null
   >(null);
 
-  /** 收起一次性备份横幅；**侧栏那条「尚未备份」不跟着消失，等横幅收起后才出现** */
+  /** 收起正常备份说明；写过这个键之后不再弹，但失败状态不受它影响 */
   const 收起备份提示 = () => {
     setBackupNudgeDismissed(true);
     setBackupPrompted(true);
@@ -1619,24 +1630,6 @@ export function App() {
         </div>
 
         {/*
-          * **一次都没备份过，就一直在侧栏这儿。**
-          *
-          * 一次性横幅还在时不画：同一条提醒不说两遍；横幅「稍后」收起之后才出现。
-          * 它不挡路、不自动消失，真的备份过（`lastAt` 有值）或自动备份配全之后才收。
-          * 放在 `.nav-foot` 外面，不跟书架档位一起滚走。
-          */}
-        {needBackup && !showBackupNudge && (
-          <button
-            className="nav-backup-warn"
-            onClick={去设置备份}
-            title="书评、笔记和阅读进度重新扫描恢复不了；点这里设置备份"
-          >
-            <span className="nav-backup-warn-main">尚未备份</span>
-            <span className="nav-backup-warn-sub">书评和笔记丢了找不回</span>
-          </button>
-        )}
-
-        {/*
           * 管理功能沉到底部：一天用不到一次的东西，不该占着最显眼的一横排。
           *
           * **排成两列。** 竖着排是 12 行、四百多像素，而上面的书架只有 4 行——
@@ -2146,22 +2139,29 @@ export function App() {
           */}
         <div className="main-scroll">
         {/*
-          * **第一次有书、还没备份过时提醒一次。**
+          * **有书时说明一次**：没备份过，或自动备份已开启。
           *
-          * 不是「再加一个功能」——备份本来就在「更多工具」里，问题是它
-          * 出现在用户已经写了几百条书评之后，而那时用户已经以为应用会自己记着。
-          * 只提醒一次，可跳过；它在的时候侧栏那条不画，收起后才出现，
-          * 并一直留到真的备份过、或自动备份配全。
+          * 默认目录和自动备份已经由主进程装好，所以这条更像是「告诉用户它在哪」，
+          * 不是催办；正常说明看过一次就写进设置，之后不再出现，也不再有侧栏常驻提醒；
+          * 失败状态不受这个键影响。
           */}
         {showBackupNudge && (
           <div className="backup-nudge">
             <div className="backup-nudge-copy">
-              <strong>书评、笔记和阅读进度，重新扫描也找不回来</strong>
-              <p className="muted">有空时选一个备份文件夹就行——以后写下的书评、笔记和进度都会存一份；想上云就选网盘同步文件夹。</p>
+              <strong>{backupError ? '自动备份没有成功' : autoBackupReady ? '自动备份已开启' : '书评、笔记和阅读进度，重新扫描也找不回来'}</strong>
+              <p className="muted">
+                {backupError
+                  ? `上次自动备份失败：${backupError}。去「备份与恢复」检查备份文件夹，或者换一个位置。`
+                  : autoBackupReady
+                    ? `以后写下的书评、笔记和进度会自动存到「${backup?.dir ?? ''}」；想换位置或关掉，去「备份与恢复」。`
+                    : backupHasDir
+                      ? '自动备份还没开；去「备份与恢复」可以打开，也可以先手动备份一次。'
+                      : '去「备份与恢复」选一个文件夹，之后也能开自动备份。'}
+              </p>
             </div>
             <div className="row" style={{ gap: '.4rem', flex: 'none' }}>
-              <button onClick={收起备份提示}>稍后</button>
-              <button className="primary" onClick={去设置备份}>设置备份</button>
+              <button onClick={收起备份提示}>{autoBackupReady || backupError ? '知道了' : '以后再说'}</button>
+              <button className="primary" onClick={去设置备份}>{autoBackupReady || backupHasDir || backupError ? '查看备份设置' : '设置备份'}</button>
             </div>
           </div>
         )}
