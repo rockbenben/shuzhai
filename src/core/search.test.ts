@@ -414,7 +414,7 @@ test('% 和 _ 是字面量，不是通配符——三处 like 都要转义', asy
   assert.equal(countBooks(db), 2);
   assert.equal(countBooks(db, { keyword: '%' }), 0);
   assert.equal(countBooks(db, { keyword: '_' }), 0);
-  // 全库搜索的书名档
+  // 全库搜索的元数据档（书名 / 作者 / 标签 / 短评）
   assert.equal((searchMeta(db, '%') as unknown[]).length, 0);
   // 正文短查询的回落路径（短于 3 字走 like 扫索引表）
   await buildIndex(db, cache);

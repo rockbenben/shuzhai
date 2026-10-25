@@ -594,7 +594,7 @@ export function hasNotesSql(): string {
  * 输 `剑%来` 也能命中《剑来》——看起来像「搜得挺聪明」，其实是搜错了。
  *
  * **三处 like 拼接共用这一份**：书架筛选（本文件 `buildFilter`）、
- * 全库搜索的书名档（`search.ts` 的 `searchMeta`）、
+ * 全库搜索的元数据档（`search.ts` 的 `searchMeta`，书名 / 作者 / 标签 / 短评）、
  * 正文短查询的回落路径（`search.ts` 的 `searchFullText`）。
  * 各自加转义必然分叉——这个仓库已经被「抄第二份」咬过好几次。
  */

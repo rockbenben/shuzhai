@@ -331,7 +331,16 @@ export function SearchPanel({ onOpen, onClose }: Props) {
         <div style={{ maxHeight: '26rem', overflowY: 'auto', marginTop: '.6rem' }}>
           {scope === 'meta' ? (
             meta.length === 0 ? (
-              q && <p className="muted">没有匹配的书。</p>
+              /*
+               * **「没有匹配的书」不是「书里没有这个词」。** 这一档搜的是书名、
+               * 作者、标签和你写的短评，正文在另一档；零结果时给一条切过去的路，
+               * 别让人以为这本书里没有。
+               */
+              q && (
+                <p className="muted">
+                  没有匹配的书。要搜正文，<button className="mini" onClick={() => setScope('full')}>切到「正文内容」</button>（第一次要先给那本书建索引）。
+                </p>
+              )
             ) : (
               <table className="search-meta">
                 {/* 列头跟着列一起条件渲染：「用评分」关掉时那一列整列收起，

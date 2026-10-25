@@ -218,7 +218,7 @@ export function searchFullText(db: DatabaseSync, query: string, limit = 200): Se
   const q = query.trim();
   if (!q) return [];
   if (!isIndexed(db)) {
-    throw new Error('还没有任何书建过正文索引。在搜索面板选「正文内容」，按书名给一本建好');
+    throw new Error('还没有任何书建过正文索引。先按书名给一本书建索引，再搜正文。');
   }
 
   const titleOf = db.prepare(
