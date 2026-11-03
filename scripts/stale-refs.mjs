@@ -133,6 +133,23 @@ const 下有跟踪文件 = (dir) => [...跟踪].some((f) => f.startsWith(前缀(
 const 跟踪文件下 = (dir) => [...跟踪].filter((f) => f.startsWith(前缀(dir)));
 
 const abs = (rel) => join(ROOT, rel);
+
+/**
+ * 「这条指路在**干净检出**里落不落得地」——判据是 git 的跟踪状态，不是本地磁盘。
+ *
+ * 上面 `walk()` 那段立的判据（「本地和干净检出跑出同一个结果」）原来在这里漏了：
+ * 放行用的都是 `existsSync`，而本地有一堆 `.gitignore` 排除的目录（干跑脚本、
+ * 各家工具的记忆目录）就躺在磁盘上。实测咬到一次：案例史里点了一个一次性探针
+ * 的名字，本地 `lint:ui` 全绿，推上去 CI 红——那个目录在检出里压根不存在。
+ * 「本地绿、CI 红」是这条检查器最坏的失效方式：它的输出看起来是「没有问题」。
+ *
+ * `node_modules/` 是唯一的例外，也正是原来那些 `existsSync` 存在的理由——
+ * 依赖里的文件不在 `git ls-files` 里，而「这块 CSS 是从 pdf.js 的哪个文件搬来的」
+ * 是最该守的一类指路（升级依赖时它挪了位，注释就成了假的）。所以按**这一段路径**查一次，
+ * 不枚举整棵树。
+ */
+const 干净检出里有 = (rel) =>
+  跟踪.has(rel) || (rel.startsWith('node_modules/') && existsSync(abs(rel)));
 const all = walk(ROOT);
 
 const byName = new Map();
@@ -308,7 +325,7 @@ for (const f of docs) {
   for (const m of txt.matchAll(PATH_RE)) {
     pathRefs++;
     taken.push([m.index, m.index + m[0].length]);
-    if (existsSync(abs(m[1])) || ALLOW.has(basename(m[1]))) continue;
+    if (干净检出里有(m[1]) || ALLOW.has(basename(m[1]))) continue;
     bad.push(`${f}:${lineOf(m.index)}  路径不存在：${m[1]}`);
   }
 
@@ -328,15 +345,17 @@ for (const f of docs) {
      * 升级依赖时，那个文件挪了位、改了名，注释就成了假的，
      * 而搬过来的那份 CSS 也就该重搬了。
      *
-     * 不整棵枚举 `node_modules`，只在真报错前**按这一条路径查一次**。
+     * 不整棵枚举 `node_modules`，只在真报错前**按这一条路径查一次**——
+     * 就是上面 `干净检出里有` 里那个 `node_modules/` 分支（它同时把「本地有、
+     * 没入库」的那一类挡在外面，见那条注释）。
      */
-    if (existsSync(abs(m[1]))) continue;
+    if (干净检出里有(m[1])) continue;
     bad.push(`${f}:${lineOf(m.index)}  找不到这个文件：${m[1]}`);
   }
 
   for (const m of txt.matchAll(QUAL_RE)) {
     const [, file, ident] = m;
-    let cands = existsSync(abs(file)) ? [file] : (byName.get(basename(file)) ?? []);
+    let cands = 干净检出里有(file) ? [file] : (byName.get(basename(file)) ?? []);
     // 同名文件不止一个时（`rpc.ts` 在 main 和 renderer 各有一个），**优先同目录那个**。
     // 不挑的话「任意一个里有这个名字就算过」——写在 `src/main/` 的注释说
     // <!-- stale-refs:off -->「`rpc.ts` 的 someRendererThing」<!-- stale-refs:on --> 会被 renderer 那份放行，那正是要抓的错。
