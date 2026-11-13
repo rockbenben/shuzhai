@@ -31,6 +31,7 @@ import { closeOpenSessions } from '../core/status.ts';
 import { applyIgnoreToLibrary } from '../core/ignore.ts';
 import { UPDATE_CHECK_KEY } from '../core/update.ts';
 import { assertRenderer, externalUrl } from './renderer-policy.ts';
+import { isBookFile } from '../core/book-format.ts';
 
 /**
  * **断管道时一句日志都不许崩主进程。** 应用从终端或后台启动器里拉起来、而那个
@@ -439,6 +440,8 @@ app.whenReady().then(async () => {
     'ui.openFile': async (params: unknown) => {
       const path = (params as { path?: string })?.path;
       if (!path) throw new Error('缺少 path');
+      if (!isBookFile(path)) throw new Error('这个文件格式不能作为书籍打开');
+      if (!db.prepare('select id from book_file where path = ?').get(path)) throw new Error('这个文件没有登记在书库中');
       const err = await shell.openPath(path);
       // openPath 不抛，失败时返回一串错误文字——不看它的话「点了没反应」
       if (err) throw new Error(err);

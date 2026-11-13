@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { request } from 'node:http';
 import { openDb, openReadonly, migrate, SCHEMA_VERSION } from '../core/db.ts';
 import { createApiServer, listen, runQuery, collectStats, MAX_ROWS } from './api.ts';
 import { READING_STATUS } from '../core/labels.ts';
@@ -59,6 +60,29 @@ const post = (path: string, body: unknown, headers: Record<string, string> = { '
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
   });
+
+test('查询拒绝跨库和写出文件，HTTP 拒绝外域来源', async () => {
+  const conn = ro();
+  assert.throws(() => runQuery(conn, 'attach database ? as other', [dbPath]));
+  assert.throws(() => runQuery(conn, 'vacuum into ?', [join(dir, 'escaped.db')]));
+  const res = await post('/api/rpc', { method: 'echo' }, { 'x-api': '1', origin: 'https://outside.invalid' });
+  assert.equal(res.status, 403);
+  assert.equal((await fetch(`${base}/api/stats`)).status, 200);
+});
+
+test('外域 Host 和非法请求目标被拒，后续服务仍可用', async () => {
+  const send = (path: string, host: string) => new Promise<number>((resolve, reject) => {
+    const req = request(base, { path, headers: { host } }, res => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode!));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  assert.equal(await send('/api/stats', 'outside.test:1234'), 403);
+  assert.equal(await send('//%', new URL(base).host), 400);
+  assert.equal((await fetch(`${base}/api/stats`)).status, 200);
+});
 
 test('迁移是幂等的，跑两遍版本号不变', () => {
   const p = join(dir, 'twice.db');
@@ -153,7 +177,7 @@ test('POST /api/query 能查数据', async () => {
 test('写操作经 /api/query 被挡下', async () => {
   const r = await post('/api/query', { sql: "insert into book(title) values('从接口偷写')" });
   assert.equal(r.status, 400);
-  assert.match((await r.json()).error, /readonly/i);
+  assert.match((await r.json()).error, /readonly|authorized/i);
 });
 
 test('多语句被拦下，并给出清楚的报错', () => {

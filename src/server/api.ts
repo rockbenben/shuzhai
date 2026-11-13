@@ -12,6 +12,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import type { DatabaseSync } from 'node:sqlite';
+import { constants } from 'node:sqlite';
 // 状态清单走 `core/labels.ts` 那一份——全应用唯一的一份，别在这儿抄第二遍
 import { READING_STATUS } from '../core/labels.ts';
 import { ratedSql, countBooks, UNREVIEWED } from '../core/library.ts';
@@ -144,6 +145,12 @@ export function runQuery(db: DatabaseSync, sql: unknown, params: unknown): unkno
   if (typeof sql !== 'string' || sql.trim() === '') throw new Error('缺少 sql');
   if (sql.replace(/;\s*$/, '').includes(';')) throw new Error('一次只能执行一条语句');
 
+  if (typeof db.setAuthorizer !== 'function') throw new Error('此运行时不支持受限 SQL 查询，请升级 Node');
+  db.setAuthorizer((action, name) => {
+    if ([constants.SQLITE_SELECT, constants.SQLITE_READ, constants.SQLITE_FUNCTION, constants.SQLITE_RECURSIVE].includes(action)) return constants.SQLITE_OK;
+    if (action === constants.SQLITE_PRAGMA && ['table_info', 'table_xinfo', 'index_list', 'index_info', 'foreign_key_list', 'user_version'].includes(name ?? '')) return constants.SQLITE_OK;
+    return constants.SQLITE_DENY;
+  });
   const stmt = db.prepare(sql);
   const args = Array.isArray(params) ? params : [];
 
@@ -164,10 +171,13 @@ export function runQuery(db: DatabaseSync, sql: unknown, params: unknown): unkno
 export function createApiServer(opts: ApiOptions): Server {
   return createServer((req, res) => {
     void (async () => {
-      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      const method = req.method ?? 'GET';
-
       try {
+        const host = req.headers.host;
+        if (!host || !/^127\.0\.0\.1:\d+$/.test(host)) return send(res, 403, { error: '只接受本机接口地址' });
+        if (req.headers.origin && req.headers.origin !== `http://${host}`) return send(res, 403, { error: '不接受跨站调用' });
+        const url = new URL(req.url ?? '/', `http://${host}`);
+        if (url.host !== host) return send(res, 400, { error: '请求地址不正确' });
+        const method = req.method ?? 'GET';
         if (method === 'GET' && url.pathname === '/api/stats') {
           return send(res, 200, collectStats(opts.readonlyDb));
         }

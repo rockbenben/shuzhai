@@ -750,7 +750,7 @@ export function createRpc(
      */
     'library.cleanupMissing': (params: unknown) => {
       const { bookIds } = asRecord(params);
-      return cleanupMissing(db, Array.isArray(bookIds) ? bookIds.map(Number) : undefined);
+      return cleanupMissing(db, bookIds === undefined ? undefined : nums(params, 'bookIds'));
     },
 
     /** 只读。书库的目录树，侧栏拿它做「只看某个目录」 */
@@ -1772,7 +1772,7 @@ export function createRpc(
     /** **写库**：删索引，省空间。不传 bookIds 就全清 */
     'search.dropIndex': (params) => {
       const { bookIds } = asRecord(params ?? {});
-      const ids = Array.isArray(bookIds) ? bookIds.map(Number).filter(Number.isFinite) : undefined;
+      const ids = bookIds === undefined ? undefined : nums(params, 'bookIds');
       dropIndex(db, ids);
       return { ok: true };
     },

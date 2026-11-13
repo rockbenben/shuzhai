@@ -27,3 +27,21 @@ test('系统浏览器只接受无凭据的 HTTP(S) 链接', () => {
     assert.equal(externalUrl(url), null);
   }
 });
+
+test('本地入口允许等价的 URL 字符编码，仍拒绝别的文件及查询参数', () => {
+  // Windows 8.3 短路径：Node 的 pathToFileURL 编成 %7E，Chromium 保留 ~。
+  const entry = 'file:///C:/Users/ADMINI%7E1/AppData/Local/Temp/app/dist/index.html';
+  const frame = { url: entry.replace('%7E', '~') };
+  const contents = { mainFrame: frame } as unknown as WebContents;
+  const event = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent;
+  assert.doesNotThrow(() => assertRenderer(event, contents, entry));
+  frame.url = entry.replace('index', '%69ndex') + '#shelf';
+  assert.doesNotThrow(() => assertRenderer(event, contents, entry));
+  for (const url of [
+    entry + '?other=1', entry.replace('index.html', 'other.html'),
+    entry.replace('dist/index', 'dist%2Findex'), entry.replace('file:', 'https:'),
+  ]) {
+    frame.url = url;
+    assert.throws(() => assertRenderer(event, contents, entry), /不接受此页面/);
+  }
+});

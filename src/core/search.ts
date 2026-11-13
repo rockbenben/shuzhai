@@ -84,6 +84,7 @@ export interface SearchHit {
  * 抄本一分叉，`dropIndex` 就会变回「全清」而没人看得出来。
  */
 function clearIndex(db: DatabaseSync, bookIds?: number[]): void {
+  if (bookIds?.length === 0) return;
   if (bookIds?.length) {
     for (const id of bookIds) clearBookIndex(db, id);
   } else {

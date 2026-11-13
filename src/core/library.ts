@@ -1496,6 +1496,7 @@ export interface MissingCleanupReport {
  */
 export function cleanupMissing(db: DatabaseSync, onlyBookIds?: number[]): MissingCleanupReport {
   const report: MissingCleanupReport = { files: 0, restored: 0, recordOnly: 0, removedBooks: 0 };
+  if (onlyBookIds?.length === 0) return report;
 
   const 选 = 'select id, book_id, is_primary, path from book_file where status = \'missing\'';
   const rows = (onlyBookIds && onlyBookIds.length
