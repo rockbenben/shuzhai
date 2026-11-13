@@ -471,8 +471,13 @@ const cardOf2 = (id) => `document.querySelector('.book[data-book-id="${id}"]')`;
 // 而**划线是重扫恢复不了的数据**：一道线凭空没了，最容易让人以为丢了。
 // 这条行为一直只有人手工验过。
 {
+  await reload();
+  await 切到('全部');
+  await ev("[...document.querySelectorAll('.viewpick button')].find(b => b.textContent.trim() === '封面墙')?.click()");
+  await until("!!document.querySelector('.book[data-book-id]')");
+  const visibleIds = await ev("[...document.querySelectorAll('.book[data-book-id]')].map(b => Number(b.dataset.bookId))");
   const b = ((await rpc('book.list', { limit: 20 })).r ?? [])
-    .find((x) => (x.chapter_count ?? 0) > 3 && x.file_status === 'ok');
+    .find((x) => Array.isArray(visibleIds) && visibleIds.includes(x.id) && (x.chapter_count ?? 0) > 3 && x.file_status === 'ok');
   if (!b) {
     step('划线漂了要说一声', false, '库里没有能读的多章 txt，这一步没测成');
   } else {

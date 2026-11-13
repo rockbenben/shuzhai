@@ -20,6 +20,18 @@ let dir: string;
 let db: DatabaseSync;
 let cache: FileCache;
 
+test('索引失败按实际成功数报告，空选择不扩大范围', async () => {
+  const files = db.prepare('select book_id,path from book_file order by id').all() as Array<{book_id:number;path:string}>;
+  rmSync(files[0].path);
+  const result = await buildIndex(db, cache, undefined, [files[0].book_id]);
+  assert.equal(result.chapters, 0);
+  assert.equal((result as {failed?:number}).failed, 2);
+  assert.equal((result as {attempted?:number}).attempted, 2);
+  const empty = await buildIndex(db, cache, undefined, []);
+  assert.equal(empty.chapters, 0);
+  assert.equal((db.prepare('select count(*) n from chapter_fts').get() as {n:number}).n, 0);
+});
+
 /**
  * 每章的填充正文。**必须让整本书明显超过 10KB 的收录下限**——
  * 200 行 × 25 字节 × 2 章 ≈ 10.1KB 刚好卡在线上，书会被静默滤掉，

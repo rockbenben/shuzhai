@@ -17,7 +17,8 @@ import { extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { addLink } from './links.ts';
 import { tagBooks } from './library.ts';
-import { coverDir } from './cover.ts';
+import { coverDir, collectCoverBytes } from './cover.ts';
+import { Readable } from 'node:stream';
 // **只取类型**（编译期擦掉）——`site-adapters.ts` 在运行时要引本文件，
 // 反过来再引它就成了环。连载状态这个类型住那边（它认页面），判据住这边（它管落库）。
 import type { SerialState } from './site-adapters.ts';
@@ -139,6 +140,8 @@ const MIME_EXT: Record<string, string> = {
   'image/avif': '.avif',
 };
 
+const MAX_REMOTE_COVER_BYTES = 5 * 1024 * 1024;
+
 /**
  * 下载回来的字节到底是不是一张能用的封面。三条，都是兜底
  * （主防线是提取时取 data-original 而不是 src）：
@@ -150,7 +153,7 @@ export function validateCoverBytes(
 ): { ok: true } | { ok: false; reason: string } {
   if (url.includes('default_book')) return { ok: false, reason: '这是站点的懒加载占位图' };
   if (buf.length < 2048) return { ok: false, reason: `只有 ${buf.length} 字节，不像封面` };
-  if (buf.length > 5 * 1024 * 1024) return { ok: false, reason: '超过 5MB，不像封面' };
+  if (buf.length > MAX_REMOTE_COVER_BYTES) return { ok: false, reason: '超过 5MB，不像封面' };
   const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
   const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
   const isWebp =
@@ -181,7 +184,13 @@ export async function downloadCover(
   const type = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   if (!type.startsWith('image/')) throw new Error(`这个地址返回的不是图片（${type || '未知类型'}）`);
 
-  const buf = Buffer.from(await res.arrayBuffer());
+  const declaredSize = Number(res.headers.get('content-length'));
+  if (declaredSize > MAX_REMOTE_COVER_BYTES) {
+    await res.body?.cancel();
+    throw new Error('封面过大，上限 5MB');
+  }
+  if (!res.body) throw new Error('封面响应没有内容');
+  const buf = await collectCoverBytes(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), MAX_REMOTE_COVER_BYTES);
   // 校验在写盘之前：占位图、HTML 错误页、超大文件都在这儿拦住
   // （数值上限已包含在校验里，取代原来单独的 MAX_COVER_BYTES 判断）
   const v = validateCoverBytes(buf, url);

@@ -8,7 +8,8 @@
 // 生成图片要么引图形库，要么手写一个渲染器，而占位图的信息量只有「书名和作者」，
 // CSS 一个盒子就画完了。
 
-import { copyFile, mkdir, readFile, unlink } from 'node:fs/promises';
+import { mkdir, readFile, unlink, stat, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import { extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 
@@ -27,6 +28,18 @@ const MIME: Record<string, string> = {
 
 /** 单张封面的大小上限。超过多半是误拖了别的图，存进去也只是浪费 */
 const MAX_BYTES = 8 * 1024 * 1024;
+
+/** 本地图和网络图都边读边限额，超限时由迭代器关闭源流。 */
+export async function collectCoverBytes(source: AsyncIterable<Uint8Array>, maxBytes: number): Promise<Buffer> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of source) {
+    size += chunk.byteLength;
+    if (size > maxBytes) throw new Error(`封面过大，上限 ${maxBytes / 1024 / 1024}MB`);
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, size);
+}
 
 export function coverDir(userDataDir: string): string {
   return join(userDataDir, 'covers');
@@ -51,10 +64,11 @@ export async function setCover(
     );
   }
 
-  const data = await readFile(sourcePath);
-  if (data.length > MAX_BYTES) {
-    throw new Error(`图片太大（${(data.length / 1024 / 1024).toFixed(1)} MB），上限 8 MB`);
+  const info = await stat(sourcePath);
+  if (info.size > MAX_BYTES) {
+    throw new Error(`图片太大（${(info.size / 1024 / 1024).toFixed(1)} MB），上限 8 MB`);
   }
+  const data = await collectCoverBytes(createReadStream(sourcePath), MAX_BYTES);
 
   const dir = coverDir(userDataDir);
   await mkdir(dir, { recursive: true });
@@ -62,7 +76,7 @@ export async function setCover(
   const old = currentCover(db, bookId);
   // 文件名带上时间戳：同一本书换封面时不会因为路径没变而让界面继续显示旧图
   const target = join(dir, `${bookId}-${Date.now()}${ext}`);
-  await copyFile(sourcePath, target);
+  await writeFile(target, data);
 
   db.prepare("update book set cover_path = ?, updated_at = datetime('now') where id = ?").run(
     target,

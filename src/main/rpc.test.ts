@@ -25,6 +25,27 @@ let db: DatabaseSync;
 let rpc: ReturnType<typeof createRpc>;
 let fileCache: FileCache;
 
+test('重叠范围且顺序不同的并发索引不重复写入章节', async () => {
+  const folder=mkdtempSync(join(tmpdir(),'rpc-index-overlap-'));
+  const local=openDb(join(folder,'library.db'));
+  const cache=new FileCache();
+  try {
+    const ids: number[]=[];
+    for(let i=0;i<2;i++) {
+      const id=Number(local.prepare('insert into book(title) values(?)').run('临时书'+i).lastInsertRowid);
+      ids.push(id);
+      const path=join(folder,`${i}.txt`), text=`临时正文 ${i}`;
+      writeFileSync(path,text);
+      const f=Number(local.prepare('insert into book_file(book_id,path,size,mtime,is_primary,encoding,chapter_count) values(?,?,?,0,1,?,1)').run(id,path,Buffer.byteLength(text),'utf-8').lastInsertRowid);
+      local.prepare('insert into chapter(file_id,idx,title,offset,length) values(?,0,?,0,?)').run(f,'第一章',Buffer.byteLength(text));
+    }
+    const methods=createRpc(local,cache,folder);
+    const results=await Promise.all([methods['search.buildIndex']({bookIds:ids}),methods['search.buildIndex']({bookIds:[...ids].reverse()})]) as Array<{chapters:number;failed:number}>;
+    assert.ok(results.every(r=>r.chapters===2&&r.failed===0));
+    assert.equal(local.prepare('select count(*) n from chapter_fts').get()!.n,2);
+  } finally { await cache.releaseAll();local.close();rmSync(folder,{recursive:true,force:true}); }
+});
+
 test('版本合并不能越过尚在等待回收站的文件处置', async () => {
   const folder=mkdtempSync(join(tmpdir(),'rpc-file-order-'));
   const local=openDb(join(folder,'library.db')), cache=new FileCache();
@@ -54,6 +75,15 @@ test('版本合并不能越过尚在等待回收站的文件处置', async () =>
     assert.equal(local.prepare('select is_primary from book_file').get()!.is_primary,1);
     assert.equal(readFileSync(join(folder,'trash.txt'),'utf8'),'temporary same bytes');
   } finally {release?.();await cache.releaseAll();local.close();rmSync(folder,{recursive:true,force:true});}
+});
+
+test('并发导出占用不同文件名，已有产物完整保留', async () => {
+  const results = await Promise.all([
+    rpc['export.meta']({ dir, format: 'json' }),
+    rpc['export.meta']({ dir, format: 'json' }),
+  ]) as Array<{path:string}>;
+  assert.equal(new Set(results.map(r => r.path)).size, 2);
+  for (const result of results) assert.ok(Array.isArray(JSON.parse(readFileSync(result.path, 'utf8'))));
 });
 
 before(() => {

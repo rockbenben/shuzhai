@@ -160,12 +160,12 @@ export function SearchPanel({ onOpen, onClose }: Props) {
       setBusy(`正在给《${title}》建索引… ${done}/${total} 章`);
     });
     try {
-      const r = await rpc<{ chapters: number }>('search.buildIndex', { bookIds: [bookId] });
+      const r = await rpc<{ chapters: number; failed: number }>('search.buildIndex', { bookIds: [bookId] });
       await reloadIndexed();
       setPick('');
       setPicks([]);
-      setError(null);
-      setBusy(`《${title}》建好了，共 ${r.chapters} 章`);
+      setError(r.failed ? `《${title}》已索引 ${r.chapters} 章，${r.failed} 章读取失败，请检查文件后重试。` : null);
+      setBusy(r.failed ? null : `《${title}》建好了，共 ${r.chapters} 章`);
       setTimeout(() => setBusy(null), 2500);
       return;
     } catch (e) {

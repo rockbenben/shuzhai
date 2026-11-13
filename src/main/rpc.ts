@@ -9,7 +9,7 @@
 // 这个文件**刻意不 import electron**：那样就没法在普通 Node 测试里跑了。
 // 需要 electron 能力的方法（选目录之类）由 main.ts 拼在这张表上。
 
-import { stat, writeFile, readFile } from 'node:fs/promises';
+import { stat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { collectStats } from '../server/api.ts';
@@ -100,7 +100,7 @@ import {
   setColor as setHighlightColor,
   colorNames, setColorNames, notedChapters, reanchor,
   type HighlightColor, tagHighlights, untagHighlights } from '../core/highlight.ts';
-import { exportEpub, exportTxt, exportNotes, exportAllNotes, exportCsv, exportJson, exportFilename, freeName, pngFromDataUrl } from '../core/export.ts';
+import { exportEpub, exportTxt, exportNotes, exportAllNotes, exportCsv, exportJson, exportFilename, writeExportFile, pngFromDataUrl } from '../core/export.ts';
 import { convertText, bookConvertMode, setBookConvertMode, asMode } from '../core/convert.ts';
 import { readOutline, writeOutline, type OutlineItem } from '../core/outline.ts';
 // 「这本书能不能对账」要问它——判据只此一份（`book-format.ts`）
@@ -1926,8 +1926,7 @@ export function createRpc(
       });
       const name = exportFilename(String(template ?? '{author} - {title}'), meta, '.epub');
       // **绝不覆盖**：判据和理由在 `core/export.ts` 的 `freeName`
-      const target = freeName(str(params, 'dir'), name);
-      await writeFile(target, buf);
+      const target = await writeExportFile(str(params, 'dir'), name, buf);
       return { path: target };
     },
 
@@ -1959,8 +1958,7 @@ export function createRpc(
         { title: h.title, author: h.author },
         '.png',
       );
-      const target = freeName(str(params, 'dir'), name);
-      await writeFile(target, buf);
+      const target = await writeExportFile(str(params, 'dir'), name, buf);
       return { path: target };
     },
 
@@ -1979,8 +1977,7 @@ export function createRpc(
        * 换成括号：整串都留在书名里，扫出来是「某某书（笔记）」，自己说清自己是什么。
        */
       const name = exportFilename(String(asRecord(params).template ?? '{title}（笔记）'), meta, '.md');
-      const target = freeName(str(params, 'dir'), name);
-      await writeFile(target, 文, 'utf8');
+      const target = await writeExportFile(str(params, 'dir'), name, 文);
       return { path: target };
     },
 
@@ -1991,8 +1988,7 @@ export function createRpc(
      * 这份 md 放回书库再扫一次就是一本书，叫「我的笔记」正合适。
      */
     'export.allNotes': async (params) => {
-      const target = freeName(str(params, 'dir'), '我的笔记.md');
-      await writeFile(target, exportAllNotes(db), 'utf8');
+      const target = await writeExportFile(str(params, 'dir'), '我的笔记.md', exportAllNotes(db));
       return { path: target };
     },
 
@@ -2010,8 +2006,7 @@ export function createRpc(
         clean: clean !== false,
       });
       const name = exportFilename(String(template ?? '{author} - {title}'), meta, '.txt');
-      const target = freeName(str(params, 'dir'), name);
-      await writeFile(target, text, 'utf8');
+      const target = await writeExportFile(str(params, 'dir'), name, text);
       return { path: target };
     },
 
@@ -2019,8 +2014,7 @@ export function createRpc(
     'export.meta': async (params) => {
       const { dir, format } = asRecord(params);
       const csv = format !== 'json';
-      const target = freeName(str(params, 'dir'), csv ? '书库元数据.csv' : '书库元数据.json');
-      await writeFile(target, csv ? exportCsv(db) : exportJson(db), 'utf8');
+      const target = await writeExportFile(str(params, 'dir'), csv ? '书库元数据.csv' : '书库元数据.json', csv ? exportCsv(db) : exportJson(db));
       return { path: target };
     },
 

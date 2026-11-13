@@ -24,6 +24,30 @@ let userData: string;
 let db: DatabaseSync;
 let bookId: number;
 
+test('没有 Content-Length 的超大封面在读取途中取消，保留原封面', async () => {
+  let pulled=0;
+  let cancelled=false;
+  const stream=new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulled++;
+      controller.enqueue(new Uint8Array(1024*1024));
+      if(pulled === 12) controller.close();
+    },
+    cancel() { cancelled=true; },
+  });
+  const original=join(userData,'old.png');
+  const {writeFileSync}=await import('node:fs');
+  writeFileSync(original,PNG);
+  db.prepare('update book set cover_path=? where id=?').run(original,bookId);
+  await assert.rejects(downloadCover(userData,bookId,'https://fixture.invalid/cover',{
+    fetchImpl:async()=>new Response(stream,{headers:{'content-type':'image/png'}}),
+  }),/5MB|封面.*大/);
+  assert.equal(cancelled,true);
+  assert.ok(pulled<12);
+  assert.ok(existsSync(original));
+  assert.equal((db.prepare('select cover_path from book where id=?').get(bookId) as {cover_path:string}).cover_path,original);
+});
+
 // 真 PNG 文件头 + 补齐到 2KB 以上——downloadCover 现在会校验字节大小，
 // 原来那张 67 字节的 1x1 占位图过不了 validateCoverBytes 的下限
 const PNG = Buffer.concat([
@@ -41,13 +65,7 @@ const fakeFetch = (routes: Record<string, { type?: string; body?: Buffer | strin
     if (!r) return { ok: false, status: 404, headers: new Headers(), text: async () => '' } as Response;
     const headers = new Headers({ 'content-type': r.type ?? 'image/png' });
     const buf = Buffer.isBuffer(r.body) ? r.body : Buffer.from(String(r.body ?? ''));
-    return {
-      ok: (r.status ?? 200) < 400,
-      status: r.status ?? 200,
-      headers,
-      text: async () => buf.toString('utf8'),
-      arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
-    } as unknown as Response;
+    return new Response(new Uint8Array(buf), { status: r.status ?? 200, headers });
   }) as typeof globalThis.fetch;
 
 beforeEach(() => {

@@ -10,13 +10,14 @@
 //      （不是每文件一个定时器），再密的事件也只触发一次扫描。
 
 import { realpathSync, watch, type FSWatcher } from 'node:fs';
+import { BOOK_EXT } from './book-format.ts';
 
 /** spec §1.2 定的防抖时长 */
 export const DEBOUNCE_MS = 5000;
 
 export interface WatcherOptions {
   debounceMs?: number;
-  /** 只关心 txt。别的文件变动不该惊动扫描 */
+  /** 默认与扫描支持的书籍格式一致，也允许调用方指定子集 */
   extensions?: string[];
 }
 
@@ -30,7 +31,7 @@ export class LibraryWatcher {
 
   constructor(onChange: (changed: string[]) => void, opts: WatcherOptions = {}) {
     this.#debounce = opts.debounceMs ?? DEBOUNCE_MS;
-    this.#exts = opts.extensions ?? ['.txt'];
+    this.#exts = opts.extensions ?? BOOK_EXT.map(ext => '.' + ext);
     this.#onChange = () => {
       const changed = [...this.#pending];
       this.#pending.clear();

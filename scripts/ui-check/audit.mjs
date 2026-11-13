@@ -10,7 +10,7 @@
  *   node scripts/ui-check/audit.mjs
  */
 import { readFileSync } from 'node:fs';
-import { connect, guardTestLibrary, seedReviewData, parseColor, contrast } from './cdp.mjs';
+import { connect, guardTestLibrary, seedReviewData, parseColor, contrast, rpc } from './cdp.mjs';
 
 /*
  * **第一档是窗口自己的下限**（`main.ts` 的 `minWidth: 760, minHeight: 520`）——
@@ -1415,6 +1415,14 @@ const { send, ev, wait, reload, close } = await connect();
 // **空壳弹窗量不出版面问题**：标签管理/批量打标签/我的书评在没数据时几乎是空的。
 // 先塞几个标签和两条书评（已经有就跳过），理由见 cdp.mjs 那段
 const seed = await seedReviewData();
+// 前序评价走查和本次种子会用低评分联动弃坑，查看器夹具因此可能藏在默认书架外。
+// 明确恢复这两本假书的可见状态，确保下面真的打开并测量 PDF/EPUB。
+const fixtures = (await rpc('book.list', { filter: { excluded: 'all' }, limit: 100 })).r;
+for (const book of (fixtures.rows ?? fixtures)) {
+  if (['一本PDF电子书', '一本EPUB电子书'].includes(book.title) && book.reading_status === 'dropped') {
+    await rpc('reading.setStatus', { bookId: book.id, status: 'none' });
+  }
+}
 if (seed.seeded) console.log(`塞了 ${seed.tags} 个标签和两条书评，好让那几个界面有东西可量`);
 
 /**

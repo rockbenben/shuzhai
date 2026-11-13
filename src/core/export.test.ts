@@ -1,4 +1,6 @@
 import { test, beforeEach, afterEach } from 'node:test';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +10,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { openDb } from './db.ts';
 import { scanRoot } from './scan.ts';
 import { FileCache } from './reader.ts';
-import { exportEpub, exportTxt, exportCsv, exportJson, exportNotes, exportAllNotes, exportFilename, freeName, pngFromDataUrl } from './export.ts';
+import { exportEpub, exportTxt, exportCsv, exportJson, exportNotes, exportAllNotes, exportFilename, freeName, pngFromDataUrl, writeExportFile } from './export.ts';
 import { setColorNames } from './highlight.ts';
 import { tagBooks } from './library.ts';
 import { labelOf, READING_STATUS } from './labels.ts';
@@ -22,6 +24,30 @@ let dir: string;
 let db: DatabaseSync;
 let cache: FileCache;
 let bookId: number;
+
+test('导出写入失败只清理本次半成品，已有文件字节保持完整', async () => {
+  writeFileSync(join(dir, 'existing.txt'), 'original');
+  const originalOpen = fs.promises.open;
+  fs.promises.open = async (...args) => {
+    const handle = await originalOpen(...args);
+    if (args[1] === 'wx') {
+      handle.writeFile = async () => {
+        await handle.write(Buffer.from('partial'));
+        throw new Error('injected disk full');
+      };
+    }
+    return handle;
+  };
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(writeExportFile(dir, 'existing.txt', 'complete'), /disk full/);
+    assert.equal(readFileSync(join(dir, 'existing.txt'), 'utf8'), 'original');
+    assert.equal(fs.existsSync(join(dir, 'existing (2).txt')), false);
+  } finally {
+    fs.promises.open = originalOpen;
+    syncBuiltinESMExports();
+  }
+});
 
 const filler = Array.from({ length: 500 }, () => '寻常的一行正文。').join('\n');
 

@@ -6,6 +6,7 @@
 import { join, extname } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
+import { open, unlink } from 'node:fs/promises';
 import { readChapter, type FileCache } from './reader.ts';
 import { makeZip } from './zip.ts';
 import { formatOf, 位置名 } from './book-format.ts';
@@ -479,6 +480,30 @@ export function freeName(dir: string, name: string): string {
     if (!existsSync(p)) return p;
   }
   throw new Error(`${dir} 下同名文件太多了（${name}），清一清再导`);
+}
+
+/** 名字探测只是提示，最终由独占创建解决并发冲突。 */
+export async function writeExportFile(dir: string, name: string, data: string | Uint8Array): Promise<string> {
+  for (let attempt = 0; attempt < 1000; attempt++) {
+    const target = freeName(dir, name);
+    let handle;
+    try {
+      handle = await open(target, 'wx');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw error;
+    }
+    try {
+      await handle.writeFile(data);
+      await handle.close();
+      return target;
+    } catch (error) {
+      await handle.close().catch(() => {});
+      await unlink(target).catch(() => {});
+      throw error;
+    }
+  }
+  throw new Error('导出文件名连续发生冲突，请稍后重试');
 }
 
 /**

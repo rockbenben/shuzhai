@@ -178,7 +178,7 @@ test('监听到 txt 变动，防抖后只触发一次', async () => {
   assert.equal(w.watching, 0);
 });
 
-test('非 txt 文件的变动不惊动扫描', async () => {
+test('非书籍文件的变动不惊动扫描', async () => {
   const lib = join(dir, 'books2');
   mkdirSync(lib);
   let fired = 0;
@@ -186,11 +186,25 @@ test('非 txt 文件的变动不惊动扫描', async () => {
   w.watchRoot(lib);
 
   writeFileSync(join(lib, 'cover.jpg'), 'x');
-  writeFileSync(join(lib, 'notes.md'), 'x');
+  writeFileSync(join(lib, 'notes.log'), 'x');
   await new Promise((r) => setTimeout(r, 260));
 
   assert.equal(fired, 0);
   w.close();
+});
+
+test('默认监听与扫描一致，MD 和 EPUB 单独新增都能触发', async () => {
+  const lib=join(dir,'formats');
+  mkdirSync(lib);
+  let calls=0;
+  const watcher=new LibraryWatcher(() => { calls++; },{debounceMs:60});
+  try {
+    watcher.watchRoot(lib);
+    writeFileSync(join(lib,'note.md'),'temporary text');
+    assert.ok(await until(() => calls === 1));
+    writeFileSync(join(lib,'novel.epub'),'temporary epub');
+    assert.ok(await until(() => calls === 2));
+  } finally { watcher.close(); }
 });
 
 test('监听不存在的目录不会让应用崩掉', () => {

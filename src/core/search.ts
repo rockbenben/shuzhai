@@ -97,7 +97,8 @@ export async function buildIndex(
   cache: FileCache,
   onProgress?: (done: number, total: number) => void,
   bookIds?: number[],
-): Promise<{ chapters: number }> {
+): Promise<{ chapters: number; attempted: number; failed: number }> {
+  if (bookIds?.length === 0) return { chapters: 0, attempted: 0, failed: 0 };
   // **不传 bookIds 就是全库**，但界面上不该给这个入口——653 万章要跑几小时。
   // 留着是为了小库和测试
   const scope = bookIds?.length
@@ -116,12 +117,14 @@ export async function buildIndex(
   const insert = db.prepare('insert into chapter_fts(content, book_id, chapter_idx) values(?,?,?)');
 
   let done = 0;
+  let succeeded = 0;
   for (const c of chapters) {
     try {
       // 索引的是**清洗后**的正文：搜出来的片段要和阅读器里看到的一致，
       // 否则用户点进去会找不到刚才搜到的那句话
       const ch = await readChapter(db, cache, c.bookId, c.idx);
       insert.run(ch.text, c.bookId, c.idx);
+      succeeded++;
     } catch {
       // 单章读失败不该让整次建索引中断
     }
@@ -132,8 +135,8 @@ export async function buildIndex(
     onProgress?.(done, chapters.length);
   }
 
-  setSetting(db, SEARCH_INDEX_KEY, '1');
-  return { chapters: done };
+  setSetting(db, SEARCH_INDEX_KEY, (db.prepare('select count(*) n from chapter_fts').get() as {n:number}).n > 0 ? '1' : '0');
+  return { chapters: succeeded, attempted: done, failed: done - succeeded };
 }
 
 /** 删索引，省空间（spec §7 要求的开关）。不传就是全清 */
