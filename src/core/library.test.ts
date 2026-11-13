@@ -42,9 +42,30 @@ import { TOUCHED_STATUS } from './labels.ts';
 
 let dir: string;
 let db: DatabaseSync;
+for (const field of ['char_offset','global_offset','reread_count','finished_at','rated_at','session']) {
+  test(`失效清理保留只带 ${field} 的个人记录`, () => {
+    const id=addGhost('个人记录',join(dir,'missing.txt'));
+    if (field==='session') db.prepare('insert into reading_session(book_id,started_at) values(?,?)').run(id,'2026-01-01 00:00:00');
+    else db.prepare(`update reading_state set ${field}=? where book_id=?`).run(field.endsWith('_at')?'2026-01-01 00:00:00':2,id);
+    const result=cleanupMissing(db,[id]);
+    assert.equal(result.recordOnly,1);
+    assert.ok(db.prepare('select id from book where id=?').get(id));
+  });
+}
 /** 夹具里的书都挂在这个目录下。**不挂目录的记录扫描永远碰不到**，
  *  那是 root.remove 之后的残留状态，不是正常的书该有的样子 */
 let rootId: number;
+
+test('只有手动分类或个人备注的无文件书要保留，空选择不清全库', () => {
+  const manual = Number(db.prepare("insert into book(title) values('manual')").run().lastInsertRowid);
+  const note = Number(db.prepare("insert into book(title,note) values('memo','personal')").run().lastInsertRowid);
+  const shelf = saveShelf(db, 'mine', {}).id;
+  addShelfBooks(db, shelf, [manual]);
+  repairLibrary(db);
+  assert.ok(db.prepare('select id from book where id=?').get(manual));
+  assert.ok(db.prepare('select id from book where id=?').get(note));
+  assert.equal(cleanupMissing(db, []).files, 0);
+});
 
 /** 直接造数据，不走扫描——这个模块跟磁盘无关 */
 function addBook(

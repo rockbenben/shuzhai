@@ -1,6 +1,8 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -43,6 +45,69 @@ afterEach(() => {
 
 const ids = () =>
   (db.prepare('select id from book order by title').all() as Array<{ id: number }>).map((r) => r.id);
+
+test('执行拒绝伪造源目录且不改变磁盘和记录', async () => {
+  const rows = await previewRename(db, ids(), { template: '{title}{ext}' });
+  const row = rows.find(r => r.status !== 'unchanged')!;
+  const outside = join(dir, 'outside');
+  mkdirSync(outside);
+  writeFileSync(join(outside, row.oldName), 'unlisted');
+  const result = await applyRename(db, null, [{ ...row, dir: outside }], 'forged');
+  assert.equal(result.ok, 0);
+  assert.equal(readFileSync(join(outside, row.oldName), 'utf8'), 'unlisted');
+});
+
+test('预览过期拒绝执行，数据库更新失败则补偿磁盘动作', async () => {
+  const rows = await previewRename(db, ids(), { template: '{title}{ext}' });
+  const row = rows.find(r => r.status !== 'unchanged')!;
+  const from = join(row.dir, row.oldName);
+  writeFileSync(from, 'changed after preview');
+  assert.equal((await applyRename(db,null,[row],'stale')).ok, 0);
+  const fresh = (await previewRename(db, ids(), {template:'{title}{ext}'})).find(r => r.fileId === row.fileId)!;
+  db.exec("create trigger reject_path before update of path on book_file begin select raise(abort,'injected failure'); end");
+  const result = await applyRename(db,null,[fresh],'failure');
+  assert.equal(result.ok,0);
+  assert.equal(readFileSync(from,'utf8'),'changed after preview');
+  assert.equal(existsSync(join(fresh.dir,fresh.newName)),false);
+  assert.equal((db.prepare("select count(*) n from rename_log where batch_id='failure'").get() as {n:number}).n,0);
+});
+
+test('大小写改名及补偿均失败时保留日志和中转文件，故障解除后仍可撤销', async () => {
+  const from = join(lib,'source.txt');
+  writeFileSync(from,'case bytes');
+  const book = Number(db.prepare("insert into book(title) values('SOURCE')").run().lastInsertRowid);
+  db.prepare("insert into reading_state(book_id,status) values(?,'none')").run(book);
+  db.prepare('insert into book_file(book_id,path,size,mtime,is_primary) values(?,?,10,0,1)').run(book,from);
+  const rows = await previewRename(db,[book],{template:'{title}{ext}'});
+  const rename = fs.promises.rename;
+  let calls=0;
+  fs.promises.rename = async (...args) => {
+    if (++calls > 1) throw new Error('故障注入：目标与补偿均失败');
+    await rename(...args);
+  };
+  syncBuiltinESMExports();
+  try { assert.equal((await applyRename(db,null,rows,'pending')).ok,0); }
+  finally { fs.promises.rename=rename; syncBuiltinESMExports(); }
+  assert.equal((db.prepare("select count(*) n from rename_log where batch_id='pending'").get() as {n:number}).n,1);
+  for (let i=0;i<21;i++) db.prepare('insert into rename_log(batch_id,file_id,old_path,new_path) values(?,?,?,?)')
+    .run(`later-${i}`,rows[0].fileId,'unused-old','unused-new');
+  await applyRename(db,null,[],'prune');
+  const recovered = await undoBatch(db,null,'pending');
+  assert.equal(recovered.failed.length,0,JSON.stringify(recovered));
+  assert.equal(recovered.ok,1);
+  assert.equal(readFileSync(from,'utf8'),'case bytes');
+});
+
+test('磁盘已改名而数据库未更新的中断状态可以从日志撤回', async () => {
+  const row = (await previewRename(db,ids(),{template:'{title}{ext}'})).find(r => r.status !== 'unchanged')!;
+  const from=join(row.dir,row.oldName), to=join(row.dir,row.newName);
+  db.prepare('insert into rename_log(batch_id,file_id,old_path,new_path) values(?,?,?,?)').run('interrupted',row.fileId,from,to);
+  renameSync(from,to);
+  const result=await undoBatch(db,null,'interrupted');
+  assert.equal(result.ok,1);
+  assert.ok(existsSync(from));
+  assert.equal(existsSync(to),false);
+});
 const pathOf = (bookId: number) =>
   (db.prepare('select path from book_file where book_id = ?').get(bookId) as { path: string }).path;
 

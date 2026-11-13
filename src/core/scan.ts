@@ -280,6 +280,7 @@ export async function* walk(
 
 interface FileRow {
   id: number;
+  root_id: number | null;
   book_id: number;
   path: string;
   size: number;
@@ -404,129 +405,131 @@ export async function parseAndStore(
     for (const c of chapters) {
       insert.run(fileId, c.index, c.volume ?? null, c.title, c.offset, c.length);
     }
-    db.exec('commit');
-  } catch (e) {
-    db.exec('rollback');
-    throw e;
-  }
 
-  // 内容变了要保住阅读进度（spec §2.3）
-  if (old.length > 0) {
-    const bookId = (
-      db.prepare('select book_id from book_file where id = ?').get(fileId) as { book_id: number }
-    ).book_id;
-    /*
-     * **章节被整批替换了，全文索引必须作废。**
-     *
-     * `chapter_fts` 是按「这本书 + 章号」存的派生数据，而 `buildIndex` 之后
-     * 没人清过它：追更、换章节规则、批量重新解析都只换 `chapter` 表。于是
-     * `search.fullText` 会拿**旧正文**命中、带着**旧章号**——点过去要么落到
-     * 另一章，要么直接报「这本书没有第 N 章」。而「搜到的句子不在那里」比
-     * 搜不到更难被发现。
-     *
-     * 清掉而不是重建：重建要把每一章重新读一遍，而清掉之后用户再点一次建索引
-     * 就行（搜索面板本来就按书列着「已索引」）。
-     */
-    clearBookIndex(db, bookId);
-    // 列名必须在 SQL 里就改成驼峰：库里是 snake_case，Progress 是 camelCase，
-    // 直接当对象用会全取到 undefined，再被 `?? 0` 兜成 0——进度悄悄跳回第一章，
-    // 不报错、不留痕。这个 bug 真发生过，scan.test.ts 的「追更」那条钉着它。
-    const state = db
-      .prepare(
-        `select chapter_idx as chapterIdx, char_offset as charOffset,
-                global_offset as globalOffset, status
-           from reading_state where book_id = ?`,
-      )
-      .get(bookId) as (Progress & { status?: string }) | undefined;
-
-    // **没读过的书没有进度可恢复，一个字都别动。**
-    // `reading.save` 会把「想读」推成「在读」（status.test.ts 钉着这条），
-    // 所以 status 还是 want 就等于从来没打开过。
-    // 不加这条判断的话：重新解析给书前面加了一章「前言」，restoreProgress
-    // 会尽职地把「原来在第 0 章」按标题跟到新的第 1 章——逻辑上没错，
-    // 但对没读过的书这是无中生有的进度。实测一次重解析给 1891 本没读过的书
-    // 写上了 0.1%～0.2% 的进度条
-    const untouched = (state?.status === 'none' || state?.status === 'want') && !state.charOffset;
-
-    if (state && !untouched) {
-      const oldChapters: Chapter[] = old.map((c) => ({
-        index: c.idx,
-        title: c.title,
-        offset: c.offset,
-        length: c.length,
-      }));
-      const r = restoreProgress(oldChapters, chapters, {
-        chapterIdx: state.chapterIdx ?? 0,
-        charOffset: state.charOffset ?? 0,
-        globalOffset: state.globalOffset ?? 0,
-      });
-      // percent 是从「第几章 / 共几章」派生的。重新解析会把章节数整个换掉
-      // （实测有从 4 章变 1034 章的），不跟着重算就会留下「读到第 3 章、进度 100%」
-      // 这种自相矛盾的记录。
-      const pct =
-        chapters.length > 0
-          ? Math.min(100, ((r.chapterIdx + 1) * 100) / chapters.length)
-          : 0;
+    // 内容变了要保住阅读进度（spec §2.3）
+    const currentFile = db.prepare('select is_primary from book_file where id = ?').get(fileId) as { is_primary: number };
+    if (old.length > 0 && currentFile.is_primary === 1) {
+      const bookId = (
+        db.prepare('select book_id from book_file where id = ?').get(fileId) as { book_id: number }
+      ).book_id;
       /*
-       * **章数变多、而这本书已经标了读完——退回在读。**
+       * **章节被整批替换了，全文索引必须作废。**
        *
-       * 那个「读完」指的是旧快照：追更追加了新章节是内容层面的新事实，
-       * 有没读过的新章节。不看连载状态——已完结书出修订版加番外同样成立，
-       * 读完新版再标一次读完只需一下点击；不退的代价是「已读完 + 网上有更新」
-       * 一直矛盾着（真实库里撞到过 3 本）。这不是「重读」，所以 reread_count
-       * 不碰。
+       * `chapter_fts` 是按「这本书 + 章号」存的派生数据，而 `buildIndex` 之后
+       * 没人清过它：追更、换章节规则、批量重新解析都只换 `chapter` 表。于是
+       * `search.fullText` 会拿**旧正文**命中、带着**旧章号**——点过去要么落到
+       * 另一章，要么直接报「这本书没有第 N 章」。而「搜到的句子不在那里」比
+       * 搜不到更难被发现。
        *
-       * ⚠️ **只在章数变多时退。**「读完后回头翻几章查点东西」章数没变——
-       * 那条由 percent 的 case 兜着（finished 的 100% 不碰）。
+       * 清掉而不是重建：重建要把每一章重新读一遍，而清掉之后用户再点一次建索引
+       * 就行（搜索面板本来就按书列着「已索引」）。
        */
-      const demote = state.status === 'finished' && old.length > 0 && chapters.length > old.length;
-      db.prepare(
-        `update reading_state set chapter_idx = ?, char_offset = ?,
-                percent = case when status = 'finished' and ? = 0 then percent else ? end,
-                status = case when ? = 1 then 'reading' else status end,
-                finished_at = case when ? = 1 then null else finished_at end
-          where book_id = ?`,
-      ).run(r.chapterIdx, r.charOffset, demote ? 1 : 0, pct, demote ? 1 : 0, demote ? 1 : 0, bookId);
-      // **估出来的要报上去。** `restoreProgress` 早就算了 `accurate`，
-      // 而这里原来把它连同 `by` 一起扔了——见 `ScanReport.progressGuessed`
-      if (!r.accurate) guessed = { from: state.chapterIdx ?? 0, to: r.chapterIdx };
-    }
+      clearBookIndex(db, bookId);
+      // 列名必须在 SQL 里就改成驼峰：库里是 snake_case，Progress 是 camelCase，
+      // 直接当对象用会全取到 undefined，再被 `?? 0` 兜成 0——进度悄悄跳回第一章，
+      // 不报错、不留痕。这个 bug 真发生过，scan.test.ts 的「追更」那条钉着它。
+      const state = db
+        .prepare(
+          `select chapter_idx as chapterIdx, char_offset as charOffset,
+                  global_offset as globalOffset, status
+             from reading_state where book_id = ?`,
+        )
+        .get(bookId) as (Progress & { status?: string }) | undefined;
 
-    /*
-     * **书签和划线也要跟着搬。**
-     *
-     * 原来只搬 `reading_state`，而 `bookmark` 和 `highlight` 存的是**裸的**
-     * `chapter_idx`（见 `db.ts` 的表定义，那里的注释也承认「重新解析后位置
-     * 可能对不上」）。重解析把 1949 章变成 546 章之后，每一条书签都指向
-     * 一个毫不相干的章节——而这两样和阅读进度一样在铁律 3 里，**重扫恢复不了**。
-     *
-     * 按**标题**搬，和 `restoreProgress` 同一个口径：标题在新目录里还在就跟过去，
-     * 找不到就退回按序号、再夹到合法范围内。划线的 `char_offset` 是章内偏移，
-     * 章换了它多半也对不上——那由 `highlight.resolve` 的 `intact` 如实标出来
-     * （阅读器会说「这一章有 N 条划线对不上原文了」），这里只负责别让它指向错的章。
-     *
-     * `old.length === 0` 时不动：那是第一次解析，本来就没有旧序号可言。
-     */
-    if (old.length > 0) {
-      const byTitle = new Map<string, number>();
-      chapters.forEach((c, i) => { if (!byTitle.has(c.title)) byTitle.set(c.title, i); });
-      const last = Math.max(0, chapters.length - 1);
-      const moveTo = (oldIdx: number): number => {
-        const t = old[oldIdx]?.title;
-        const hit = t === undefined ? undefined : byTitle.get(t);
-        return Math.min(hit ?? oldIdx, last);
-      };
-      for (const table of ['bookmark', 'highlight'] as const) {
-        const rows = db.prepare(`select id, chapter_idx as idx from ${table} where book_id = ?`)
-          .all(bookId) as unknown as Array<{ id: number; idx: number }>;
-        for (const row of rows) {
-          const next = moveTo(row.idx);
-          if (next !== row.idx) {
-            db.prepare(`update ${table} set chapter_idx = ? where id = ?`).run(next, row.id);
+      // **没读过的书没有进度可恢复，一个字都别动。**
+      // `reading.save` 会把「想读」推成「在读」（status.test.ts 钉着这条），
+      // 所以 status 还是 want 就等于从来没打开过。
+      // 不加这条判断的话：重新解析给书前面加了一章「前言」，restoreProgress
+      // 会尽职地把「原来在第 0 章」按标题跟到新的第 1 章——逻辑上没错，
+      // 但对没读过的书这是无中生有的进度。实测一次重解析给 1891 本没读过的书
+      // 写上了 0.1%～0.2% 的进度条
+      const untouched = (state?.status === 'none' || state?.status === 'want') && !state.charOffset;
+
+      if (state && !untouched) {
+        const oldChapters: Chapter[] = old.map((c) => ({
+          index: c.idx,
+          title: c.title,
+          offset: c.offset,
+          length: c.length,
+        }));
+        const r = restoreProgress(oldChapters, chapters, {
+          chapterIdx: state.chapterIdx ?? 0,
+          charOffset: state.charOffset ?? 0,
+          globalOffset: state.globalOffset ?? 0,
+        });
+        // percent 是从「第几章 / 共几章」派生的。重新解析会把章节数整个换掉
+        // （实测有从 4 章变 1034 章的），不跟着重算就会留下「读到第 3 章、进度 100%」
+        // 这种自相矛盾的记录。
+        const pct =
+          chapters.length > 0
+            ? Math.min(100, ((r.chapterIdx + 1) * 100) / chapters.length)
+            : 0;
+        /*
+         * **章数变多、而这本书已经标了读完——退回在读。**
+         *
+         * 那个「读完」指的是旧快照：追更追加了新章节是内容层面的新事实，
+         * 有没读过的新章节。不看连载状态——已完结书出修订版加番外同样成立，
+         * 读完新版再标一次读完只需一下点击；不退的代价是「已读完 + 网上有更新」
+         * 一直矛盾着（真实库里撞到过 3 本）。这不是「重读」，所以 reread_count
+         * 不碰。
+         *
+         * ⚠️ **只在章数变多时退。**「读完后回头翻几章查点东西」章数没变——
+         * 那条由 percent 的 case 兜着（finished 的 100% 不碰）。
+         */
+        const demote = state.status === 'finished' && old.length > 0 && chapters.length > old.length;
+        db.prepare(
+          `update reading_state set chapter_idx = ?, char_offset = ?,
+                  percent = case when status = 'finished' and ? = 0 then percent else ? end,
+                  status = case when ? = 1 then 'reading' else status end,
+                  finished_at = case when ? = 1 then null else finished_at end
+            where book_id = ?`,
+        ).run(r.chapterIdx, r.charOffset, demote ? 1 : 0, pct, demote ? 1 : 0, demote ? 1 : 0, bookId);
+        // **估出来的要报上去。** `restoreProgress` 早就算了 `accurate`，
+        // 而这里原来把它连同 `by` 一起扔了——见 `ScanReport.progressGuessed`
+        if (!r.accurate) guessed = { from: state.chapterIdx ?? 0, to: r.chapterIdx };
+      }
+
+      /*
+       * **书签和划线也要跟着搬。**
+       *
+       * 原来只搬 `reading_state`，而 `bookmark` 和 `highlight` 存的是**裸的**
+       * `chapter_idx`（见 `db.ts` 的表定义，那里的注释也承认「重新解析后位置
+       * 可能对不上」）。重解析把 1949 章变成 546 章之后，每一条书签都指向
+       * 一个毫不相干的章节——而这两样和阅读进度一样在铁律 3 里，**重扫恢复不了**。
+       *
+       * 按**标题**搬，和 `restoreProgress` 同一个口径：标题在新目录里还在就跟过去，
+       * 找不到就退回按序号、再夹到合法范围内。划线的 `char_offset` 是章内偏移，
+       * 章换了它多半也对不上——那由 `highlight.resolve` 的 `intact` 如实标出来
+       * （阅读器会说「这一章有 N 条划线对不上原文了」），这里只负责别让它指向错的章。
+       *
+       * `old.length === 0` 时不动：那是第一次解析，本来就没有旧序号可言。
+       */
+      if (old.length > 0) {
+        const byTitle = new Map<string, number>();
+        chapters.forEach((c, i) => { if (!byTitle.has(c.title)) byTitle.set(c.title, i); });
+        const last = Math.max(0, chapters.length - 1);
+        const moveTo = (oldIdx: number): number => {
+          const t = old[oldIdx]?.title;
+          const hit = t === undefined ? undefined : byTitle.get(t);
+          return Math.min(hit ?? oldIdx, last);
+        };
+        for (const table of ['bookmark', 'highlight'] as const) {
+          const rows = db.prepare(`select id, chapter_idx as idx from ${table} where book_id = ?`)
+            .all(bookId) as unknown as Array<{ id: number; idx: number }>;
+          for (const row of rows) {
+            const next = moveTo(row.idx);
+            if (next !== row.idx) {
+              db.prepare(`update ${table} set chapter_idx = ? where id = ?`).run(next, row.id);
+            }
           }
         }
       }
     }
+
+    db.exec('commit');
+  } catch (e) {
+    db.exec('rollback');
+    throw e;
   }
 
   return { encoding, chapters: chapters.length, words: countWords(text), progressGuessed: guessed };
@@ -571,6 +574,7 @@ export async function scanRoot(
       const byPath = db.prepare('select * from book_file where path = ?').get(path) as
         | FileRow
         | undefined;
+      if (byPath && byPath.root_id === null) db.prepare('update book_file set root_id=? where id=?').run(root.id, byPath.id);
       /*
        * ⚠️ **已经在库里的文件，门槛挡下它也算「看见了」。**
        *

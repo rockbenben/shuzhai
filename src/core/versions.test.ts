@@ -11,6 +11,38 @@ import { tagBooks, listTags } from './library.ts';
 let dir: string;
 let db: DatabaseSync;
 
+test('合并保留手工在线地址和两侧备注', () => {
+  const a = addBook('Same', 'Author');
+  const b = addBook('Same', 'Author');
+  db.prepare('insert into online_link(book_id,url,note,is_primary) values(?,?,?,1)').run(a,'https://example.test/story','first');
+  db.prepare('insert into online_link(book_id,url,note,is_primary) values(?,?,?,1)').run(b,'https://example.test/story/','second');
+  mergeBooks(db,[a,b]);
+  const links = db.prepare('select note,is_primary from online_link').all() as Array<{note:string;is_primary:number}>;
+  assert.equal(links.length,1);
+  assert.ok(links[0].note.includes('first') && links[0].note.includes('second'));
+  assert.equal(links[0].is_primary,1);
+});
+
+test('合并继承来源主地址，并补回同一 URL 缺少的章节提取正则', () => {
+  const a=addBook('同一本','作者'), b=addBook('同一本','作者');
+  db.prepare('insert into online_link(book_id,url,selector,is_primary) values(?,?,?,0)').run(a,'https://example.test/secondary',null);
+  db.prepare('insert into online_link(book_id,url,selector,is_primary) values(?,?,?,0)').run(b,'https://example.test/secondary/','来源正则');
+  db.prepare('insert into online_link(book_id,url,selector,is_primary) values(?,?,?,1)').run(b,'https://example.test/primary','主正则');
+  mergeBooks(db,[a,b]);
+  assert.equal(db.prepare('select url from online_link where is_primary=1').get()?.url,'https://example.test/primary');
+  assert.equal(db.prepare("select selector from online_link where url='https://example.test/secondary'").get()?.selector,'来源正则');
+});
+
+test('合并同 URL 的不同章节提取正则时保留主规则，另一份写入备注', () => {
+  const a=addBook('同一本','作者'), b=addBook('同一本','作者');
+  db.prepare('insert into online_link(book_id,url,selector,is_primary) values(?,?,?,1)').run(a,'https://example.test/story','原正则');
+  db.prepare('insert into online_link(book_id,url,selector,is_primary) values(?,?,?,1)').run(b,'https://example.test/story/','另一正则');
+  mergeBooks(db,[a,b]);
+  const link=db.prepare('select selector,note from online_link').get()!;
+  assert.equal(link.selector,'原正则');
+  assert.ok(String(link.note).includes('另一正则'));
+});
+
 function addBook(title: string, author: string | null): number {
   const id = Number(
     db.prepare('insert into book(title, author) values(?,?)').run(title, author).lastInsertRowid,

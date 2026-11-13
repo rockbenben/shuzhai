@@ -1573,7 +1573,7 @@ export function cleanupMissing(db: DatabaseSync, onlyBookIds?: number[]): Missin
  * ⚠️ 键在 JS 里拼好整串再传参：node:sqlite 把数字绑成 REAL，
  * 写成 `'viewer.' || ?` 会拼出 `'viewer.7.0'` 永远匹配不上（见 deletion.ts 那处）。
  */
-export function bookHasUserData(db: DatabaseSync, bookId: number): boolean {
+export function bookHasUserData(db: DatabaseSync, bookId: number, ignoreWant = false): boolean {
   const r = db
     .prepare(
       `select
@@ -1581,16 +1581,23 @@ export function bookHasUserData(db: DatabaseSync, bookId: number): boolean {
          exists(select 1 from highlight where book_id = ?) as notes,
          exists(select 1 from book_tag where book_id = ?) as tags,
          exists(select 1 from reading_state where book_id = ?
-           and (ifnull(status, 'none') != 'none'
-                or chapter_idx > 0 or percent > 0 or last_read_at is not null
+           and ((ifnull(status, 'none') != 'none' and (? = 0 or status != 'want'))
+                or chapter_idx > 0 or char_offset > 0 or global_offset > 0 or percent > 0
+                or reread_count > 0 or finished_at is not null or rated_at is not null or last_read_at is not null
                 or rating is not null or comment is not null or drop_reason is not null)) as reading,
+         exists(select 1 from reading_session where book_id = ?) as sessions,
          exists(select 1 from app_setting where key = ?) as viewerPos,
          exists(select 1 from app_setting where key = ?) as outline,
-         exists(select 1 from app_setting where key = ?) as convertMode`,
+         exists(select 1 from shelf_member where book_id = ?) as shelves,
+         exists(select 1 from online_link where book_id = ?) as links,
+         exists(select 1 from book where id = ? and (nullif(trim(note),'') is not null or nullif(trim(intro),'') is not null or nullif(trim(aliases),'') is not null or category_id is not null or chapter_count_override is not null)) as metadata,
+         exists(select 1 from clean_rule where book_id = ?) as cleanRules,
+         exists(select 1 from parse_rule where book_id = ?) as parseRules`,
     )
     .get(
-      bookId, bookId, bookId, bookId,
+      bookId, bookId, bookId, bookId, ignoreWant ? 1 : 0, bookId,
       `viewer.${bookId}`, `outline.${bookId}`,
+      bookId, bookId, bookId, bookId, bookId,
     ) as Record<string, number>;
   // 繁简转换模式（`convert.book.<id>`）**单独判**：它用模块自己的 API 问，
   // 因为 `off` 也会在库里留一行（`setSetting` 写的是值不是「有没有」），

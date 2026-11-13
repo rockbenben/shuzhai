@@ -11,7 +11,7 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -23,15 +23,49 @@ import { CONFIRM_THRESHOLD } from '../core/rename.ts';
 let dir: string;
 let db: DatabaseSync;
 let rpc: ReturnType<typeof createRpc>;
+let fileCache: FileCache;
+
+test('版本合并不能越过尚在等待回收站的文件处置', async () => {
+  const folder=mkdtempSync(join(tmpdir(),'rpc-file-order-'));
+  const local=openDb(join(folder,'library.db')), cache=new FileCache();
+  let release!:()=>void, ready!:()=>void;
+  const waiting=new Promise<void>(r=>{release=r;}), started=new Promise<void>(r=>{ready=r;});
+  try {
+    const books:number[]=[],files:number[]=[];
+    for(let i=0;i<2;i++) {
+      const book=Number(local.prepare("insert into book(title) values('同一本')").run().lastInsertRowid);
+      books.push(book);
+      local.prepare("insert into reading_state(book_id,status) values(?,'none')").run(book);
+      const path=join(folder,`${i}.txt`);writeFileSync(path,'temporary same bytes');
+      files.push(Number(local.prepare('insert into book_file(book_id,path,size,mtime,content_hash,is_primary) values(?,?,20,0,?,1)').run(book,path,'same').lastInsertRowid));
+    }
+    local.prepare("insert into app_setting(key,value) values('rename.enabled','1')").run();
+    const methods=createRpc(local,cache,folder,undefined,async path=>{renameSync(path,join(folder,'trash.txt'));ready();await waiting;});
+    const deletion=methods['version.deleteFiles']({fileIds:[files[0]],confirmed:true});
+    await started;
+    let merged=false;
+    const merge=Promise.resolve().then(()=>methods['version.merge']({bookIds:books})).finally(()=>{merged=true;});
+    // 先装拒绝处理，防止预期的「记录已变」变成未处理的 Promise 拒绝。
+    const settled=Promise.allSettled([deletion,merge]);
+    await new Promise<void>(r=>setImmediate(r));
+    const crossed=merged;
+    release();await settled;
+    assert.equal(crossed,false,'合并抢在回收站完成之前修改了文件归属');
+    assert.equal(local.prepare('select is_primary from book_file').get()!.is_primary,1);
+    assert.equal(readFileSync(join(folder,'trash.txt'),'utf8'),'temporary same bytes');
+  } finally {release?.();await cache.releaseAll();local.close();rmSync(folder,{recursive:true,force:true});}
+});
 
 before(() => {
   dir = mkdtempSync(join(tmpdir(), 'rpc-'));
   db = openDb(join(dir, 'library.db'));
   db.prepare("insert into book(id, title, author) values(1, '雪中悍刀行', '烽火戏诸侯')").run();
-  rpc = createRpc(db, new FileCache(), dir);
+  fileCache = new FileCache();
+  rpc = createRpc(db, fileCache, dir);
 });
 
-after(() => {
+after(async () => {
+  await fileCache.releaseAll();
   db.close();
   rmSync(dir, { recursive: true, force: true });
 });

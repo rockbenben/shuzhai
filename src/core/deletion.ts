@@ -28,6 +28,17 @@ import { ensurePrimary } from './primary.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import { mergeBooks, setPrimary, bookKey } from './versions.ts';
 import { bookConvertMode } from './convert.ts';
+import { bookHasUserData } from './library.ts';
+import { clearBookIndex } from './db.ts';
+import { withFileMutation } from './rename.ts';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+
+async function fullHash(path: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest('hex');
+}
 
 
 /**
@@ -254,7 +265,12 @@ export async function canDelete(db: DatabaseSync, fileId: number): Promise<Delet
     : [];
 
   if (identical.length > 0) {
-    return await guardEmptyBook(db, f, identical, true);
+    const verified: string[] = [];
+    try {
+      const original = await fullHash(f.path);
+      for (const path of identical) if (await fullHash(path) === original) verified.push(path);
+    } catch { return { ok: false, reason: '副本内容无法核对，请重新扫描', survivors: [], identical: false }; }
+    if (verified.length) return await guardEmptyBook(db, f, verified, true);
   }
 
   /*
@@ -417,6 +433,8 @@ async function guardEmptyBook(
     // `off` 也会在库里留一行（`setSetting` 写的是值），判「行在不在」
     // 会把早就改回「原文」的书也算成有数据。
     if (bookConvertMode(db, f.book_id) !== 'off') has.push('这本书的繁简转换设置');
+    // 想读状态在这个操作中允许清理，其余个人资料沿用孤儿清理的保留判据。
+    if (!has.length && bookHasUserData(db, f.book_id, true)) has.push('个人资料');
 
     if (has.length) {
       return {
@@ -465,6 +483,10 @@ export async function deleteDuplicates(
    */
   暂存目录?: string,
 ): Promise<DeleteResult> {
+  return withFileMutation(db, () => deleteChecked(db, fileIds, trash, 暂存目录));
+}
+
+async function deleteChecked(db: DatabaseSync, fileIds: number[], trash: TrashFn, 暂存目录?: string): Promise<DeleteResult> {
   const result: DeleteResult = { deleted: [], failed: [] };
 
   for (const fileId of fileIds) {
@@ -533,9 +555,10 @@ export async function deleteDuplicates(
       ).n;
 
       if (left === 0) {
-        // 这本书没文件了。canDelete 已经确认过它没有进度也没有书签，
-        // 留着只会在书架上多一条点开就报错的空记录
-        db.prepare('delete from book where id = ?').run(row.book_id);
+        // 回收站是异步的，等待期间可能刚保存了评价/笔记。提交前再核对，
+        // 这些数据应留下为只有记录的书，不能沿用 await 前的清空判据。
+        if (bookHasUserData(db, row.book_id, true)) clearBookIndex(db, row.book_id);
+        else db.prepare('delete from book where id = ?').run(row.book_id);
       } else if (row.is_primary === 1) {
         // 删的是主版本，得指一个新的，否则这本书读不了。
         // 判据在 `primary.ts`——扫描和合并那两处用的是同一份
@@ -583,19 +606,24 @@ export async function keepOnly(
   /** 见 `deleteDuplicates` 那个同名参数：回收站收不下时搬到这儿 */
   暂存目录?: string,
 ): Promise<DeleteResult & { keptBookId: number }> {
+  return withFileMutation(db, () => keepChecked(db, keepFileId, dropFileIds, trash, 暂存目录));
+}
+
+async function keepChecked(db: DatabaseSync, keepFileId: number, dropFileIds: number[], trash: TrashFn, 暂存目录?: string): Promise<DeleteResult & { keptBookId: number }> {
   if (!dropFileIds.length) throw new Error('没有要删的文件');
   if (dropFileIds.includes(keepFileId)) throw new Error('要留的那份不能同时在删除名单里');
 
   const ids = [keepFileId, ...dropFileIds];
   const rows = db
-    .prepare(`select id, book_id as bookId from book_file where id in (${ids.map(() => '?').join(',')})`)
-    .all(...ids) as unknown as Array<{ id: number; bookId: number }>;
+    .prepare(`select f.id, f.book_id as bookId, b.title, b.author from book_file f join book b on b.id=f.book_id where f.id in (${ids.map(() => '?').join(',')})`)
+    .all(...ids) as unknown as Array<{ id: number; bookId: number; title: string; author: string | null }>;
   if (rows.length !== ids.length) throw new Error('有文件记录不存在');
+  if (new Set(rows.map(r => bookKey(r.title, r.author))).size !== 1) throw new Error('这些文件不属于同一本书');
 
   const bookIds = [...new Set(rows.map((r) => r.bookId))];
   const keptBookId = bookIds.length > 1 ? mergeBooks(db, bookIds).keptBookId : bookIds[0];
   setPrimary(db, keepFileId);
-  const result = await deleteDuplicates(db, dropFileIds, trash, 暂存目录);
+  const result = await deleteChecked(db, dropFileIds, trash, 暂存目录);
   return { ...result, keptBookId };
 }
 

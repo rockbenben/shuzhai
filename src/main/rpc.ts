@@ -54,6 +54,7 @@ import {
   CONFIRM_THRESHOLD,
   previewRename,
   applyRename,
+  withFileMutation,
   undoBatch,
   undoableBatches,
   type RenameRow,
@@ -369,7 +370,7 @@ async function runScan(
   onScanDone?: () => void,
 ): Promise<ScanReport> {
   return 只干一次(`scan:${rootId ?? 'all'}`, async () => {
-    const report = await doScan(db, rootId, onScanProgress);
+    const report = await withFileMutation(db, () => doScan(db, rootId, onScanProgress));
     // 同一次扫描只通知一次：并发调用拿到的是同一个 promise，不会各调一遍
     onScanDone?.();
     return report;
@@ -1837,14 +1838,14 @@ export function createRpc(
     'version.deleteHistory': () => deleteHistory(db),
 
     /** **写库**：指定主版本。阅读进度挂在 book 上，换主版本不会丢 */
-    'version.setPrimary': (params) => {
+    'version.setPrimary': (params) => withFileMutation(db, async () => {
       setPrimary(db, num(params, 'fileId'));
       return { ok: true };
-    },
+    }),
 
     /** **写库**：把被当成多本的同名书合并成一本。优先保留有进度的那本 */
     'version.merge': (params) =>
-      mergeBooks(db, nums(params, 'bookIds')),
+      withFileMutation(db, async () => mergeBooks(db, nums(params, 'bookIds'))),
 
     // ── 在线地址（spec §4）：只管地址，不抓正文，不做在线阅读 ────────────
 

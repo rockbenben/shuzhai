@@ -8,6 +8,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ensurePrimary, preferReadable } from './primary.ts';
 import { sqlNow } from './format.ts';
 import { clearBookIndex } from './db.ts';
+import { addLink, setPrimaryLink } from './links.ts';
 
 export interface Version {
   fileId: number;
@@ -200,8 +201,8 @@ export function setPrimary(db: DatabaseSync, fileId: number): void {
  *   （搬文件、并标签、并手动分类成员、并书评）。
  * - `parse_rule` / `clean_rule` —— 那是「这本书按什么规则切章/净化」。keeper 有自己的
  *   一份，两份规则叠在同一本书上只会互相打架，而重新设一次是几秒钟的事。
- * - `online_link` / `cover_fetch` —— 抓取顺手记的源页和抓取状态，重抓就有。
- *   （真实库里 online_link 888 条，全是封面抓取记的。）
+ * - `cover_fetch` —— 可重新生成的抓取状态。
+ * `online_link` 可能带手写网址和备注，合并时按规范化 URL 迁移。
  */
 const MOVED_TABLES = ['bookmark', 'highlight', 'reading_session'] as const;
 
@@ -352,6 +353,17 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
         } else {
           db.prepare('delete from app_setting where key = ?').run(败方位置);
         }
+      }
+      const hasPrimary = !!db.prepare('select id from online_link where book_id=? and is_primary=1').get(keeper.id);
+      const links = db.prepare('select url,note,selector,is_primary from online_link where book_id=? order by is_primary desc,id').all(id) as Array<{url:string;note:string|null;selector:string|null;is_primary:number}>;
+      for (const link of links) {
+        const kept = addLink(db, keeper.id, link.url, { note: link.note ?? undefined, selector: link.selector ?? undefined });
+        const existing = db.prepare('select note,selector from online_link where id=?').get(kept.id) as {note:string|null;selector:string|null};
+        const alternate = existing.selector && link.selector && existing.selector !== link.selector
+          ? `另一个版本的章节提取正则：${link.selector}` : null;
+        const notes = [...new Set([existing.note, link.note, alternate].filter(Boolean))].join('\n');
+        db.prepare('update online_link set note=?,selector=? where id=?').run(notes || null, existing.selector || link.selector, kept.id);
+        if (!hasPrimary && link.is_primary === 1) setPrimaryLink(db, kept.id);
       }
       db.prepare('delete from book where id = ?').run(id);
     }

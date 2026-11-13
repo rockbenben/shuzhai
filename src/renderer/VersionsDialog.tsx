@@ -225,7 +225,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
             const dir = commonDir(g.versions.map((v) => v.path));
             const keptId = keep.get(g.key) ?? g.versions[0].fileId;
             const drop = g.versions.filter((v) => v.fileId !== keptId);
-            const risky = drop.filter((v) => !v.exactDuplicate);
+            const risky = drop;
             /* 留下的和删掉的**不是同一种格式**——那时候「另一个版本」这个说法
                会漏掉真正要紧的那一半：能读的和只能翻的，差的不是内容是能力 */
             const kept = g.versions.find((v) => v.fileId === keptId);
@@ -291,7 +291,7 @@ export function VersionsDialog({ onClose }: { onClose: (changed: boolean) => voi
                           <div style={{ fontSize: '0.72rem' }}>
                             {v.mostWords && <span style={{ color: 'var(--accent)' }}>字数最多 </span>}
                             {v.newest && <span style={{ color: 'var(--accent)' }}>最新 </span>}
-                            {v.exactDuplicate && <span className="danger">完全重复 </span>}
+                            {v.exactDuplicate && <span className="danger">指纹相同，删除前核验 </span>}
                             {v.status !== 'ok' && <span className="danger">{labelOf(FILE_STATUS, v.status)}</span>}
                           </div>
                         </td>

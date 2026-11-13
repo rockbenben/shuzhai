@@ -49,6 +49,39 @@ function addFile(bookId: number, name: string, hash: string | null, primary = fa
   );
 }
 
+test('不能合并不同组，也不能同时移走最后两份', async () => {
+  const a = addFile(addBook('A'), 'a.txt', 'same', true);
+  const b = addFile(addBook('B'), 'b.txt', 'same', true);
+  await assert.rejects(keepOnly(db, a, [b], fakeTrash().fn));
+  const trash = fakeTrash();
+  await Promise.all([deleteDuplicates(db, [a], trash.fn), deleteDuplicates(db, [b], trash.fn)]);
+  assert.equal(trash.trashed.length, 1);
+});
+
+test('采样指纹相同而中段不同不能判完全重复', async () => {
+  const a = addFile(addBook('A'), 'a.txt', 'same', true);
+  addFile(addBook('B'), 'b.txt', 'same', true);
+  writeFileSync(join(dir, 'a.txt'), 'edge-X-edge');
+  writeFileSync(join(dir, 'b.txt'), 'edge-Y-edge');
+  assert.equal((await canDelete(db, a)).ok, false);
+});
+
+test('等待回收站期间写入的个人资料不能随空书记录级联删除', async () => {
+  const a = addBook('A');
+  const file = addFile(a,'a.txt','same',true);
+  addFile(addBook('B'),'b.txt','same',true);
+  const result = await deleteDuplicates(db,[file],async path=>{
+    // 回收站 await 期间，另一个正常入口保存了不可再生数据。
+    db.prepare("update reading_state set comment='刚写下的评价' where book_id=?").run(a);
+    db.prepare("insert into bookmark(book_id,chapter_idx,note) values(?,0,'刚写下的笔记')").run(a);
+    rmSync(path);
+  });
+  assert.equal(result.deleted.length,1);
+  assert.equal(db.prepare('select count(*) n from book_file where book_id=?').get(a)!.n,0);
+  assert.equal(db.prepare('select comment from reading_state where book_id=?').get(a)?.comment,'刚写下的评价');
+  assert.equal(db.prepare('select note from bookmark where book_id=?').get(a)?.note,'刚写下的笔记');
+});
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'novel-del-'));
   db = openDb(join(dir, 'library.db'));

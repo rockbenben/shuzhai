@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { openDb } from './db.ts';
-import { scanRoot, fingerprint, walk, DEFAULT_IGNORE, emptyReport, mergeReport, type ScanReport } from './scan.ts';
+import { scanRoot, parseAndStore, fingerprint, walk, DEFAULT_IGNORE, emptyReport, mergeReport, type ScanReport } from './scan.ts';
 import { parseFilename, countWords } from './filename.ts';
 import { restoreProgress, type Chapter } from './chapter.ts';
 import { applyRule } from './reparse.ts';
@@ -47,6 +47,44 @@ const books = () =>
   (db.prepare('select id, title, author from book order by id').all() as Array<
     Record<string, unknown>
   >).map((r) => ({ ...r })) as Array<{ id: number; title: string; author: string | null }>;
+
+test('重解析迁移进度失败时章节、FTS 和锚点必须一起回滚', async () => {
+  const path = join(root.path,'事务夹具.txt');
+  writeBook(path,['第一章 起','第二章 承']);
+  await scanRoot(db,root);
+  const f = db.prepare('select id,book_id from book_file').get() as {id:number;book_id:number};
+  db.prepare("update reading_state set status='reading',chapter_idx=1,char_offset=12 where book_id=?").run(f.book_id);
+  db.prepare('insert into chapter_fts(content,book_id,chapter_idx) values(?,?,1)').run('旧索引',f.book_id);
+  const before = db.prepare('select title,idx from chapter order by idx').all();
+  writeBook(path,['第一章 前言','第二章 新起','第三章 新承']);
+  const prepare = db.prepare.bind(db);
+  db.prepare = ((sql: string) => {
+    if (sql.includes('update reading_state set chapter_idx')) throw new Error('故障注入：迁移进度失败');
+    return prepare(sql);
+  }) as typeof db.prepare;
+  try { await assert.rejects(parseAndStore(db,f.id,path),/故障注入/); }
+  finally { db.prepare=prepare; }
+  assert.deepEqual(db.prepare('select title,idx from chapter order by idx').all(),before);
+  assert.equal(db.prepare('select content from chapter_fts').get()?.content,'旧索引');
+  assert.equal(db.prepare('select chapter_idx from reading_state where book_id=?').get(f.book_id)?.chapter_idx,1);
+});
+
+test('副文件加章不搬主文件进度，重新登记根目录能认回原书', async () => {
+  writeBook(join(root.path, 'first.txt'), ['第一章 起', '第二章 承', '第三章 转']);
+  writeBook(join(root.path, 'second.txt'), ['第一章 起', '第二章 承', '第三章 转']);
+  await scanRoot(db, root);
+  const rows = db.prepare('select id,book_id,path from book_file order by id').all() as Array<{id:number;book_id:number;path:string}>;
+  db.prepare('update book_file set book_id=?,is_primary=0 where id=?').run(rows[0].book_id, rows[1].id);
+  db.prepare("update reading_state set status='finished',chapter_idx=1,percent=100 where book_id=?").run(rows[0].book_id);
+  db.prepare('insert into bookmark(book_id,chapter_idx) values(?,1)').run(rows[0].book_id);
+  writeBook(rows[1].path, ['第零章 前', '第一章 起', '第二章 承', '第三章 转', '第四章 合']);
+  await scanRoot(db, root);
+  assert.equal((db.prepare('select status from reading_state where book_id=?').get(rows[0].book_id) as {status:string}).status, 'finished');
+  assert.equal((db.prepare('select chapter_idx from bookmark').get() as {chapter_idx:number}).chapter_idx, 1);
+  db.exec('update book_file set root_id=null,excluded=1');
+  await scanRoot(db, root);
+  assert.equal((db.prepare('select count(*) n from book_file where root_id is null').get() as {n:number}).n, 0);
+});
 
 test('从文件名解析书名作者', () => {
   assert.deepEqual(parseFilename('《雪中悍刀行》烽火戏诸侯.txt'), {

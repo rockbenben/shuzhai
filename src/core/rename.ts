@@ -13,6 +13,18 @@ import { basename, dirname, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { FileCache } from './reader.ts';
 
+const fileOperations = new WeakMap<DatabaseSync, Promise<unknown>>();
+
+/** 文件处置跨越 await，按连接串行复核和执行。 */
+export function withFileMutation<T>(db: DatabaseSync, work: () => Promise<T>): Promise<T> {
+  const previous = fileOperations.get(db) ?? Promise.resolve();
+  const operation = previous.catch(() => {}).then(work);
+  fileOperations.set(db, operation);
+  return operation.finally(() => {
+    if (fileOperations.get(db) === operation) fileOperations.delete(db);
+  });
+}
+
 /** Windows 文件名里不允许的字符 */
 const ILLEGAL = /[\\/:*?"<>|]/g;
 
@@ -103,6 +115,8 @@ export function fitPathLength(dir: string, filename: string): { name: string; tr
 export type RowStatus = 'ok' | 'unchanged' | 'conflict' | 'sanitized' | 'too-long' | 'missing' | 'bad-ext';
 
 export interface RenameRow {
+  expectedSize?: number;
+  expectedMtimeMs?: number;
   fileId: number;
   bookId: number;
   dir: string;
@@ -182,6 +196,11 @@ export async function previewRename(
       newName,
       status: 'ok',
     };
+    const snapshot = await stat(r.path).catch(() => null);
+    if (snapshot) {
+      row.expectedSize = snapshot.size;
+      row.expectedMtimeMs = snapshot.mtimeMs;
+    }
 
     if (r.file_status === 'missing') {
       row.status = 'missing';
@@ -276,6 +295,9 @@ export interface RenameReport {
 /** 只改大小写：Windows 认为源和目标是同一个文件 */
 const caseOnly = (from: string, to: string): boolean => from.toLowerCase() === to.toLowerCase();
 
+/** 中转已成功，补偿失败；必须保留对应日志供下次撤销。 */
+class PendingFileMove extends Error {}
+
 /**
  * 把文件挪到新名字上。**改名和撤销都从这儿走**——两边要的是同一件事，
  * 而下面那两条判据抄成两份必然分叉（本仓库栽过好几次）。
@@ -296,16 +318,25 @@ const caseOnly = (from: string, to: string): boolean => from.toLowerCase() === t
  * ponytail: 「同一个文件」用小写比较（Windows 语义）。大小写敏感的文件系统上
  * 要改成比 ino/dev，而这个应用只发 Windows。
  */
-async function moveFile(from: string, to: string): Promise<void> {
+async function moveFile(from: string, to: string, operationId?: string): Promise<void> {
   const same = caseOnly(from, to);
   if (!same && (await stat(to).then(() => true, () => false))) {
     throw new Error(`目标已经有一个 ${basename(to)} 了——不覆盖，这一个跳过了`);
   }
   // 只改大小写时 Windows 会认为源和目标是同一个文件，必须借道临时名
   if (same) {
-    const tmp = `${to}.renaming-${Date.now()}`;
+    const tmp = `${to}.renaming-${operationId ?? Date.now()}`;
+    if (await stat(tmp).then(() => true, () => false)) throw new Error('改名的暂存文件已存在，请先核对上次操作');
     await rename(from, tmp);
-    await rename(tmp, to);
+    try {
+      await rename(tmp, to);
+    } catch (error) {
+      try { await rename(tmp, from); }
+      catch (recoveryError) {
+        throw new PendingFileMove(`改名未完成，原文件保留在 ${tmp}；恢复到 ${from} 失败：${String(recoveryError)}`);
+      }
+      throw error;
+    }
   } else {
     await rename(from, to);
   }
@@ -317,6 +348,10 @@ export async function applyRename(
   rows: RenameRow[],
   batchId: string,
 ): Promise<RenameReport> {
+  return withFileMutation(db, () => applyRenameRows(db, cache, rows, batchId));
+}
+
+async function applyRenameRows(db: DatabaseSync, cache: FileCache | null, rows: RenameRow[], batchId: string): Promise<RenameReport> {
   const report: RenameReport = { batchId, ok: 0, failed: [] };
 
   for (const row of rows) {
@@ -325,6 +360,10 @@ export async function applyRename(
     if (from === to) continue;
 
     try {
+      const registered = db.prepare('select path from book_file where id = ?').get(row.fileId) as { path: string } | undefined;
+      if (!registered || registered.path !== from || basename(row.oldName) !== row.oldName || basename(row.newName) !== row.newName || /[\\/:*?"<>|]/.test(row.newName)) {
+        throw new Error('预览与当前文件不一致，请重新预览');
+      }
       /*
        * ⚠️ **扩展名不许变。** 预览已经标了（`bad-ext`），但预览是**界面**——
        * rpc 对外开放（§13），调用方自己算出来的 rows 走不到那道预览。
@@ -340,12 +379,23 @@ export async function applyRename(
       }
       // 阅读器可能正开着这本书。Windows 上不先放开句柄，rename 会直接失败
       await cache?.release(from);
-      await moveFile(from, to);
-
-      db.prepare('update book_file set path = ? where id = ?').run(to, row.fileId);
-      db.prepare(
+      const snapshot = await stat(from);
+      if ((row.expectedSize !== undefined && row.expectedSize !== snapshot.size)
+        || (row.expectedMtimeMs !== undefined && row.expectedMtimeMs !== snapshot.mtimeMs)) throw new Error('文件在预览后已变化，请重新预览');
+      // 先留下可撤销记录，进程在磁盘动作后中断也能从原路径和目标路径核对。
+      const log = db.prepare(
         'insert into rename_log(batch_id, file_id, old_path, new_path) values(?,?,?,?)',
       ).run(batchId, row.fileId, from, to);
+      let moved = false;
+      try {
+        await moveFile(from, to, String(log.lastInsertRowid));
+        moved = true;
+        db.prepare('update book_file set path = ? where id = ?').run(to, row.fileId);
+      } catch (error) {
+        if (moved) await moveFile(to, from);
+        if (!(error instanceof PendingFileMove)) db.prepare('delete from rename_log where id=?').run(log.lastInsertRowid);
+        throw error;
+      }
       report.ok++;
     } catch (e) {
       report.failed.push({
@@ -355,18 +405,23 @@ export async function applyRename(
     }
   }
 
-  pruneLog(db);
+  await pruneLog(db);
   return report;
 }
 
-/** 只留最近 UNDO_BATCHES 批，更早的删掉——日志无限长没有意义 */
-function pruneLog(db: DatabaseSync): void {
-  db.prepare(
-    `delete from rename_log where batch_id not in (
+/** 普通撤销只留最近 UNDO_BATCHES 批；尚有中转文件的故障记录不能轮换掉。 */
+async function pruneLog(db: DatabaseSync): Promise<void> {
+  const old = db.prepare(
+    `select id,old_path,new_path from rename_log where batch_id not in (
        select batch_id from rename_log group by batch_id
         order by max(id) desc limit ?
      )`,
-  ).run(UNDO_BATCHES);
+  ).all(UNDO_BATCHES) as Array<{id:number;old_path:string;new_path:string}>;
+  for (const entry of old) {
+    const pending = [`${entry.new_path}.renaming-${entry.id}`, `${entry.old_path}.renaming-undo-${entry.id}`];
+    if ((await Promise.all(pending.map(path=>stat(path).then(()=>true,()=>false)))).some(Boolean)) continue;
+    db.prepare('delete from rename_log where id=?').run(entry.id);
+  }
 }
 
 export interface BatchInfo {
@@ -395,6 +450,10 @@ export async function undoBatch(
   cache: FileCache | null,
   batchId: string,
 ): Promise<RenameReport> {
+  return withFileMutation(db, () => undoBatchRows(db, cache, batchId));
+}
+
+async function undoBatchRows(db: DatabaseSync, cache: FileCache | null, batchId: string): Promise<RenameReport> {
   const entries = db
     .prepare('select id, file_id, old_path, new_path from rename_log where batch_id = ? and undone = 0 order by id desc')
     .all(batchId) as Array<{ id: number; file_id: number; old_path: string; new_path: string }>;
@@ -403,8 +462,22 @@ export async function undoBatch(
 
   for (const e of entries) {
     try {
+      const temporary = [`${e.new_path}.renaming-${e.id}`, `${e.old_path}.renaming-undo-${e.id}`];
+      for (const path of temporary) {
+        if (await stat(path).then(() => true, () => false)) {
+          await moveFile(path, e.old_path);
+        }
+      }
+      const oldExists = await stat(e.old_path).then(() => true, () => false);
+      const newExists = await stat(e.new_path).then(() => true, () => false);
+      if (oldExists && !newExists) {
+        db.prepare('update book_file set path = ? where id = ?').run(e.old_path, e.file_id);
+        db.prepare('update rename_log set undone = 1 where id = ?').run(e.id);
+        report.ok++;
+        continue;
+      }
       await cache?.release(e.new_path);
-      await moveFile(e.new_path, e.old_path);
+      await moveFile(e.new_path, e.old_path, `undo-${e.id}`);
       db.prepare('update book_file set path = ? where id = ?').run(e.old_path, e.file_id);
       db.prepare('update rename_log set undone = 1 where id = ?').run(e.id);
       report.ok++;
