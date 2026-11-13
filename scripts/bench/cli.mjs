@@ -20,7 +20,7 @@ export const usage = () => [
 export async function main(cmd, argv) {
   switch (cmd) {
     case 'snapshot': {
-      const r = makeSnapshot({ force: argv.includes('--force') });
+      const r = await makeSnapshot({ force: argv.includes('--force') });
       console.log(`✓ 快照：${r.dst}`);
       console.log(`  拷了 ${r.files.join(' + ')}（源：${liveDbPath()}）`);
       console.log(`  封条 ${r.fingerprint}`);

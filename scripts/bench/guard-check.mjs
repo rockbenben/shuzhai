@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, rmSync, mkdirSync, readdirSync } from 'node:f
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
-import { snapshotDir, userDataDir, snapshotDbPath } from './snapshot.mjs';
+import { snapshotDir, userDataDir, snapshotDbPath, assertSnapshotReady } from './snapshot.mjs';
 import { launch, kill, CDP_PORT } from './app.mjs';
 
 const 没封条 = () => join(snapshotDir(), 'userdata-noseal');
@@ -65,7 +65,18 @@ export async function guardCheck() {
     const ok = p.code !== 0 && /没有测台封条/.test(p.out);
     console.log(`${ok ? '✓' : '✗'} 没封条 + --big → ${ok ? '当场拒绝' : '放行了！闸门没生效：' + p.out.trim()}`);
     失败 |= ok ? 0 : 1;
-  } else 失败 = 1;
+  } else {
+    // 仅把明确的封存拒绝算作通过，端口占用或运行时缺失仍然是失败。
+    try {
+      assertSnapshotReady(副本);
+      console.error('✗ 未封存副本没有被启动前校验拒绝');
+      失败 = 1;
+    } catch (error) {
+      const ok = /尚未完成隔离封存/.test(error.message);
+      console.log(`${ok ? '✓' : '✗'} 没封条 → ${ok ? '启动前拒绝' : error.message}`);
+      失败 |= ok ? 0 : 1;
+    }
+  }
   // 收的是**那个副本**的实例。默认参数收的是 userdata——收错了就等于留一个孤儿占着
   // 调试端口，而下一个脚本连上的就是它；上一轮那个 EPERM 就是这么来的。
   await kill({ dir: 副本 });

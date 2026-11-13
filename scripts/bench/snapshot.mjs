@@ -1,15 +1,13 @@
 // 快照：只拷库，不拷正文。
 //
-// **三个文件一起拷是硬要求**：`library.db-wal` 里有未合并的已提交帧（2026-09-25 实测
-// 那份库旁边躺着 4.1 MB 的 -wal），只拿主文件会让 sqlite 拿到对不上的 WAL。
-// 这条在 `src/main/migrate-userdata.ts` 那次搬家上丢过两条事务，方向相反、根是同一个。
+// SQLite 在线备份同时覆盖主库和已提交 WAL，避免逐文件复制遇到并发写入。
 //
 // **40 GB 的 txt 一个字节都不拷**：铁律 1 保证应用永远不往原文写，
 // 所有读取都是按 (offset, length) 定点读，原地读即可——而「定点读一个 52 MB 的文件」
 // 正是被量的对象。
-import { copyFileSync, existsSync, rmSync, statSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { existsSync, rmSync, statSync, mkdirSync, lstatSync, readdirSync, realpathSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, dirname, resolve, relative, isAbsolute, parse, sep } from 'node:path';
+import { DatabaseSync, backup } from 'node:sqlite';
 
 export const DB = 'library.db';
 export const SIDECARS = [DB + '-wal', DB + '-shm'];
@@ -69,9 +67,42 @@ export function liveDbPath() {
   return join(base, DB);
 }
 
-export function makeSnapshot({ force = false } = {}) {
-  const src = liveDbPath();
+const OWNER = '.shuzhai-bench.json';
+
+function checkedDirectory(path = snapshotDir()) {
+  const dir = resolve(path);
+  // 每一层都检查，父目录的 junction 也能把看似安全的路径转到真实档案。
+  for (let current = dir; current !== parse(current).root; current = dirname(current)) {
+    if (existsSync(current) && lstatSync(current).isSymbolicLink()) throw new Error('测台路径不能经过目录链接');
+  }
+  return dir;
+}
+
+function checkOwner(dir) {
+  const marker = join(dir, OWNER);
+  if (!existsSync(marker) || lstatSync(marker).isSymbolicLink() || lstatSync(marker).nlink > 1) throw new Error('目录没有独立的测台归属标记，拒绝清理');
+  const owner = JSON.parse(readFileSync(marker, 'utf8'));
+  if (owner.directory !== realpathSync(dir) || owner.kind !== 'shuzhai-bench') throw new Error('测台归属标记不匹配');
+}
+
+function checkDatabaseLinks(dbPath) {
+  checkedDirectory(dirname(dbPath));
+  for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    const info = lstatSync(file, { throwIfNoEntry: false });
+    if (info && (info.isSymbolicLink() || info.nlink > 1)) throw new Error('快照数据库及侧车不能是软链接或硬链接');
+  }
+}
+
+export async function makeSnapshot({ force = false, sourcePath } = {}) {
+  const src = sourcePath ?? liveDbPath();
   if (!existsSync(src)) throw new Error(`找不到真实库：${src}`);
+  const dir = checkedDirectory();
+  const source = realpathSync(src);
+  const sourceRelative = relative(dir, source);
+  if (sourceRelative !== '..' && !sourceRelative.startsWith(`..${sep}`) && !isAbsolute(sourceRelative)) throw new Error('源书库不能在测台目录内');
+  if (existsSync(dir) && readdirSync(dir).length) checkOwner(dir);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, OWNER), JSON.stringify({ kind: 'shuzhai-bench', directory: realpathSync(dir) }));
   const dst = snapshotDbPath();
   if (existsSync(dst) && !force) {
     throw new Error(
@@ -79,17 +110,12 @@ export function makeSnapshot({ force = false } = {}) {
     );
   }
   mkdirSync(dirname(dst), { recursive: true });
+  checkDatabaseLinks(dst);
 
-  // 主文件 + 侧车，三个一起。侧车可能不存在（库被干净关闭过），那是正常状态。
-  copyFileSync(src, dst);
+  // SQLite 在线备份取得一致快照，包括已提交的 WAL，源连接只读。
+  const sourceDb = new DatabaseSync(src, { readOnly: true });
+  try { await backup(sourceDb, dst); } finally { sourceDb.close(); }
   const 带了 = [DB];
-  for (const side of SIDECARS) {
-    const s = join(dirname(src), side);
-    if (existsSync(s)) {
-      copyFileSync(s, join(dirname(dst), side));
-      带了.push(side);
-    }
-  }
 
   const fp = fingerprintOf(statSync(src), Date.now());
   sealSnapshot(dst, fp);
@@ -97,23 +123,48 @@ export function makeSnapshot({ force = false } = {}) {
 }
 
 /**
- * **趁库还关着**写两行：来源指纹，和关掉封面抓取。
+ * 趁实例未启动写来源指纹，并隔离抓取和自动备份。
  *
  * 抓取必须在测之前断掉，否则整张表都是它的数（历史量级：开着抓取的首屏 40.8 秒）。
  * 比起来之后再叫停干净——后者会留下一段「已经开始抓但被叫停」的中间态。
  * `cover.autofetch` 这个键 `src/main/cover-fetcher.ts` 已经在读，不新开开关。
  */
 export function sealSnapshot(dbPath, fingerprint) {
+  checkDatabaseLinks(dbPath);
   const db = new DatabaseSync(dbPath);
   try {
+    db.exec('begin');
     const 写 = db.prepare('insert or replace into app_setting(key, value) values(?, ?)');
     写.run('perf.snapshot', fingerprint);
     写.run('cover.autofetch', '0');
+    写.run('backup.auto', '0');
+    写.run('backup.dir', join(dirname(dbPath), 'backups'));
+    db.exec('commit');
+  } catch (error) {
+    db.exec('rollback');
+    throw error;
   } finally {
     db.close(); // 关的时候 sqlite 自己会把 WAL 合并回去
   }
 }
 
+export function assertSnapshotReady(dir) {
+  const path = join(dir, DB);
+  checkDatabaseLinks(path);
+  if (!existsSync(path)) throw new Error('测台快照不存在，请先创建快照');
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    const get = key => db.prepare('select value from app_setting where key=?').get(key)?.value;
+    if (!parseFingerprint(get('perf.snapshot')) || get('backup.auto') !== '0'
+      || get('cover.autofetch') !== '0' || resolve(get('backup.dir') ?? '') !== resolve(dir, 'backups')) {
+      throw new Error('测台快照尚未完成隔离封存，请重新创建快照');
+    }
+  } finally { db.close(); }
+}
+
 export function dropSnapshot() {
-  rmSync(snapshotDir(), { recursive: true, force: true });
+  const dir = checkedDirectory();
+  if (!existsSync(dir)) return;
+  checkOwner(dir);
+  rmSync(dir, { recursive: true, force: true });
 }

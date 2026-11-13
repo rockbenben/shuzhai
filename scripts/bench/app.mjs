@@ -4,7 +4,7 @@ import { existsSync, writeFileSync, readFileSync, rmSync, readdirSync } from 'no
 import { basename, join } from 'node:path';
 import { ROOT } from '../repo-root.mjs';
 import { waitPortFree } from '../ui-check/port-free.mjs';
-import { snapshotDir, userDataDir } from './snapshot.mjs';
+import { snapshotDir, userDataDir, assertSnapshotReady } from './snapshot.mjs';
 
 export const CDP_PORT = process.env.SHUZHAI_BENCH_CDP || '9876';
 export const API_PORT = process.env.SHUZHAI_BENCH_API || '30037';
@@ -45,6 +45,10 @@ export async function launch({ dir = userDataDir() } = {}) {
   if (!preflight()) return 1;
   if (!existsSync(dir)) {
     console.error('✗ 档案目录不存在：' + dir + '\n  先跑 node scripts/bench.mjs snapshot');
+    return 1;
+  }
+  try { assertSnapshotReady(dir); } catch (error) {
+    console.error(error.message);
     return 1;
   }
   /*
