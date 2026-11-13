@@ -36,7 +36,7 @@ import type { DirNode } from '../core/library.ts';
 import { SERIAL_STATUS } from '../core/labels.ts';
 import type { RepairReport } from '../core/library.ts';
 import { rpc } from './rpc.ts';
-import { parseMinBytes, MIN_BYTES_KEY, MIN_BYTES_DEFAULT } from '../core/scan.ts';
+import { parseMinBytes, MIN_BYTES_KEY, MIN_BYTES_DEFAULT } from '../core/scan-options.ts';
 import { UPDATE_CHECK_KEY } from '../core/update.ts';
 import { etaWords, relTime } from '../core/format.ts';
 import { CoverSources } from './CoverSources.tsx';

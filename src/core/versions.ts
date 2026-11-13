@@ -281,7 +281,7 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
     //
     // ⚠️ **必须是 `datetime('now')` 那种写法**（`2026-10-25 08:00:00`）。
     // 原来这里写的是 `toISOString()`（`2026-10-25T08:00:00.000Z`），
-    // 而这一列是**按字符串比**排序的（`library.ts` 的 `ORDER.rated`），
+    // 而这一列是**按字符串比**排序的（`library-options.ts` 的 `ORDER.rated`），
     // `'T' > ' '` → 混进来的那一条永远排在最前面，「我最近评过什么」顺序是乱的。
     const ratedAt = rating != null || comment
       ? (mine.ratedAt ?? rest.find((x) => x.ratedAt)?.ratedAt ?? sqlNow())

@@ -7,6 +7,8 @@
 // Windows 的坑在这个功能上格外密，逐条都在下面的常量和注释里写明了出处。
 
 import { rename, stat } from 'node:fs/promises';
+import { UNDO_BATCHES, CONFIRM_THRESHOLD } from './rename-options.ts';
+export { UNDO_BATCHES, CONFIRM_THRESHOLD, PRESETS } from './rename-options.ts';
 import { basename, dirname, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { FileCache } from './reader.ts';
@@ -26,19 +28,6 @@ const RESERVED = new Set([
 
 /** 传统 MAX_PATH。超了要截断书名部分并提示（spec §3.3） */
 const MAX_PATH = 260;
-
-/** 可撤销的批次数上限（spec §3.3：至少保留最近 20 批） */
-export const UNDO_BATCHES = 20;
-
-/** 超过这个数量要二次确认（spec §3.3） */
-export const CONFIRM_THRESHOLD = 50;
-
-export const PRESETS = [
-  { label: '《书名》作者', template: '《{title}》{author}{ext}' },
-  { label: '作者 - 书名', template: '{author} - {title}{ext}' },
-  { label: '书名（状态）', template: '{title}（{status}）{ext}' },
-  { label: '书名', template: '{title}{ext}' },
-];
 
 const STATUS_CN: Record<string, string> = {
   ongoing: '连载中',

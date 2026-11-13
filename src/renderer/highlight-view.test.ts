@@ -15,7 +15,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { COLORS } from '../core/highlight.ts';
+import { COLORS } from '../core/highlight-data.ts';
 import { HL_COLORS, 划线样式 } from './highlight-view.ts';
 
 /** 从那段 CSS 里挑出某个键的一条规则 */

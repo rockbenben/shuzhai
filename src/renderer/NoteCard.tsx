@@ -20,7 +20,7 @@
  * （`贴住` / `贴着`，一个量的是正文栏、一个还要处理 iframe），那部分不共用。
  */
 import { useEffect, useRef, useState } from 'react';
-import { COLORS, type HighlightColor } from '../core/highlight.ts';
+import { COLORS, type HighlightColor } from '../core/highlight-data.ts';
 import { 底色, use色名 } from './highlight-view.ts';
 
 interface Props {

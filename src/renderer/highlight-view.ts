@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { COLOR_NAMES, 解析矩形, type Highlight, type HighlightColor } from '../core/highlight.ts';
+import { COLOR_NAMES, 解析矩形, type Highlight, type HighlightColor } from '../core/highlight-data.ts';
 import { rpc } from './rpc.ts';
 /**
  * 划线**看起来什么样**：四种颜色，以及 EPUB 那边怎么把它们画上去。

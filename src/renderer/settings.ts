@@ -8,7 +8,7 @@ export type { ImportedTheme };
 // 不值得为它写一条迁移。真正不可再生的（阅读进度、书签）才进库。
 
 import { BUNDLED_THEMES } from './builtin-themes.ts';
-import { SORT_KEYS } from '../core/library.ts';
+import { SORT_KEYS } from '../core/library-options.ts';
 
 /**
  * **阅读纸色和应用外观是两件事。**
@@ -562,7 +562,7 @@ export function saveShowRating(v: boolean): void {
  * ⚠️ **认不出的值一律丢掉。** localStorage 是用户手改得了的，而一个不认识的
  * 排序键会让 `orderBy` 当场抛（那是对的，但不该在开机时抛），
  * 一个不认识的视图名会让书架什么都不画。
- * 认得的清单从 `core/library.ts` 的 `ORDER` 和本文件的 `VIEW_KEYS` 算出来，
+ * 认得的清单从 `core/library-options.ts` 的 `ORDER` 和本文件的 `VIEW_KEYS` 算出来，
  * 不在这儿抄第二份。
  */
 function 每档记一份(key: string, 认得的: readonly string[]): Record<string, string> {

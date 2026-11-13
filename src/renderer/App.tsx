@@ -34,7 +34,7 @@ import { AddBookDialog } from './AddBookDialog.tsx';
 import { ExportDialog } from './ExportDialog.tsx';
 import type { Filter, ShelfCounts, SmartShelf, SortBy, Tag } from '../core/library.ts';
 import { planOpen } from '../core/open.ts';
-import { UNREVIEWED } from '../core/library.ts';
+import { UNREVIEWED } from '../core/library-options.ts';
 import type { DirNode } from '../core/library.ts';
 import type { SplitIssue as BadSplit } from '../core/health.ts';
 import { formatOf, extOf, BOOK_EXT, TEXT_EXT } from '../core/book-format.ts';

@@ -6,7 +6,7 @@
  * 两边各写一份字面量的话，改了一处另一处就悄悄对不上——开关在界面上是开的，
  * 而主进程读不到，于是永远不查（反过来的话就是每次开机都去联网，用户没要求过）。
  *
- * 同 `core/scan.ts` 的 `MIN_BYTES_KEY`：键名只有一份，读它的判据也只有一份
+ * 同 `core/scan-options.ts` 的 `MIN_BYTES_KEY`：键名只有一份，读它的判据也只有一份
  * （**只有 '1' 算开**，见 Settings.tsx 那处）。
  */
 export const UPDATE_CHECK_KEY = 'update.check';

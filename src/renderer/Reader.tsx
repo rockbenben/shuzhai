@@ -6,7 +6,7 @@ import { ReadSettingsPanel } from './ReadSettings.tsx';
 import { TtsLayer, useSleepTimer } from './TtsLayer.tsx';
 import { 底色, use色名 } from './highlight-view.ts';
 import { NoteCard } from './NoteCard.tsx';
-import { COLORS } from '../core/highlight.ts';
+import { COLORS } from '../core/highlight-data.ts';
 /* ⚠️ **引 core 那一份，别手抄。** 这儿原来是个只有两列的 `Bookmark`，
    而 `bookmark.list` 返回的是整行——`dup-decls.mjs` 当场报
    「同一个 rpc 两种返回类型」（查看器那半也要用它，两份必然分叉） */

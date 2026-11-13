@@ -177,13 +177,15 @@ sed -n '1234,1300p' docs/lessons.md   # 读那一段
 
 ### `src/core/convert.ts`
 
-繁简转换（opencc-js，运行时转）。**三个阅读界面都认**：txt 在 `chapter.read` 里转，EPUB 是渲染进程走 `convert.preview` 把 iframe 里的文字节点就地换掉（原文存 `WeakMap`，切模式从原文重转），PDF 只转朗读念的文字（那一页是图）。⚠️ **书内搜索也认**（`search.ts` 的 `searchInBook`）——判据是**「搜的就是屏幕上那份字」**：清洗之后、找命中之前补上这一道，顺序和 `readChapter` 一致（先清洗再转换，规则是按原文字形写的）。原来这一道整个缺着，于是「显示繁体」的一本简体书里照着屏幕打个繁体词，得到的是「没有找到」，而那是句假话。预筛**只许偏宽、不许偏窄**（原始行上两个方向都试，收窄交给转换后的那一次 `indexOf`），「原文」模式则一个方向都不试——`search.test.ts` 两条各钉一半。**这里可以 import `convert.ts`**（带着 opencc）：`search.ts` 有 `node:sqlite`，渲染进程从来不引它。**别把 opencc 搬进渲染包**（`reanchor` 要转换是**把函数注进去**的，因为 `highlight.ts` 渲染进程也在引）。⚠️ **章名和卷名也跟着转**（`readChapter` 的 `title`、`book.chapters` 的两列）——不转的话：① 目录整列是简体而正文是繁体，目录搜索框得输简体；② 更要命的是 `text.startsWith(title)` 不成立，「把标题从正文里剥掉」失败，**整章偏移挪一个标题的长度、满屏划线判成漂了**。剥的那一步只此一份：`reader.ts` 的 `chapterBody`（rpc 里原来抄了三处）（spec §2.5）
+繁简转换（opencc-js，运行时转）。**三个阅读界面都认**：txt 在 `chapter.read` 里转，EPUB 是渲染进程走 `convert.preview` 把 iframe 里的文字节点就地换掉（原文存 `WeakMap`，切模式从原文重转），PDF 只转朗读念的文字（那一页是图）。⚠️ **书内搜索也认**（`search.ts` 的 `searchInBook`）——判据是**「搜的就是屏幕上那份字」**：清洗之后、找命中之前补上这一道，顺序和 `readChapter` 一致（先清洗再转换，规则是按原文字形写的）。原来这一道整个缺着，于是「显示繁体」的一本简体书里照着屏幕打个繁体词，得到的是「没有找到」，而那是句假话。预筛**只许偏宽、不许偏窄**（原始行上两个方向都试，收窄交给转换后的那一次 `indexOf`），「原文」模式则一个方向都不试——`search.test.ts` 两条各钉一半。**这里可以 import `convert.ts`**（带着 opencc）：`search.ts` 有 `node:sqlite`，渲染进程从来不引它。**别把 opencc 搬进渲染包**（渲染进程共享的 `highlight-data.ts` 不依赖转换器；`reanchor` 仍由调用方注入本书的转换函数）。⚠️ **章名和卷名也跟着转**（`readChapter` 的 `title`、`book.chapters` 的两列）——不转的话：① 目录整列是简体而正文是繁体，目录搜索框得输简体；② 更要命的是 `text.startsWith(title)` 不成立，「把标题从正文里剥掉」失败，**整章偏移挪一个标题的长度、满屏划线判成漂了**。剥的那一步只此一份：`reader.ts` 的 `chapterBody`（rpc 里原来抄了三处）（spec §2.5）
 
 ### `src/core/filename.ts`
 
 从文件名猜书名作者、字数统计（spec §3.1）
 
 ### `src/core/scan.ts`
+
+收录下限的键、默认值和解析函数在纯模块 `src/core/scan-options.ts`，设置界面从那里取值；扫描器保留原导出兼容已有调用方。
 
 目录扫描与增量同步。⚠️ **跳过必须报出来**：`skipped` 五档 + `otherExts`（不收的格式按扩展名数）。多根合并走 `mergeReport()`，**新加字段必须在那里合并**，`scan.test.ts` 有一条守着（spec §1.2 §1.3）。⚠️ **「太小所以这轮不收」和「文件不在了」是两件事**：体积门槛挡下的文件**也算「看见了」**（`seen.add` 要在尺寸检查之前），否则用户把门槛调大一次，**已经收进来的书就被标成「文件不见了」**——文件明明在硬盘上，书被推进侧栏「需要处理」那一档，报告写着「缺失 N」。⚠️ **同一本书的编码只有一个答案**：`这本书的编码()`（用户锁定的那个优先于自动探测）——预览、落库、追更必须走它
 
@@ -237,6 +239,8 @@ sed -n '1234,1300p' docs/lessons.md   # 读那一段
 
 ### `src/core/highlight.ts` `src/renderer/pdf-text.ts`
 
+划线形状、颜色和矩形校验在纯模块 `src/core/highlight-data.ts`，渲染进程从那里取值；数据库读写仍在 `highlight.ts`，原导出继续兼容。
+
 划线与笔记（含改颜色 `setColor`：**认不出的颜色报错，不像新建那样退回黄的**）：**四种位置，共用 `chapter_idx` 那一列**——txt 是「章号 + 章内偏移 + 长度」，EPUB 是 `cfi`（偏移字段占位），**PDF 的文字划线是「页码 + 页内偏移 + 长度」**（靠 pdf.js 的文字层，`cfi` 留空），**PDF 的框选是「页码 + 矩形」**（`rect` 存 `"x,y,w,h"` 四个 0–1 的归一化坐标，迁移 22；**扫描页 / 插图 / 公式根本没有文字层**，上面三种对它一条都不成立——参照 MarginNote 的四种摘录形态；画法另一份，走 `highlight-view.ts` 的 `画矩形`，**不经过 `pdf-text.ts`**）。⚠️ **存坐标不存截图**（铁律 2），图每次从原 PDF 现画；**不做 OCR**（MarginNote 做，GoodNotes 明确不做，这里跟后者，铁律 4）。框选那一块能**导成 PNG**（`highlight.exportImage`）——库里仍然只存坐标，图是用的时候重新 render 那一页再裁（拄 GoodNotes 的 Take a screenshot of the selected area）。⚠️ 那段画页代码要跟 `FileViewer` 自己那份一致：**`canvas` 和 `canvasContext` 两个都传**，而且 **`render(...).promise` 会一直不 resolve**，得拿超时兜住（两条漏一条都是卡死不报错）。另有 **`highlight_tag`（迁移 23）：给笔记打标签**——颜色只有四个，用途一多就不够分；**复用 `tag` 表**，标签管理器的改名 / 合并 / 删除直接就管得着它们。画法只有一份：`highlight-view.ts` 的 `画布` 接口，分岔只在「怎么还原成 Range」。都不存正文。⚠️ **漂了不是死路**：`reanchor` 拿 `excerpt` 在新正文里找回来（阅读界面那句提示上有按钮）——**只在「不多不少正好一处」时才改**，出现两次的一律不动，猜错了是把笔记贴到另一句话上，比画不出来难看得多而且看不出来。⚠️ **带笔记的划线是「原色 + 下划线」，不是换一种颜色**——那份画法原来写的是 `h.note ? 'note' : h.color`，写了笔记就变黄的，用户挑的颜色当场没了（`highlight-view.test.ts` 钉着）。⚠️ **「这个颜色代表什么」是用户自己打的字**（`COLOR_NAMES` / `colorNames`）：默认名只是兜底，改过的存 `app_setting` 的 `highlight.colorNames`、**进备份**（划线在铁律 3 里，划线回来了、代表什么丢了等于只恢复一半）。渲染进程统一走 `highlight-view.ts` 的 `use色名`，**别再各自硬编码**——三个阅读界面原来抄了三份。另有 `notedChapters`：**目录里标出哪一章有笔记**（反向导航，两个阅读界面共用），⚠️ 必须分组计数、只回有笔记的那几章——目录是这个应用最容易卡的地方（spec §5.1）
 
 ### `src/core/outline.ts`
@@ -260,6 +264,8 @@ sed -n '1234,1300p' docs/lessons.md   # 读那一段
 **只在大库上才暴露的两条判据**：进度事件限流、封面抓取给界面让路
 
 ### `src/core/rename.ts`
+
+界面与执行端共用的预设、确认阈值、撤销批数在纯模块 `src/core/rename-options.ts`；文件操作仍在 `rename.ts`，原导出继续兼容。
 
 **文件重命名**：模板、预览、冲突、撤销（spec §3.3）。⚠️ **扩展名不许变**（预览里标 `bad-ext`、执行时也拦一道）：模板是自由文本，`{title}` 这种不带 `{ext}` 的模板会把文件改成没有扩展名的名字——**那本书从此读不了**（格式认不出、`isBookFile` 判否、扫描再也收不回来）。判据仓库里早就有（`fitPathLength` 顶上那句「扩展名丢了文件就打不开了」）。⚠️ **执行时也要拦**：预览是**界面**，rpc 对外开放（§13），调用方自己算出来的 rows 走不到那道预览（同 `moveFile` 那条判据）
 
@@ -293,6 +299,8 @@ sed -n '1234,1300p' docs/lessons.md   # 读那一段
 
 ### `src/core/library.ts`
 
+`src/core/library-options.ts` 保存浏览器与主进程共用的排序和待办规则，`SORT_KEYS` 仍从同一份排序表生成；渲染进程的值导入走它，筛选 SQL 的解释仍只有 `library.ts` 一处。
+
 分类、标签、筛选、智能书架。⚠️ **`ShelfCounts` 的 `all` 和 `total` 是两回事**：`all` 带着当前筛选（侧栏的数要跟着变），`total` 是整个书库、不受 `scope` 影响。**判断「这个用户到底有没有书」只能用 `total`**——界面上有三处（搜索框、顶栏那排控件、分类那一排）靠它决定自己显不显示，用 `all` 的话「筛出 0 本」会被当成「库是空的」，把取消筛选的入口连同自己一起藏掉，用户只能重启应用（真出过，`library.test.ts` 一条钉着，破坏验过）。`total` 要绕开 `shelfCounts` 里那个 `count()` 闭包，它会把 `scope` 拌进去。另有 `cleanupMissing`（清理失效文件指针，两步确认，有用户数据的书留成「只有记录」）及 `lastread` / `stale` 等排序键（spec §3.1 §7）
 
 ### `src/core/search.ts`
@@ -305,7 +313,7 @@ FTS5 全文索引 + 书内搜索（**只管纯文本书**：靠章节表和字�
 
 ### `src/core/versions.ts`
 
-多版本归组与重复检测（spec §8）。⚠️ **写进库的时间戳要用 `datetime('now')` 那种写法**（`format.ts` 的 `sqlNow()`）：`toISOString()` 给的是 `2026-10-25T08:00:00.000Z`，而这一列是**按字符串比**排序的（`library.ts` 的 `ORDER.rated`），`'T' > ' '` → 混进来的那一条永远排在最前面，「我最近评过什么」的顺序是乱的（同 `format.ts` 的 `sqlTime` 记着同一个坑的另一半）
+多版本归组与重复检测（spec §8）。⚠️ **写进库的时间戳要用 `datetime('now')` 那种写法**（`format.ts` 的 `sqlNow()`）：`toISOString()` 给的是 `2026-10-25T08:00:00.000Z`，而这一列是**按字符串比**排序的（`library-options.ts` 的 `ORDER.rated`），`'T' > ' '` → 混进来的那一条永远排在最前面，「我最近评过什么」的顺序是乱的（同 `format.ts` 的 `sqlTime` 记着同一个坑的另一半）
 
 ### `src/core/export.ts` `zip.ts`
 

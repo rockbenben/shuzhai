@@ -1642,8 +1642,7 @@ export function createRpc(
       // 差一个标题就整体偏掉，那时候「修好了」比「没修」还糟
       const ch = await readChapter(db, cache, Number(bookId), Number(chapterIdx));
       const body = chapterBody(ch);
-      // 转换那一路在这儿注进去：`highlight.ts` 是渲染进程也引的文件，
-      // 不能让它 import `convert.ts`（那会把 opencc 拖进渲染包）
+      // 在这里按本书模式提供转换函数，重新定位摘录的判据不负责选择显示模式。
       const 模式 = bookConvertMode(db, Number(bookId));
       return reanchor(db, Number(bookId), Number(chapterIdx), body, (t) => convertText(t, 模式));
     },

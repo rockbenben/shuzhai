@@ -28,7 +28,7 @@ import type { SortBy } from '../core/library.ts';
 /**
  * 表头点一下按哪一列排，**以及那一列真排的方向**。
  *
- * ⚠️ 方向跟着 `core/library.ts` 的 `ORDER` 抄——那几条是写死方向的字符串，
+ * ⚠️ 方向跟着 `core/library-options.ts` 的 `ORDER` 抄——那几条是写死方向的字符串，
  * 而 `title` 恰恰是**升序**（`b.title collate nocase, b.id`，没有 desc）。
  * 原来不分方向、正在生效的那一列一律画 `▾`，于是「书名」那一列箭头朝下、
  * 数据却从小往大走（实测头两行「一本EPUB电子书」→「一本PDF电子书」）——

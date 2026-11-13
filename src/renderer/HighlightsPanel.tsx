@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 /* ⚠️ **引 core 那一份，别手抄。** 这儿原来是个手抄的 `Row`，
    而它已经掉了 `cfi` 这一列——`dup-decls.mjs` 当场报「同一个 rpc 两种返回类型」 */
-import { COLORS, COLOR_NAMES, type Highlight, type HighlightColor } from '../core/highlight.ts';
+import { COLORS, COLOR_NAMES, type Highlight, type HighlightColor } from '../core/highlight-data.ts';
 import type { Tag } from '../core/library.ts';
 import { rpc } from './rpc.ts';
 import { use色名, 刷新色名, 底色 } from './highlight-view.ts';

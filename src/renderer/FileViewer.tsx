@@ -20,7 +20,7 @@ import {
 } from './highlight-view.ts';
 // PDF 划线的锚：页内偏移 ↔ Range（整段判据在那个文件顶上）
 import { 各页文字层, 造Range, 页内偏移 } from './pdf-text.ts';
-import { COLORS, 解析矩形, type Highlight } from '../core/highlight.ts';
+import { COLORS, 解析矩形, type Highlight } from '../core/highlight-data.ts';
 // 书签那一行也引 core 那一份，理由同上（`dup-decls.mjs` 盯着）
 import type { Bookmark } from '../core/status.ts';
 // 书内搜索的外壳共用 txt 那一份，只有「怎么搜」分岔

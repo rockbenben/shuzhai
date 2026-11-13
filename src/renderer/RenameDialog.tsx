@@ -12,7 +12,7 @@ import { rpc } from './rpc.ts';
 import type { RowStatus, RenameRow as Row, RenameReport as Report } from '../core/rename.ts';
 // 模板预设也从 core 引：这里原来抄了一份一字不差的
 // （上一轮把这个文件的三个类型并掉时漏了它——**同一个文件里的第二份**）
-import { PRESETS, UNDO_BATCHES } from '../core/rename.ts';
+import { PRESETS, UNDO_BATCHES } from '../core/rename-options.ts';
 
 
 /** 状态 → 颜色和说明。spec §3.3 要求预览表格里把这几种标出来 */
@@ -32,7 +32,7 @@ const STATUS_META: Record<RowStatus, { color?: string; text: string }> = {
  * 而这是个安全阀（spec §3.3）：谁把 core 那个调低，界面这份不跟着变，
  * 守卫就在没人发现的情况下松了。
  */
-import { CONFIRM_THRESHOLD } from '../core/rename.ts';
+import { CONFIRM_THRESHOLD } from '../core/rename-options.ts';
 import { whenAgo } from '../core/format.ts';
 /** 表格最多铺多少行。批量改名能一次带上整个筛选结果，八千行铺不得 */
 const LIST_MAX = 300;
