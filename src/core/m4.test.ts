@@ -13,6 +13,20 @@ import { upload, download, conflictName, BACKUP_NAME, type DavConfig } from './w
 let dir: string;
 let db: DatabaseSync;
 
+test('冲突副本失败不得覆盖远端主文件', async () => {
+  const writes: string[] = [];
+  await assert.rejects(upload({url:'https://dav.test/',username:'u',password:'p'}, '{}', {
+    remoteNewerThan:'2020',
+    fetchImpl: async (url, opts) => {
+      if (opts?.method === 'GET') return Response.json({createdAt:'2026'}, {headers:{etag:'"fixture"'}});
+      writes.push(String(url));
+      return new Response(null, {status:507});
+    },
+  }));
+  assert.equal(writes.length, 1);
+  assert.ok(writes[0].includes('.conflict-'));
+});
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'novel-m4-'));
   db = openDb(join(dir, 'library.db'));
@@ -196,13 +210,14 @@ function fakeDav(store: Map<string, string>) {
     const key = String(url);
     const method = init?.method ?? 'GET';
     if (method === 'PUT') {
+        if (new Headers(init?.headers).get('if-none-match') === '*' && store.has(key)) return new Response(null,{status:412});
       store.set(key, String(init?.body ?? ''));
-      return { ok: true, status: 201, statusText: 'Created', text: async () => '' } as Response;
+        return new Response(null,{status:201});
     }
     const hit = store.get(key);
     return hit === undefined
-      ? ({ ok: false, status: 404, statusText: 'Not Found', text: async () => '' } as Response)
-      : ({ ok: true, status: 200, statusText: 'OK', text: async () => hit } as Response);
+        ? new Response(null,{status:404})
+        : new Response(hit,{headers:{etag:'"fixture"'}});
   }) as typeof globalThis.fetch;
 }
 

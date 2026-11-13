@@ -47,7 +47,7 @@ const OLD_BACKUP_NAME = 'novel-manager-backup.json';
 async function fetchRemote(
   cfg: DavConfig,
   f: typeof globalThis.fetch,
-): Promise<Response | null> {
+): Promise<{ response: Response; name: string } | null> {
   const get = (name: string) => f(joinUrl(cfg.url, name), {
     method: 'GET',
     headers: { authorization: authHeader(cfg) },
@@ -55,9 +55,10 @@ async function fetchRemote(
     throw new Error(`连不上 WebDAV：${e instanceof Error ? e.message : String(e)}`);
   });
 
-  let res = await get(BACKUP_NAME);
-  if (res.status === 404) res = await get(OLD_BACKUP_NAME);
-  if (res.ok) return res;
+  let name = BACKUP_NAME;
+  let res = await get(name);
+  if (res.status === 404) { name = OLD_BACKUP_NAME; res = await get(name); }
+  if (res.ok) return { response: res, name };
   if (res.status === 404) return null;      // 真的没有，第一次用就是这样
   throw new Error(
     res.status === 401 || res.status === 403
@@ -103,9 +104,15 @@ export async function upload(
 
   // 远端存在且比我们手上的底稿新 → 先把它另存一份。
   // **旧名字也要问**，否则跨在改名两侧的远端探不到，冲突副本这一支整个跳过
-  const head = await fetchRemote(cfg, f).catch(() => null);
+  const head = await fetchRemote(cfg, f);
+  const targetExists = head?.name === BACKUP_NAME;
+  const etag = targetExists ? head.response.headers.get('etag') : null;
+  if (targetExists && (!etag || !/^"[^"\r\n]*"$/.test(etag))) {
+    await head.response.body?.cancel();
+    throw new Error('WebDAV 未提供强 ETag，无法安全覆盖远端备份；请使用支持条件写的服务');
+  }
   if (head && opts.remoteNewerThan) {
-    const remote = await head.text();
+    const remote = await head.response.text();
     let remoteAt = '';
     try {
       remoteAt = (JSON.parse(remote) as { createdAt?: string }).createdAt ?? '';
@@ -113,18 +120,28 @@ export async function upload(
       remoteAt = '';
     }
     if (remoteAt && remoteAt > opts.remoteNewerThan) {
-      savedConflict = conflictName(opts.device ?? 'device', remoteAt);
-      await f(joinUrl(cfg.url, savedConflict), {
+      const name = conflictName(opts.device ?? 'device', remoteAt);
+      const conflict = await f(joinUrl(cfg.url, name), {
         method: 'PUT',
-        headers: { ...headers, 'content-type': 'application/json' },
+        headers: { ...headers, 'content-type': 'application/json', 'if-none-match': '*' },
         body: remote,
-      }).catch(() => null);
+      });
+      if (conflict.status === 412) {
+        // 上次可能已保存但响应丢失；只认字节相同的那份，不覆盖同名异文。
+        const existing = await f(joinUrl(cfg.url, name), { method:'GET', headers });
+        if (!existing.ok || await existing.text() !== remote) throw new Error('冲突副本同名但内容不同，远端主备份未覆盖');
+      } else if (!conflict.ok) throw new Error(`冲突副本保存失败：${conflict.status}，远端主备份未覆盖`);
+      savedConflict = name;
     }
-  }
+  } else await head?.response.body?.cancel();
 
   const res = await f(target, {
     method: 'PUT',
-    headers: { ...headers, 'content-type': 'application/json' },
+    headers: {
+      ...headers,
+      'content-type': 'application/json',
+      ...(targetExists ? { 'if-match': etag! } : { 'if-none-match': '*' }),
+    },
     body: json,
   }).catch((e: unknown) => {
     return { ok: false, status: 0, statusText: e instanceof Error ? e.message : String(e) } as Response;
@@ -151,7 +168,7 @@ export async function download(
   const f = opts.fetchImpl ?? globalThis.fetch;
   const res = await fetchRemote(cfg, f);
   if (!res) return null;
-  const json = await res.text();
+  const json = await res.response.text();
   let createdAt = '';
   try {
     createdAt = (JSON.parse(json) as { createdAt?: string }).createdAt ?? '';
