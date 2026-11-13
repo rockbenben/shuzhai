@@ -4,7 +4,7 @@
 // `node:sqlite` 也在（都实测过，见 AGENTS.md）。渲染进程那半才需要 Vite。
 
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, protocol, shell } from 'electron';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { Readable } from 'node:stream';
@@ -30,6 +30,7 @@ import { makeProgressGate } from '../core/pacing.ts';
 import { closeOpenSessions } from '../core/status.ts';
 import { applyIgnoreToLibrary } from '../core/ignore.ts';
 import { UPDATE_CHECK_KEY } from '../core/update.ts';
+import { assertRenderer, externalUrl } from './renderer-policy.ts';
 
 /**
  * **断管道时一句日志都不许崩主进程。** 应用从终端或后台启动器里拉起来、而那个
@@ -123,9 +124,19 @@ function createWindow(): BrowserWindow {
       preload: join(here, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
 
+  // 导航后的页面不继承应用权限；外链交给系统浏览器。
+  win.webContents.on('will-navigate', (event) => event.preventDefault());
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    const external = externalUrl(url);
+    if (external) void shell.openExternal(external).catch((err) => console.warn('[external]', err));
+    return { action: 'deny' };
+  });
+  win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  win.webContents.session.setPermissionCheckHandler(() => false);
   const devServer = process.env.VITE_DEV_SERVER_URL;
   if (devServer) void win.loadURL(devServer);
   else void win.loadFile(join(here, '../../dist/index.html'));
@@ -457,8 +468,8 @@ app.whenReady().then(async () => {
      *  只放 http(s)：`openExternal` 能唤起 mailto:/自定义协议，而这张 rpc 表
      *  还开在 HTTP 端口上，不能让它替任何链接起本机程序。 */
     'ui.openExternal': async (params: unknown) => {
-      const url = (params as { url?: string })?.url;
-      if (!url || !/^https?:\/\//i.test(url)) throw new Error('只接受 http(s) 链接');
+      const url = externalUrl((params as { url?: unknown })?.url);
+      if (!url) throw new Error('只接受 http(s) 链接');
       await shell.openExternal(url);
       return { ok: true };
     },
@@ -503,7 +514,11 @@ app.whenReady().then(async () => {
   };
 
   // 渲染进程入口。和 /api/rpc 共用 callRpc 那一处判据，不另写守卫
-  ipcMain.handle('rpc', (_event, method: string, params: unknown) => callRpc(rpc, method, params));
+  const rendererEntry = process.env.VITE_DEV_SERVER_URL || pathToFileURL(join(here, '../../dist/index.html')).href;
+  ipcMain.handle('rpc', (event, method: string, params: unknown) => {
+    assertRenderer(event, win.webContents, rendererEntry);
+    return callRpc(rpc, method, params);
+  });
 
   // 窗口已就绪：开关开着的话延迟半分钟接着抓（内部自带延迟，这里直接调）
   coverFetcher.resumeIfEnabled();
@@ -703,7 +718,8 @@ app.whenReady().then(async () => {
    * 判据是：**渲染进程只需要记一个动作**（「我刚改了设置」），
    * 而不是记一张「哪一栏改完该调哪条」的表。那张表正是漏掉这一处的地方。
    */
-  ipcMain.handle('applyLiveSettings', () => {
+  ipcMain.handle('applyLiveSettings', (event) => {
+    assertRenderer(event, win.webContents, rendererEntry);
     schedule();
     startWatching();
     return { ok: true, bossKeyOk: registerBossKey() };

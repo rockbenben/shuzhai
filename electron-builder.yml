@@ -83,6 +83,8 @@ win:
   artifactName: ${name}-${version}-${arch}.${ext}
 
 nsis:
+  installerLanguages: [zh_CN]
+  displayLanguageSelector: false
   # 安装器加 `-setup`，和免安装的 zip 一眼分得开（同 027）
   artifactName: ${name}-${version}-${arch}-setup.${ext}
   oneClick: false

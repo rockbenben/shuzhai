@@ -55,7 +55,7 @@ jobs:
     runs-on: windows-latest
     # 本地一次 dist 是几分钟，CI 慢一档也不该到半小时——超了就是卡死不是慢
     timeout-minutes: 30
-    name: windows · 打包并建草稿
+    name: windows · 打包并发布
 
     steps:
       - uses: actions/checkout@v7
@@ -81,15 +81,15 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          # 写死 '24'，理由同 ci.yml：这个仓库押在 `.ts` 原生剥类型和 `node:sqlite` 上
-          node-version: '24'
+          # 构建工具使用 Active LTS；Electron 内置 Node 24 另由 CI 矩阵覆盖。
+          node-version: '26'
           cache: npm
 
       - run: npm ci
 
       # 见文件头那段。**这一步不能省，也不能设 ELECTRON_SKIP_BINARY_DOWNLOAD**
       - name: 下 Electron 的运行时
-        run: npx install-electron
+        run: node node_modules/electron/install.js
 
       # ⚠️ **闸门要在这儿再跑一遍。** `ci.yml` 的触发是 `branches: [main]`，
       # **打 tag 不会触发它**——不在这儿跑的话，tag 指到哪个提交都能发出去。
@@ -109,6 +109,9 @@ jobs:
       # 真要改成转发参数，那是 `package.mjs` 那边的决定，那边改了这里才跟着改。
       - name: 打包
         run: npm run dist
+
+      - name: 校验更新清单与真实产物
+        run: node scripts/verify-release.mjs
 
       # ⚠️ **校验和只覆盖安装包和免安装 zip。** `.blockmap` 和 `latest.yml` 是给
       # 应用内更新用的两样东西：latest.yml 写着「去哪儿下、下的是哪个版本」，

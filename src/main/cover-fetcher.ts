@@ -991,6 +991,7 @@ export class CoverFetcher {
       // 隔离清单漏的一条：不拦的话 Electron 默认**批准**远程内容的权限请求
       // （摄像头/麦克风/通知……），而这是个不可见窗口，用户完全看不到、也没法拒绝
       this.win.webContents.session.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
+      this.win.webContents.session.setPermissionCheckHandler(() => false);
     }
     // 之后一律用这个局部变量，不再读 this.win——stop() 可能在下面的 await
     // 期间把 this.win 置空，读 this.win.webContents 会直接 TypeError

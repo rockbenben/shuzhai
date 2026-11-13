@@ -67,9 +67,12 @@ jobs:
     timeout-minutes: 15
     # engines 里钉的是 >=24.0.0，而且不是随便写的：这个仓库靠 `.ts` 原生剥类型
     # 和 `node:sqlite` 两件只有 24 才默认开启的能力（AGENTS.md）。
-    # 不跑更高的 Current：Electron 自带的就是 Node 24 线，跑一条别的线
-    # 得到的红跟这个应用实际运行的环境没关系。
-    name: windows · node 24
+    # Node 24 验证应用运行时兼容，Node 26 验证 Active LTS 构建工具。
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['24', '26']
+    name: windows · node ${{ matrix.node }}
 
     steps:
       - uses: actions/checkout@v7
@@ -92,11 +95,8 @@ jobs:
       # 和 setup-node 同理，各查一次就够。
       - uses: actions/setup-node@v7
         with:
-          # ⚠️ **写死 '24'，别改成 `node-version-file: package.json`。**
-          # 那样看着能少一处重复（engines 里写着 `>=24.0.0`），可 setup-node 会
-          # 按那个范围装**最新满足的**——25、26 出来之后就跑到别的线上去了，
-          # 而上面那段注释说的正是「不跑更高的 Current」。这一处重复是有意的。
-          node-version: '24'
+          # engines 表达最低兼容版本，矩阵显式选择运行时与构建工具线。
+          node-version: ${{ matrix.node }}
           # ⚠️ **保留缓存。** setup-node 从 v7 起在自己文档里加了一句
           # 「不需要就关掉自动缓存」（cache poisoning）。这里不关，理由是可验证的：
           # 我们跑的是 `npm ci`，它对每个包按 `package-lock.json` 里的 `integrity`
