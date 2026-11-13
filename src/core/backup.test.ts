@@ -794,6 +794,79 @@ test('手工添的书（没有任何文件）也要能恢复回来', () => {
   assert.equal(r3.unmatched.length, 0);
 });
 
+test('批量恢复无文件书只读一次候选表，并保留 Unicode 判等与逐本认领', () => {
+  // SQLite lower 只折 ASCII；必须仍走 bookKey 的 JS Unicode 大小写归一化。
+  const insert = db.prepare('insert into book(title, author) values(?,?)');
+  for (let i = 0; i < 40; i++) {
+    const id = Number(insert.run(`卷Ⅱ ${i}`, i % 2 ? null : ' 作者 ').lastInsertRowid);
+    db.prepare("insert into reading_state(book_id,status) values(?,'none')").run(id);
+  }
+  const backup = exportBackup(db);
+  backup.books.forEach((b, i) => {
+    b.title = ` 卷ⅱ ${i} `;
+    b.author = i % 2 ? '' : '作者';
+    b.note = `备份 ${i}`;
+  });
+  const prepare = db.prepare.bind(db);
+  let fullReads = 0;
+  db.prepare = ((sql: string) => {
+    const stmt = prepare(sql);
+    if (/^select id, title, author from book(?: order by id)?$/i.test(sql.trim())) {
+      const all = stmt.all.bind(stmt);
+      stmt.all = ((...args: unknown[]) => { fullReads++; return Reflect.apply(all, stmt, args); }) as typeof stmt.all;
+    }
+    return stmt;
+  }) as typeof db.prepare;
+  try {
+    const r = importBackup(db, backup);
+    assert.equal(r.createdBooks, 0);
+    assert.equal(r.matched, 40);
+    assert.deepEqual(prepare('select id, note from book order by id').all().map((b) => [b.id, b.note]),
+      backup.books.map((b, i) => [i + 1, b.note]));
+    assert.equal(fullReads, 1, '不应为每本无文件书重读整张表');
+  } finally { db.prepare = prepare; }
+});
+
+test('恢复按原候选顺序逐本认领，文件匹配改名及新建后也不重复占用', () => {
+  const create = (title: string, author: string | null) => {
+    const id = Number(db.prepare('insert into book(title,author) values(?,?)').run(title,author).lastInsertRowid);
+    db.prepare("insert into reading_state(book_id,status) values(?,'none')").run(id);
+    return id;
+  };
+  const a = create('同名', '作者');
+  const b = create(' 同名 ', '作者');
+  const c = create('改名前', null);
+  const file = join(lib, 'temporary.txt');
+  db.prepare('insert into book_file(book_id,path,size,mtime,is_primary) values(?,?,0,0,1)').run(c,file);
+  const backup = exportBackup(db);
+  const template = backup.books[0];
+  const item = (title: string, author: string | null, note: string) =>
+    ({ ...template, title, author, note, files: [] });
+  backup.books = [
+    item('同名', '作者', '认领第一条'),
+    { ...backup.books[2], title: '改名后', note: '文件优先' },
+    item('同名', '作者', '认领第二条'),
+    item('改名前', null, '不能认回已改名占用的书'),
+    item('改名后', null, '不能认回文件刚占用的书'),
+    item('全新', null, '新建一'),
+    item('全新', '', '新建二'),
+    item('同名', '另一作者', '作者不同不猜'),
+    { ...item('无法匹配文件', null, '不要凭空创建'),
+      files: [{ path: join(lib, 'absent.txt'), contentHash: 'absent', isPrimary: true, encoding: null }] },
+  ];
+  const r = importBackup(db, backup);
+  assert.equal(r.matched, 8);
+  assert.equal(r.createdBooks, 5);
+  assert.equal(r.unmatched.length, 1);
+  assert.equal(r.unmatched[0].backupIndex, 8);
+  assert.deepEqual(db.prepare('select id,note from book order by id').all().map((x) => [x.id,x.note]), [
+    [a,'认领第一条'],[b,'认领第二条'],[c,'文件优先'],
+    [4,'不能认回已改名占用的书'],[5,'不能认回文件刚占用的书'],
+    [6,'新建一'],[7,'新建二'],[8,'作者不同不猜'],
+  ]);
+  assert.equal(importBackup(db, backup).createdBooks, 0, '第二次导入认领原来的所有候选');
+});
+
 /*
  * **「手动指认」和恢复必须搬回同样的东西。**
  *

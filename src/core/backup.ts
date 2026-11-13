@@ -771,6 +771,32 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
   const take = (id: number | undefined): number | null =>
     id !== undefined && !claimed.has(id) ? id : null;
 
+  // 只在遇到无文件书时读一次候选，保留原查询的顺序和 bookKey 的 Unicode 判等。
+  // 每个候选最多经过一次游标，重复书名也不会反复扫同一桶。
+  let byBookKey: Map<string, { ids: number[]; next: number }> | undefined;
+  const takeFileless = (key: string): number | null => {
+    if (!byBookKey) {
+      byBookKey = new Map();
+      const rows = db.prepare('select id, title, author from book').all() as unknown as Array<{
+        id: number; title: string; author: string | null;
+      }>;
+      for (const row of rows) {
+        const k = bookKey(row.title, row.author);
+        let bucket = byBookKey.get(k);
+        if (!bucket) byBookKey.set(k, bucket = { ids: [], next: 0 });
+        bucket.ids.push(row.id);
+      }
+    }
+    const bucket = byBookKey.get(key);
+    while (bucket && bucket.next < bucket.ids.length) {
+      const id = take(bucket.ids[bucket.next++]);
+      if (id !== null) return id;
+    }
+    return null;
+  };
+  // 元数据只会在认领后更新；新建的书也立刻认领。因此二者都不再是候选，
+  // claimed 跳过旧键即可，不把改名后或新建的书重复放回桶里。索引不跨导入保存。
+
   db.exec('begin');
   try {
     const categoriesBefore = (db.prepare('select count(*) n from category').get() as {n:number}).n;
@@ -851,13 +877,8 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
        *    那正是用户当初在「添读过的书」里做的事。
        */
       if (bookId === null && bb.files.length === 0) {
-        const k = bookKey(bb.title, bb.author);
-        const hit = (db.prepare('select id, title, author from book').all() as unknown as Array<{
-          id: number; title: string; author: string | null;
-        }>).find((x) => bookKey(x.title, x.author) === k && !claimed.has(x.id));
-        if (hit) {
-          bookId = hit.id;
-        } else {
+        bookId = takeFileless(bookKey(bb.title, bb.author));
+        if (bookId === null) {
           bookId = Number(
             db.prepare('insert into book(title, author) values(?,?)').run(bb.title, bb.author).lastInsertRowid,
           );
