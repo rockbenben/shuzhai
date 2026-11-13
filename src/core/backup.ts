@@ -43,12 +43,13 @@ import { addLink } from './links.ts';
  * 恢复时 `version > BACKUP_VERSION` 会整个拒收（`backup.test.ts` 有一条守着），
  * 所以每加一位，就等于让所有旧版本对新备份**一个字都不读**。
  *
+ * - 2：标签规则跨库映射和本书净化归属需要新读取端，旧版忽略后会恢复错规则。
  * - **纯新增字段不加位**：老程序看不懂那个字段，忽略掉就是了，其余照样恢复；
  *   新程序读老备份靠 `?? []` / `?? null` 兜住。划线（`highlights`）就是这么加的。
  * - **改了已有字段的含义或删字段才加位**——那时老程序读出来是错的，
  *   拒收比读错好。
  */
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2;
 
 export interface BackupFile {
   version: number;
@@ -58,6 +59,7 @@ export interface BackupFile {
   categories: unknown[];
   shelves: unknown[];
   settings: Record<string, string>;
+  tagNamesById?: Record<string, string>;
 }
 
 /** 备份里那一份阅读状态。抽成具名类型，`sanitizeReading` 要用 */
@@ -97,6 +99,7 @@ export interface BackupBook {
    */
   chapterCountOverride?: number | null;
   categoryName: string | null;
+  categoryPath?: string[];
   tags: string[];
   /**
    * 手动加入的智能书架名（`shelf_member`，迁移 27）。**按名存不按 id**——
@@ -104,6 +107,7 @@ export interface BackupBook {
    * 纯新增字段，旧备份没有就 `?? []`，不升 BACKUP_VERSION。
    */
   shelves?: string[];
+  cleanRules?: Array<{ name: string; pattern: string; replacement: string; enabled: number; flags: string | null; whole: number; sort_order: number }>;
   /** 认回本地文件靠这两样：hash 优先，路径次之 */
   files: Array<{ path: string; contentHash: string | null; isPrimary: boolean; encoding: string | null }>;
   reading: BackupReading | null;
@@ -234,6 +238,28 @@ function tableExists(db: DatabaseSync, name: string): boolean {
   ).n > 0;
 }
 
+function categoryPath(db: DatabaseSync, id: number | null): string[] {
+  const names: string[] = [];
+  const seen = new Set<number>();
+  while (id !== null && !seen.has(id)) {
+    seen.add(id);
+    const row = db.prepare('select name,parent_id from category where id=?').get(id) as { name: string; parent_id: number | null } | undefined;
+    if (!row) break;
+    names.unshift(row.name);
+    id = row.parent_id;
+  }
+  return names;
+}
+
+function restoreCategory(db: DatabaseSync, names: string[]): number | null {
+  let parent: number | null = null;
+  for (const name of names) {
+    const existing = db.prepare('select id from category where name=? and parent_id is ?').get(name, parent) as { id: number } | undefined;
+    parent = existing?.id ?? Number(db.prepare('insert into category(name,parent_id) values(?,?)').run(name, parent).lastInsertRowid);
+  }
+  return parent;
+}
+
 export function exportBackup(db: DatabaseSync): BackupFile {
   const books = db
     .prepare(
@@ -275,6 +301,7 @@ export function exportBackup(db: DatabaseSync): BackupFile {
       note: (b.note as string | null) ?? null,
       chapterCountOverride: (b.chapter_count_override as number | null) ?? null,
       categoryName: (b.categoryName as string | null) ?? null,
+      categoryPath: categoryPath(db, (b.category_id as number | null) ?? null),
       tags: (
         db
           .prepare('select t.name from book_tag bt join tag t on t.id = bt.tag_id where bt.book_id = ?')
@@ -287,6 +314,7 @@ export function exportBackup(db: DatabaseSync): BackupFile {
           )
           .all(id) as unknown as Array<{ name: string }>
       ).map((s) => s.name),
+      cleanRules: db.prepare("select name,pattern,replacement,enabled,flags,whole,sort_order from clean_rule where scope='book' and book_id=? order by sort_order,id").all(id) as unknown as BackupBook['cleanRules'],
       files: files.map((f) => ({ ...f, isPrimary: f.isPrimary === 1 })),
       reading: r ?? null,
       bookmarks: db
@@ -348,14 +376,16 @@ export function exportBackup(db: DatabaseSync): BackupFile {
     version: BACKUP_VERSION,
     createdAt: new Date().toISOString(),
     books: out,
-    cleanRules: db.prepare('select name, pattern, replacement, enabled, scope from clean_rule').all(),
-    categories: db.prepare('select name, sort_order from category order by id').all(),
+    cleanRules: db.prepare("select name, pattern, replacement, enabled, scope, flags,whole,sort_order from clean_rule where scope='global'").all(),
+    tagNamesById: Object.fromEntries((db.prepare('select id,name from tag').all() as Array<{id:number;name:string}>).map(t => [String(t.id),t.name])),
+    categories: (db.prepare('select id,name,sort_order from category order by id').all() as Array<{id:number;name:string;sort_order:number}>).map(c => ({id:c.id,name:c.name,sort_order:c.sort_order,path:categoryPath(db,c.id)})),
     shelves: db.prepare('select name, filter_json from smart_shelf order by id').all(),
     settings,
   };
 }
 
 export interface RestoreReport {
+  warnings?: string[];
   matched: number;
   /**
    * **备份里有多少个字段是不合法的、被收拾掉了。**
@@ -554,6 +584,15 @@ function restoreUserData(
 ): void {
   // 建标签取 id 只有 `library.ts` 的 `tagIdFor` 那一份，别在这儿再写两句 SQL
   const idOf = tagIdFor(db);
+  for (const rule of bb.cleanRules ?? []) {
+    const existing = db.prepare("select id from clean_rule where scope='book' and book_id=? and name=? and pattern=?")
+      .get(bookId, rule.name, rule.pattern);
+    if (existing) continue;
+    db.prepare(`insert into clean_rule(name,pattern,replacement,enabled,scope,book_id,flags,whole,sort_order)
+      values(?,?,?,?,'book',?,?,?,?)`)
+      .run(rule.name, rule.pattern, rule.replacement, rule.enabled, bookId,
+        rule.flags ?? null, rule.whole ?? 0, rule.sort_order ?? 0);
+  }
   if (bb.reading) {
     const r = sanitizeReading(bb.reading, (n) => { report.fixed += n; });
     // 「回来了几条书评」按**有内容**算：一本没打分也没写短评的书，
@@ -734,15 +773,38 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
 
   db.exec('begin');
   try {
+    const categoriesBefore = (db.prepare('select count(*) n from category').get() as {n:number}).n;
     /*
      * 智能书架（规则）必须在逐书循环**之前**就位：逐书恢复手动成员时要按名
      * 拿 shelf id。若成员先用 '{}' 把书架建出来，下面的按名去重会把真规则
      * 跳过去——老备份只在顶层带书架、新备份才在书里带成员，顺序不能反。
      */
     for (const s of (backup.shelves ?? []) as Array<{ name: string; filter_json: string }>) {
+      const filter = JSON.parse(s.filter_json);
+      if (filter.tagIds?.some((id: number) => !backup.tagNamesById?.[String(id)])) {
+        (report.warnings ??= []).push(`分类「${s.name}」缺少旧标签名称，规则未恢复，请手动核对`);
+        continue;
+      }
+      if (filter.tagIds?.length) {
+        filter.tagIds = filter.tagIds.map((id: number) => {
+          const name = backup.tagNamesById?.[String(id)];
+          const tag = idOf(name!);
+          if (tag.made) report.createdTags++;
+          return tag.id;
+        });
+      }
+      if (filter.categoryId !== undefined && filter.categoryId !== null) {
+        const category = ((backup.categories ?? []) as Array<{id?:number;name:string;path?:string[]}>)
+          .find(c => c.id === filter.categoryId);
+        if (!category) {
+          (report.warnings ??= []).push(`分类「${s.name}」缺少旧分类名称，规则未恢复，请手动核对`);
+          continue;
+        }
+        filter.categoryId = restoreCategory(db, category.path ?? [category.name]);
+      }
       const dup = db.prepare('select id from smart_shelf where name = ?').get(s.name);
       if (!dup) {
-        db.prepare('insert into smart_shelf(name, filter_json) values(?, ?)').run(s.name, s.filter_json);
+        db.prepare('insert into smart_shelf(name, filter_json) values(?, ?)').run(s.name, JSON.stringify(filter));
       }
     }
 
@@ -826,11 +888,8 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
       );
 
       if (bb.categoryName) {
-        db.prepare('insert or ignore into category(name) values(?)').run(bb.categoryName);
-        const cat = db.prepare('select id from category where name = ? limit 1').get(bb.categoryName) as
-          | { id: number }
-          | undefined;
-        if (cat) db.prepare('update book set category_id = ? where id = ?').run(cat.id, bookId);
+        const category = restoreCategory(db, bb.categoryPath ?? [bb.categoryName]);
+        db.prepare('update book set category_id = ? where id = ?').run(category, bookId);
       }
 
       /*
@@ -935,11 +994,9 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
       report.matched++;
     }
 
-    for (const c of (backup.categories ?? []) as Array<{ name: string }>) {
-      const before = db.prepare('select count(*) n from category').get() as { n: number };
-      db.prepare('insert or ignore into category(name) values(?)').run(c.name);
-      const after = db.prepare('select count(*) n from category').get() as { n: number };
-      if (after.n > before.n) report.createdCategories++;
+    for (const c of (backup.categories ?? []) as Array<{ name: string; path?: string[]; sort_order?: number }>) {
+      const category = restoreCategory(db, c.path ?? [c.name]);
+      db.prepare('update category set sort_order=? where id=?').run(c.sort_order ?? 0, category);
     }
 
     for (const r of (backup.cleanRules ?? []) as Array<{
@@ -948,12 +1005,17 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
       replacement: string;
       enabled: number;
       scope: string;
+      flags?: string; whole?: number; sort_order?: number;
     }>) {
-      const dup = db.prepare('select id from clean_rule where name = ? and pattern = ?').get(r.name, r.pattern);
+      if (r.scope === 'book') {
+        (report.warnings ??= []).push(`净化规则「${r.name}」缺少原书归属，请手动核对`);
+        continue;
+      }
+      const dup = db.prepare("select id from clean_rule where scope = 'global' and name = ? and pattern = ?").get(r.name, r.pattern);
       if (!dup) {
         db.prepare(
-          'insert into clean_rule(name, pattern, replacement, enabled, scope) values(?,?,?,?,?)',
-        ).run(r.name, r.pattern, r.replacement, r.enabled, r.scope);
+          'insert into clean_rule(name, pattern, replacement, enabled, scope,flags,whole,sort_order) values(?,?,?,?,?,?,?,?)',
+        ).run(r.name, r.pattern, r.replacement, r.enabled, r.scope,r.flags ?? null,r.whole ?? 0,r.sort_order ?? 0);
       }
     }
 
@@ -963,6 +1025,7 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
       ).run(k, v);
     }
 
+    report.createdCategories = (db.prepare('select count(*) n from category').get() as {n:number}).n - categoriesBefore;
     db.exec('commit');
   } catch (e) {
     db.exec('rollback');
@@ -986,6 +1049,13 @@ export function linkManually(db: DatabaseSync, backupBook: BackupBook, bookId: n
     restored: { reviews: 0, bookmarks: 0, highlights: 0, sessions: 0 },
     overwrote: 0, createdBooks: 0,
   };
-  restoreUserData(db, bookId, backupBook, report);
+  db.exec('begin');
+  try {
+    restoreUserData(db, bookId, backupBook, report);
+    db.exec('commit');
+  } catch (error) {
+    db.exec('rollback');
+    throw error;
+  }
   return { restored: report.restored, overwrote: report.overwrote };
 }

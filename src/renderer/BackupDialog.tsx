@@ -286,6 +286,7 @@ export function BackupDialog({ onClose }: { onClose: (changed: boolean) => void 
         {msg && <p style={{ color: 'var(--accent)' }}>{msg}</p>}
         {error && <p className="danger">{error}</p>}
 
+        {restore?.warnings?.map((warning, i) => <p className="danger" key={i}>{warning}</p>)}
         {restore && restore.unmatched.length > 0 && (
           <div className="card" style={{ marginTop: '.6rem' }}>
             <strong className="danger">有 {restore.unmatched.length} 本没能认回本地文件</strong>

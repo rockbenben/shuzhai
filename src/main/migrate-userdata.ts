@@ -5,7 +5,7 @@
 // 用户看到的是「书库消失」，里面还有阅读进度和书签（铁律 3，重扫恢复不了）。
 
 import { existsSync, renameSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, isAbsolute, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 /** 只搬这些。Cache / GPUCache / Local Storage 那些是 Chromium 的，重建就行，搬过去反而可能带上坏状态 */
@@ -58,6 +58,35 @@ export function migrateUserData(oldDir: string, newDir: string): { moved: string
   };
 
   for (const d of DIRS) move(d);
+
+  const library = new DatabaseSync(join(oldDir, 'library.db'));
+  try {
+    const columns = library.prepare('pragma table_info(book)').all() as Array<{name:string}>;
+    if (columns.some(column => column.name === 'cover_path')) {
+      const rows = library.prepare('select id,cover_path from book where cover_path is not null').all() as Array<{id:number;cover_path:string}>;
+      library.exec('begin');
+      try {
+        for (const row of rows) {
+          const local = relative(join(oldDir,'covers'),row.cover_path);
+          if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) continue;
+          const target = join(newDir,'covers',local);
+          // 目录未搬动时旧图仍在，目标同名文件可能是别人的；继续引用原图。
+          if (!existsSync(row.cover_path) && existsSync(target)) library.prepare('update book set cover_path=? where id=?').run(target,row.id);
+        }
+        if (library.prepare("select 1 from sqlite_master where type='table' and name='app_setting'").get()) {
+          const saved=library.prepare("select value from app_setting where key='backup.dir'").get() as {value:string}|undefined;
+          if (saved) {
+            const local=relative(join(oldDir,'backups'),saved.value);
+            const target=join(newDir,'backups',local);
+            if (local!=='..' && !local.startsWith(`..${sep}`) && !isAbsolute(local) && !existsSync(saved.value) && existsSync(target)) {
+              library.prepare("update app_setting set value=? where key='backup.dir'").run(target);
+            }
+          }
+        }
+        library.exec('commit');
+      } catch (error) { library.exec('rollback'); throw error; }
+    }
+  } finally { library.close(); }
 
   // 先把 WAL 合进主库，再只搬主库。见上面 checkpoint 的注释：
   // 三个文件一起搬丢过尾部两条已提交的事务

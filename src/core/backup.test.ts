@@ -8,7 +8,7 @@ import { openDb } from './db.ts';
 import { scanRoot } from './scan.ts';
 import { exportBackup, importBackup, linkManually, BACKUP_VERSION } from './backup.ts';
 import { setStatus, addBookmark, listBookmarks } from './status.ts';
-import { tagBooks } from './library.ts';
+import { tagBooks, saveShelf, listShelves, listBooks } from './library.ts';
 import { addManualBook } from './manual.ts';
 import { addHighlight, tagHighlights, tagsOfHighlights } from './highlight.ts';
 import { setBookConvertMode, bookConvertMode } from './convert.ts';
@@ -18,6 +18,83 @@ let dir: string;
 let lib: string;
 let db: DatabaseSync;
 let rootId: number;
+
+test('跨库恢复重映射分类规则，不能套用目标库的同号 ID', () => {
+  const book = addManualBook(db, '来源书').id;
+  const category = Number(db.prepare("insert into category(name) values('来源分类')").run().lastInsertRowid);
+  db.prepare('update book set category_id=? where id=?').run(category, book);
+  tagBooks(db, [book], ['来源标签']);
+  const tag = (db.prepare("select id from tag where name='来源标签'").get() as {id:number}).id;
+  saveShelf(db, '来源规则', { categoryId: category, tagIds:[tag] });
+  const archive = exportBackup(db);
+  const target = openDb(join(dir, 'cross-category.db'));
+  try {
+    const other = addManualBook(target, '目标库原书').id;
+    const wrong = Number(target.prepare("insert into category(name) values('目标分类')").run().lastInsertRowid);
+    target.prepare('update book set category_id=? where id=?').run(wrong,other);
+    tagBooks(target,[other],['目标标签']);
+    saveShelf(target,'目标原分类',{});
+    const report=importBackup(target,archive);
+    assert.equal(report.createdTags,1);
+    assert.equal(report.createdCategories,1);
+    const outer = listShelves(target).find(s=>s.name==='来源规则')!;
+    assert.deepEqual((listBooks(target,{shelf:{id:outer.id,rule:outer.filter}}) as Array<{title:string}>).map(b=>b.title),['来源书']);
+    assert.equal(importBackup(target,archive).createdBooks,0);
+  } finally { target.close(); }
+});
+
+test('同名同模式的本书净化规则不能挡住全局规则恢复', () => {
+  const book = addManualBook(db,'夹具').id;
+  db.prepare("insert into clean_rule(name,pattern,replacement,scope,book_id) values('共同规则','ads','local','book',?)").run(book);
+  db.prepare("insert into clean_rule(name,pattern,replacement,scope) values('共同规则','ads','global','global')").run();
+  const target = openDb(join(dir,'scope.db'));
+  try {
+    importBackup(target,exportBackup(db));
+    assert.deepEqual(target.prepare("select scope,replacement from clean_rule where name='共同规则' order by scope").all().map(r=>[r.scope,r.replacement]),[['book','local'],['global','global']]);
+  } finally { target.close(); }
+});
+
+test('跨库恢复映射标签规则及本书净化归属', () => {
+  const a = addManualBook(db, 'Alpha').id;
+  tagBooks(db, [a], ['target']);
+  const tag = (db.prepare("select id from tag where name='target'").get() as {id:number}).id;
+  db.prepare('insert into smart_shelf(name,filter_json) values(?,?)').run('selected', JSON.stringify({tagIds:[tag]}));
+  db.prepare("insert into clean_rule(name,pattern,scope,book_id,flags,whole,sort_order) values('mine','x','book',?,'i',1,7)").run(a);
+  const archive = exportBackup(db);
+  const target = openDb(':memory:');
+  try {
+    const other = addManualBook(target, 'Other').id;
+    tagBooks(target, [other], ['other']);
+    importBackup(target, archive);
+    const filter = JSON.parse((target.prepare("select filter_json from smart_shelf where name='selected'").get() as {filter_json:string}).filter_json);
+    const mapped = (target.prepare("select id from tag where name='target'").get() as {id:number}).id;
+    assert.deepEqual(filter.tagIds, [mapped]);
+    const rule = target.prepare("select book_id,flags,whole,sort_order from clean_rule where name='mine'").get() as {book_id:number;flags:string;whole:number;sort_order:number};
+    assert.equal(rule.book_id, (target.prepare("select id from book where title='Alpha'").get() as {id:number}).id);
+    assert.equal(rule.flags,'i'); assert.equal(rule.whole,1); assert.equal(rule.sort_order,7);
+  } finally { target.close(); }
+});
+
+test('旧备份缺少映射时报告规则待核对，分类层级重复恢复不增殖', () => {
+  addManualBook(db,'fixture');
+  const parent = Number(db.prepare("insert into category(name) values('parent')").run().lastInsertRowid);
+  db.prepare("insert into category(name,parent_id,sort_order) values('child',?,7)").run(parent);
+  const backup = exportBackup(db);
+  const dest = openDb(':memory:');
+  try {
+    importBackup(dest,backup);
+    importBackup(dest,backup);
+    assert.equal((dest.prepare('select count(*) n from category').get() as {n:number}).n,2);
+    assert.ok((dest.prepare("select parent_id from category where name='child'").get() as {parent_id:number}).parent_id);
+    assert.equal((dest.prepare("select sort_order from category where name='child'").get() as {sort_order:number}).sort_order,7);
+    backup.version=1;
+    backup.shelves=[{name:'legacy',filter_json:JSON.stringify({tagIds:[123]})}];
+    delete backup.tagNamesById;
+    const report=importBackup(dest,backup);
+    assert.equal(report.warnings?.length,1);
+    assert.equal(dest.prepare("select id from smart_shelf where name='legacy'").get(),undefined);
+  } finally {dest.close();}
+});
 
 const filler = Array.from({ length: 500 }, () => '寻常的一行正文。').join('\n');
 const body = ['第一章 起', '第二章 承'].map((t) => `${t}\n${filler}\n`).join('');

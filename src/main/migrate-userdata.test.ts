@@ -9,10 +9,52 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { migrateUserData, leftovers } from './migrate-userdata.ts';
+import { openDb } from '../core/db.ts';
+import { setCover, coverDataUrl } from '../core/cover.ts';
 
 let root: string;
 let 旧: string;
 let 新: string;
+
+test('迁移后封面路径仍能实际读取', async () => {
+  const db = openDb(join(旧,'library.db'));
+  db.exec("insert into book(title) values('fixture')");
+  const image = join(root,'cover.png');
+  writeFileSync(image,'fixture image');
+  await setCover(db,旧,1,image);
+  db.close();
+  migrateUserData(旧,新);
+  const restored = openDb(join(新,'library.db'));
+  try { assert.ok(await coverDataUrl(restored,1)); } finally { restored.close(); }
+});
+
+test('目标封面目录已有同名异文时，不能把旧封面指向别人的图片', async () => {
+  const oldCover=join(旧,'covers','same.png'), newCover=join(新,'covers','same.png');
+  mkdirSync(join(旧,'covers'),{recursive:true});mkdirSync(join(新,'covers'),{recursive:true});
+  writeFileSync(oldCover,'original cover');writeFileSync(newCover,'unrelated cover');
+  const db=openDb(join(旧,'library.db'));
+  db.prepare('insert into book(title,cover_path) values(?,?)').run('夹具',oldCover);db.close();
+  migrateUserData(旧,新);
+  const moved=openDb(join(新,'library.db'));
+  try {
+    const url=await coverDataUrl(moved,1);
+    assert.ok(url?.endsWith(Buffer.from('original cover').toString('base64')));
+    assert.equal(readFileSync(newCover,'utf8'),'unrelated cover');
+  } finally {moved.close();}
+});
+
+for (const owned of [true,false]) test(`迁移备份目录：${owned?'自带目录随迁移更新':'外部自选目录保持原样'}`, () => {
+  const db=openDb(join(旧,'library.db'));
+  mkdirSync(join(旧,'backups'),{recursive:true});
+  const selected=owned?join(旧,'backups'):join(root,'outside-backups');
+  mkdirSync(selected,{recursive:true});
+  db.prepare('insert into app_setting(key,value) values(?,?)').run('backup.dir',selected);
+  db.close();
+  migrateUserData(旧,新);
+  const moved=openDb(join(新,'library.db'));
+  try {assert.equal(moved.prepare("select value from app_setting where key='backup.dir'").get()!.value,owned?join(新,'backups'):selected);}
+  finally {moved.close();}
+});
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'shuzhai-migrate-'));
