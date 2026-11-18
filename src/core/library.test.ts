@@ -1105,7 +1105,7 @@ test('列表里带上进度——点书要接着上次读的地方开', () => {
 });
 
 // ── 个人评价体系 ──────────────────────────────────────────
-// 设计见 docs/superpowers/specs/2026-08-14-personal-reviews-design.md
+// 设计见 docs/lessons.md「个人评价体系」一节
 
 test('迁移 16 给 reading_state 加上了 rated_at', () => {
   const cols = (db.prepare('pragma table_info(reading_state)').all() as Array<{ name: string }>)

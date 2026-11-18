@@ -1,4 +1,4 @@
-// 封面抓取的队列部分（设计：docs/superpowers/specs/2026-08-13-covers-and-notes-design.md）。
+// 封面抓取的队列部分（设计：见 docs/lessons.md「封面抓取三条不能松」一节）。
 //
 // 站点解析（候选提取、匹配、探针、校验源）已经搬到 `site-adapters.ts`——
 // 封面链和更新检查共用同一份规则，不再各抄一份。

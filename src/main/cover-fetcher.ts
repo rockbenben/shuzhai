@@ -1,5 +1,5 @@
 // 封面抓取的 Electron 侧：隐藏窗口 + 后台循环。
-// 设计：docs/superpowers/specs/2026-08-13-covers-and-notes-design.md
+// 设计：封面抓取的判据与实测见 docs/lessons.md「封面抓取三条不能松」一节。
 //
 // **能放 core 的一行都不要写在这里**——这个文件测不了（BrowserWindow 起不来
 // 于 node:test），提取/匹配/校验/队列全在 cover-source.ts，这里只做三件事：

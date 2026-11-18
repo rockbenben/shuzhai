@@ -1145,7 +1145,7 @@ export interface ShelfCounts {
  * 筛选结果的 id 列表。**只要 id，一列都不多取。**
  *
  * 起因：批量改名原来是 `book.list({ limit: matched })` 拉回整个筛选结果，
- * 然后 `.map(b => b.id)` 把其余的全扔掉——而 `listBooks` 一行选 19 个列
+ * 然后 `.map(b => b.id)` 把其余的全扔掉——而 `listBooks` 一行选一长串列
  * （含 comment / chapter_title / path）。在真实库上点「全部」就是把 8172 本
  * 整个序列化过一趟 IPC，只为拿 8172 个数字（本文件量过：3000 本约 1.3 MB JSON）。
  *

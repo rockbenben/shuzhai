@@ -2199,7 +2199,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
   const 键表 = useRef(loadKeys());
   /*
    * 提示里那个键名**必须从键表来**，不能写死。`Reader.tsx` 当年修过一轮
-   * （见它 1396 行那段：原来写着「（T）」「（←）」「（B）」，恰好等于默认绑定，
+   * （见 `Reader.tsx` 里「原来是写死的（T）」那段：原来写着「（T）」「（←）」「（B）」，恰好等于默认绑定，
    * 所以怎么测都是对的），**这一侧和两侧的「自动滚」都漏了**。
    *
    * ⚠️ `exit` 不在这里：Esc 是硬编码的「收最上面那一层」，不走 `actionFor`

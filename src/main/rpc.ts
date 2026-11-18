@@ -823,7 +823,7 @@ export function createRpc(
      * 只读。筛选结果的 id 列表，**一列都不多取**。
      *
      * 批量改名要先出预览（spec §3.3），所以它必须把 id 拿回渲染进程——
-     * 但只需要 id。原来走 `book.list` 是把 19 个列 × 整个结果集都传回去，
+     * 但只需要 id。原来走 `book.list` 是把一长串列 × 整个结果集都传回去，
      * 8172 本时约 1.3 MB JSON，拿完扔掉其余全部。
      */
     'book.idsByFilter': (params) => bookIdsByFilter(

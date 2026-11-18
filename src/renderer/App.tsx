@@ -571,8 +571,8 @@ export function App() {
   /*
    * 弹窗的键盘可达性：焦点进得去、跑不出来、关掉能回原处。
    *
-   * **挂一次管全部 18 个弹窗**——它们共用同一套 `.modal-backdrop` > `.modal` 标记，
-   * 所以不用去改那十八个文件（那就是抄十八份）。实现和为什么见 `modal-a11y.ts`。
+   * **挂一次管全部弹窗**——它们共用同一套 `.modal-backdrop` > `.modal` 标记，
+   * 所以不用去改每个弹窗文件（那就是每处抄一份）。实现和为什么见 `modal-a11y.ts`。
    */
   useEffect(() => installModalA11y(), []);
 
@@ -1970,7 +1970,7 @@ export function App() {
             */}
           <button
             onClick={() => void (async () => {
-              // **只要 id，别走 `book.list`。** 那个一行选 19 个列，
+              // **只要 id，别走 `book.list`。** 那个一行选一长串列，
               // 8172 本时是把整个书库序列化过一趟 IPC 只为拿一串数字。
               // 另外两个批量压根不回传书；改名要出预览，所以退一步：回传的缩到只剩 id
               setRenaming(await rpc<number[]>('book.idsByFilter', { filter }));

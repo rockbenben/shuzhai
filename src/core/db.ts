@@ -332,7 +332,7 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
       );
     `),
 
-  // 15：封面抓取的记账（设计见 docs/superpowers/specs/2026-08-13-covers-and-notes-design.md）。
+  // 15：封面抓取的记账（设计：见 docs/lessons.md「封面抓取三条不能松」一节）。
   //
   // 这张表**是可再生的**——删了重抓一遍就有，不受铁律 3 约束。
   // 它存在的意义是断点：8000 本要跑几小时，中间必然关应用；
@@ -347,8 +347,7 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
         tried_at text not null default (datetime('now'))
       );
     `),
-  // 16：评价时间（个人评价体系，设计见
-  // docs/superpowers/specs/2026-08-14-personal-reviews-design.md）。
+  // 16：评价时间（个人评价体系；判据与实测见 docs/lessons.md「个人评价体系」一节）。
   //
   // 书评集最自然的浏览顺序是「最近写的」，而 `last_read_at` 对「读过但没在这个应用里
   // 读」的书是空的——那恰好是这个功能的主要场景（碰到「咦这本好像读过」顺手标）。
