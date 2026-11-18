@@ -116,7 +116,7 @@ test('书旗提取：书名剥高亮、作者去掉「作者：」、封面和�
 
 test('书旗提取：只收精确匹配块，下面的相关结果一个都不收', () => {
   const parse = shuqiAdapter.parseCandidates!;
-  // 相关结果是模糊推荐（搜《人间冰器》给的是《人间有剑》）。收进来最好的情况是
+  // 相关结果是模糊推荐（搜一本给的是名字相近的另一本）。收进来最好的情况是
   // 白跑一遍 isExactMatch，最坏的情况是书名作者恰好都撞上 —— 那就配错封面了
   const c = parse(SHUQI_FIXTURE);
   assert.ok(!c.some((x) => x.title.includes('无上之境')), '相关结果不能混进来');
@@ -148,7 +148,7 @@ test('探针：搜到那本已知一定在的书才算站点是好的', () => {
 });
 
 test('探针：模糊相关不算数，必须精确书名', () => {
-  // 起点搜不到的时候会给一堆「相关作品」。《武炼巅峰之xxx》说明的恰恰是
+  // 起点搜不到的时候会给一堆「相关作品」。「书名之xxx」这种近似条目说明的恰恰是
   // 那本书没搜着，不能拿它证明站点是好的
   assert.equal(probeSaysHealthy(QIDIAN_FIXTURE.replace('武炼<cite class="red-kw">巅峰</cite>', '武炼巅峰之无上剑域')), false);
 });
@@ -212,7 +212,7 @@ test('豆瓣提取：嵌套花括号的处理', () => {
 const cand = (title: string, author: string | null): Candidate =>
   ({ title, author, site: 'qidian' }) as Candidate;
 
-test('别名匹配：《国产英雄(我的邻居是女妖)》括号内外都算数', () => {
+test('别名匹配：书名带括号别名时，括号内外都算数', () => {
   // 库里 171 本书名带括号别名，跟任何站点都不会整串相等——拆开试
   const local = { title: '国产英雄(我的邻居是女妖)', author: '某人' };
   assert.ok(matchWithAliases(local, [cand('国产英雄', '某人')]));
@@ -230,7 +230,7 @@ test('没作者直接不匹配——只靠书名认太容易张冠李戴', () =>
 });
 
 test('多个候选里挑出精确匹配的那个，不是首条', () => {
-  // 实测：搜「官仙」首条是《重置世界：从女儿被夺舍开始》——首条几乎总是错书
+  // 实测：搜一本冷门书，首条是另一本不相干的书——首条几乎总是错书
   const local = { title: '武炼巅峰', author: '莫默' };
   const hit = matchWithAliases(local, [
     cand('武炼至尊', '冶山熊'),
@@ -246,7 +246,7 @@ test('纵横适配器 coverSearch 为 false——不进封面链', () => {
   assert.equal(zonghengAdapter.parseCandidates, undefined);
 });
 
-test('HEALTH_PROBE 仍指向《武炼巅峰》', () => {
+test('HEALTH_PROBE 仍指向起点那本头部作品', () => {
   assert.equal(HEALTH_PROBE.title, '武炼巅峰');
   assert.equal(HEALTH_PROBE.author, '莫默');
 });
@@ -313,7 +313,7 @@ test('纵横：搜索 JSON 里精确匹配后取状态和最新章，模糊相�
 // ── 起点 连载状态 + 最新章 ─────────────────────────────────────────────
 //
 // fixture 从真页面裁最小片段（tmpcheck/probe-out-qidian-search.html / ongoing.html）
-// 完结书：武炼巅峰 bid=2494758；连载书：奥特曼：继承遗愿，融合万界光芒 bid=1048358950
+// 完结书样本 bid=2494758；连载书样本 bid=1048358950
 
 const QIDIAN_FINISHED_LI = `<li class="res-book-item jsAutoReport" data-bid="2494758" data-rid="1">
   <div class="book-mid-info">
@@ -368,7 +368,7 @@ test('起点 parseLatest：连载书最新章「第345章 越说越来劲」+ se
 });
 
 test('起点 parseLatest：data-bid 匹配 vs 书名匹配——bid 优先', () => {
-  // bid 指向第二本（年代1982），书名是第一本（武炼巅峰）
+  // bid 指向第二本，书名指向第一本——两本不是同一本
   const book = { title: '武炼巅峰', author: '莫默', url: 'https://www.qidian.com/book/1044574502/' };
   const r = qidianAdapter.parseLatest!(QIDIAN_SEARCH_FIXTURE, book);
   // bid 命中那本，章名是「请假条」不是「真人短剧…」
@@ -398,7 +398,7 @@ test('起点 latestRequest：返回搜索页 URL，needsBrowser true', () => {
 });
 
 test('起点 title 带「在线阅读」后缀也能匹配上（title 属性 vs 锚文本两种形态）', () => {
-  // 搜索结果里 title 属性是「武炼巅峰在线阅读」，锚文本剥标签后是「武炼巅峰」
+  // 搜索结果里 title 属性带「在线阅读」后缀，锚文本剥标签后是纯书名
   // parseSerial / parseLatest 两种都得认
   assert.equal(qidianAdapter.parseSerial!(QIDIAN_SEARCH_FIXTURE, '武炼巅峰'), 'finished');
   // 书名号/空格变体也要认（normalizeForMatch 已经处理）
@@ -510,10 +510,10 @@ test('serialFromHtml：适配器认得出才认，豆瓣恒认不出，**而且�
 // 起点：别名书名匹配（parseSerial / parseLatest 两条路径都要认）
 
 test('起点 parseSerial：带括号别名的书名也能命中', () => {
-  // 页面上是《武炼巅峰》，本地是《武炼巅峰（正传）》——别名要对上
+  // 页面上是纯书名，本地书名带了括号别名——别名要对上
   assert.equal(qidianAdapter.parseSerial!(QIDIAN_SEARCH_FIXTURE, '武炼巅峰（正传）'), 'finished');
   assert.equal(qidianAdapter.parseSerial!(QIDIAN_SEARCH_FIXTURE, '武炼巅峰(正传)'), 'finished');
-  // 反过来：本地产《武炼巅峰》，页面上只有别名 → 不会命中（因为 match 是 local→candidate 单向的）
+  // 反过来：本地是纯书名，页面上只有别名 → 不会命中（因为 match 是 local→candidate 单向的）
   // 这条是预期行为：titleVariants 拆的是本地书名的括号，不是候选的
 });
 
@@ -526,7 +526,7 @@ test('起点 parseLatest：书名兜底匹配也认别名', () => {
 });
 
 test('纵横：书名/作者/章名里的 font 高亮标签必须剥掉再匹配和存库', () => {
-  // 实测《剑来》的命中书名就是 <font color="RED">剑来</font>
+  // 实测命中的书名就是 <font color="RED">书名</font> 这种带高亮标签的
   // ——匹配前和取章名前都要剥标签（探针实测结论 纵横节）
   const body = JSON.stringify({ code: 0, data: { datas: { list: [
     {

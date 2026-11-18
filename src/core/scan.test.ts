@@ -87,19 +87,19 @@ test('副文件加章不搬主文件进度，重新登记根目录能认回原�
 });
 
 test('从文件名解析书名作者', () => {
-  assert.deepEqual(parseFilename('《雪中悍刀行》烽火戏诸侯.txt'), {
-    title: '雪中悍刀行',
-    author: '烽火戏诸侯',
+  assert.deepEqual(parseFilename('《示例书甲乙》示例某人甲.txt'), {
+    title: '示例书甲乙',
+    author: '示例某人甲',
   });
-  assert.deepEqual(parseFilename('【爱潜水的乌贼】诡秘之主.txt'), {
-    title: '诡秘之主',
-    author: '爱潜水的乌贼',
+  assert.deepEqual(parseFilename('【示例某人白】示例书白.txt'), {
+    title: '示例书白',
+    author: '示例某人白',
   });
-  assert.deepEqual(parseFilename('斗破苍穹-天蚕土豆.txt'), {
-    title: '斗破苍穹',
-    author: '天蚕土豆',
+  assert.deepEqual(parseFilename('示例书甲-示例某人乙.txt'), {
+    title: '示例书甲',
+    author: '示例某人乙',
   });
-  assert.deepEqual(parseFilename('《庆余年》(完本).txt'), { title: '庆余年' }, '噪音标记要去掉');
+  assert.deepEqual(parseFilename('《示例书乙》(完本).txt'), { title: '示例书乙' }, '噪音标记要去掉');
   assert.deepEqual(parseFilename('没有作者信息.txt'), { title: '没有作者信息' });
 });
 
@@ -108,12 +108,12 @@ test('字数不含空白', () => {
 });
 
 test('首次扫描：建书、建文件、切章节', async () => {
-  writeBook(join(root.path, '《雪中悍刀行》烽火戏诸侯.txt'), ['第一章 起', '第二章 承', '第三章 转']);
+  writeBook(join(root.path, '《示例书甲乙》示例某人甲.txt'), ['第一章 起', '第二章 承', '第三章 转']);
   const r = await scanRoot(db, root);
 
   assert.equal(r.added, 1);
   assert.equal(r.failed, 0);
-  assert.deepEqual(books(), [{ id: 1, title: '雪中悍刀行', author: '烽火戏诸侯' }]);
+  assert.deepEqual(books(), [{ id: 1, title: '示例书甲乙', author: '示例某人甲' }]);
 
   const file = db.prepare('select * from book_file').get() as Record<string, unknown>;
   assert.equal(file.chapter_count, 3);
@@ -460,39 +460,39 @@ test('进度恢复的三档优先级', () => {
 test('括号里多个噪音词连写也要去掉（真实库里 8000+ 本这个格式）', () => {
   // 一度写成「整个括号内容必须等于其中一个词」，于是 （校对版全本） 一个都没去掉，
   // 作者解析成了「（校对版全本）作者：某某」
-  assert.deepEqual(parseFilename('《一世兵王》（校对版全本）作者：我本疯狂.txt'), {
-    title: '一世兵王',
-    author: '我本疯狂',
+  assert.deepEqual(parseFilename('《示例书丙》（校对版全本）作者：示例某人丁.txt'), {
+    title: '示例书丙',
+    author: '示例某人丁',
   });
-  assert.deepEqual(parseFilename('《九天》（精校完本）作者：黑山老鬼.txt'), {
-    title: '九天',
-    author: '黑山老鬼',
+  assert.deepEqual(parseFilename('《示例书竹》（精校完本）作者：示例某人竹.txt'), {
+    title: '示例书竹',
+    author: '示例某人竹',
   });
-  assert.deepEqual(parseFilename('《万历1592》（全本已完结）作者：御炎.txt'), {
-    title: '万历1592',
-    author: '御炎',
+  assert.deepEqual(parseFilename('《示例书丁》（全本已完结）作者：示例某人戊.txt'), {
+    title: '示例书丁',
+    author: '示例某人戊',
   });
 });
 
 test('「作者：」前缀要剥掉', () => {
-  assert.deepEqual(parseFilename('斗破苍穹 作者：天蚕土豆.txt'), {
-    title: '斗破苍穹',
-    author: '天蚕土豆',
+  assert.deepEqual(parseFilename('示例书甲 作者：示例某人乙.txt'), {
+    title: '示例书甲',
+    author: '示例某人乙',
   });
-  assert.deepEqual(parseFilename('雪中悍刀行-作者:烽火戏诸侯.txt'), {
-    title: '雪中悍刀行',
-    author: '烽火戏诸侯',
+  assert.deepEqual(parseFilename('示例书甲乙-作者:示例某人甲.txt'), {
+    title: '示例书甲乙',
+    author: '示例某人甲',
   });
 });
 
 test('没有作者信息的仍然只给书名', () => {
-  assert.deepEqual(parseFilename('《庆余年》（校对版全本）.txt'), { title: '庆余年' });
+  assert.deepEqual(parseFilename('《示例书乙》（校对版全本）.txt'), { title: '示例书乙' });
 });
 
 test('括号噪音的判据是「整段由噪音词元拼成」，不是「含有某个词」', () => {
   // 这张词元表是从真实库的 8173 个文件名统计出来的，93 种括号内容
   for (const [name, want] of [
-    ['《南宋第一卧底》（校对版全本+番外）作者：龙渊.txt', { title: '南宋第一卧底', author: '龙渊' }],
+    ['《示例书戊》（校对版全本+番外）作者：示例某人己.txt', { title: '示例书戊', author: '示例某人己' }],
     ['《某书》（实体版1-3全本）作者：某某.txt', { title: '某书', author: '某某' }],
     ['《某书》（精校版全本 + 番外）作者：某某.txt', { title: '某书', author: '某某' }],
     ['《某书》（实体封面全本）作者：某某.txt', { title: '某书', author: '某某' }],
@@ -510,14 +510,14 @@ test('括号里是书名的一部分时不能删——库里真有这种', () =>
 });
 
 test('带册数的实体版也认得，但单独的数字不算噪音', () => {
-  assert.deepEqual(parseFilename('《如果这是宋史》（实体版10册全本）作者：高天流云.txt'), {
-    title: '如果这是宋史', author: '高天流云',
+  assert.deepEqual(parseFilename('《示例书己》（实体版10册全本）作者：示例某人庚.txt'), {
+    title: '示例书己', author: '示例某人庚',
   });
-  assert.deepEqual(parseFilename('《封神记》（实体版三册全本）作者：黄易.txt'), {
-    title: '封神记', author: '黄易',
+  assert.deepEqual(parseFilename('《示例书庚》（实体版三册全本）作者：示例某人辛.txt'), {
+    title: '示例书庚', author: '示例某人辛',
   });
-  assert.deepEqual(parseFilename('《微微一笑很倾城》（实体版全本 +网络版番外）作者：顾漫.txt'), {
-    title: '微微一笑很倾城', author: '顾漫',
+  assert.deepEqual(parseFilename('《示例书辛》（实体版全本 +网络版番外）作者：示例某人壬.txt'), {
+    title: '示例书辛', author: '示例某人壬',
   });
 
   // 单独的数字/中文数字是分卷标记，属于标题的一部分，不能删
@@ -527,26 +527,26 @@ test('带册数的实体版也认得，但单独的数字不算噪音', () => {
 
 test('长尾变体：卷范围、外篇续集后记、以及「版」的错别字', () => {
   for (const [name, want] of [
-    ['《灵飞经》（实体版1-5卷）作者：凤歌.txt', { title: '灵飞经', author: '凤歌' }],
-    ['《龙族》（实体版1-3部全本）作者：江南.txt', { title: '龙族', author: '江南' }],
-    ['《余罪》（校对版全本+第八卷）作者：常书欣.txt', { title: '余罪', author: '常书欣' }],
-    ['《修仙狂徒》（校对版全本+外卷）作者：王小蛮.txt', { title: '修仙狂徒', author: '王小蛮' }],
-    ['《六指琴魔》（校对版全本+续集）作者：倪匡.txt', { title: '六指琴魔', author: '倪匡' }],
-    ['《重生之心动》（精校版全本+外篇）作者：初恋璀璨如夏花.txt', { title: '重生之心动', author: '初恋璀璨如夏花' }],
+    ['《示例书壬》（实体版1-5卷）作者：示例某人癸.txt', { title: '示例书壬', author: '示例某人癸' }],
+    ['《示例书癸》（实体版1-3部全本）作者：示例某人子.txt', { title: '示例书癸', author: '示例某人子' }],
+    ['《示例书子》（校对版全本+第八卷）作者：示例某人丑.txt', { title: '示例书子', author: '示例某人丑' }],
+    ['《示例书丑》（校对版全本+外卷）作者：示例某人寅.txt', { title: '示例书丑', author: '示例某人寅' }],
+    ['《示例书寅》（校对版全本+续集）作者：示例某人卯.txt', { title: '示例书寅', author: '示例某人卯' }],
+    ['《示例书卯》（精校版全本+外篇）作者：示例某人辰.txt', { title: '示例书卯', author: '示例某人辰' }],
     // 真实库里的错别字：把「版」打成了「办」「把」
-    ['《大神戒》（校对办全本）作者：兔子来了.txt', { title: '大神戒', author: '兔子来了' }],
-    ['《神兵圣手》（校对把全本）作者：林中清风.txt', { title: '神兵圣手', author: '林中清风' }],
-    ['《至尊主播》（校对版全部）作者：兔子来了.txt', { title: '至尊主播', author: '兔子来了' }],
+    ['《示例书辰》（校对办全本）作者：示例某人巳.txt', { title: '示例书辰', author: '示例某人巳' }],
+    ['《示例书巳》（校对把全本）作者：示例某人午.txt', { title: '示例书巳', author: '示例某人午' }],
+    ['《示例书午》（校对版全部）作者：示例某人巳.txt', { title: '示例书午', author: '示例某人巳' }],
   ] as const) {
     assert.deepEqual(parseFilename(name), want, name);
   }
 });
 
 test('作者名里含「作者」二字的不受影响', () => {
-  // 「新闻工作者」里有「作者」，按子串判会误报
-  assert.deepEqual(parseFilename('《魂武双修》（校对版全本）作者：新闻工作者.txt'), {
-    title: '魂武双修',
-    author: '新闻工作者',
+  // 「示例某人未」里有「作者」，按子串判会误报
+  assert.deepEqual(parseFilename('《示例书未》（校对版全本）作者：示例某人未.txt'), {
+    title: '示例书未',
+    author: '示例某人未',
   });
 });
 
@@ -576,7 +576,7 @@ test('被屏蔽的文件不算「缺失」——它只是被跳过了，文件�
 test('重新解析时，书签和划线跟着标题搬——它们和进度一样重扫恢复不了', async () => {
   // 原来只搬 `reading_state`，而 bookmark / highlight 存的是**裸的** chapter_idx
   // （`db.ts` 的表定义旁边自己就写着「重新解析后位置可能对不上」）。
-  // 一本 1949 章的书重切成 546 章之后，每条书签都指向一个毫不相干的章节。
+  // 《示例书》1949 章重切成 546 章之后，每条书签都指向一个毫不相干的章节。
   const file = join(root.path, '会长的书 作者：某人.txt');
   writeBook(file, ['第一章 起', '第二章 承', '第三章 转', '第四章 合']);
   await scanRoot(db, root);
@@ -676,7 +676,7 @@ test('重解析后章节变少：进度估算过的书要出现在扫描报告�
  * 判据和本仓库另外三处同源：**「没答上来」不等于「答了没有」**。
  */
 test('根目录整个读不到时，不许把库里的书标成「文件不见了」', async () => {
-  writeBook(join(root.path, '《剑来》烽火戏诸侯.txt'), ['第一章 惊蛰', '第二章 泥瓶巷']);
+  writeBook(join(root.path, '《示例》示例某人甲.txt'), ['第一章 惊蛰', '第二章 泥瓶巷']);
   const first = await scanRoot(db, root);
   assert.equal(first.added, 1);
 
@@ -766,17 +766,9 @@ test('老路径真的没了 → 还是要判为移动，进度不许丢', async 
   assert.equal(st.chapter_idx, 1, '移动不该动阅读进度');
 });
 
-/*
- * ⚠️ **「没变过」不等于「解析过」。**
- *
- * 扫描第 1 档是「size + mtime 都没变就连文件都不打开」。一条从没解析过的记录
- * （`parsed_at is null`）会被这一档**永远跳下去**——而它的 `status` 还是 `'ok'`，
- * 于是「需要处理」那一档也看不见它。
- *
- * 真实库里就有一本这样的：7.1 MB 的书，`chapter_count` / `parsed_at` / `encoding`
- * 全是 null，而当场试解析 **204 毫秒切出 1624 章**——文件一点问题都没有，
- * 只是那条记录从来没被喂给解析器。用户点开看到的是一本没有章节的书。
- */
+// ⚠️ 「没变过」不等于「解析过」：扫描第 1 档只看 size+mtime，从没解析过的记录
+// （`parsed_at is null`）会被永远跳过，`status` 还是 `ok`；用户点开是一本没有章节的书。
+// 真实库里的量与细节见 `scan.ts` 同段注释。
 test('从没解析过的记录，即使文件没变也要补上解析', async () => {
   const p = join(root.path, '《从没解析过的》某人.txt');
   writeBook(p, ['第一章 起', '第二章 承', '第三章 转']);

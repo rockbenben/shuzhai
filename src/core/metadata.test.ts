@@ -23,8 +23,8 @@ beforeEach(async () => {
   const rootId = Number(
     db.prepare('insert into library_root(path) values(?)').run(lib).lastInsertRowid,
   );
-  writeFileSync(join(lib, '《雪中悍刀行》烽火戏诸侯.txt'), body, 'utf8');
-  writeFileSync(join(lib, '斗破苍穹-天蚕土豆.txt'), body, 'utf8');
+  writeFileSync(join(lib, '《示例书甲乙》示例某人甲.txt'), body, 'utf8');
+  writeFileSync(join(lib, '示例书甲-示例某人乙.txt'), body, 'utf8');
   await scanRoot(db, { id: rootId, path: lib });
 });
 
@@ -72,7 +72,7 @@ test('从文件名提取：先预览，不写库', () => {
   const rows = previewExtract(db);
   const row = rows.find((r) => r.bookId === id)!;
   assert.equal(row.currentTitle, '我手填的名字');
-  assert.equal(row.title, '雪中悍刀行', '预览里给出从文件名解析的结果');
+  assert.equal(row.title, '示例书甲乙', '预览里给出从文件名解析的结果');
   assert.equal(row.changed, true);
   assert.equal(get(id).title, '我手填的名字', '预览阶段库里一个字都不能变');
 
@@ -89,7 +89,7 @@ test('应用提取只改传进来的那几行', () => {
   const rows = previewExtract(db).filter((r) => r.bookId === a);
   applyExtract(db, rows.map((r) => ({ bookId: r.bookId, title: r.title, author: r.author })));
 
-  assert.equal(get(a).title, '雪中悍刀行');
+  assert.equal(get(a).title, '示例书甲乙');
   assert.equal(get(b).title, 'B 原名', '没勾选的那本不能被动');
 });
 

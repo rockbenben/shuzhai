@@ -125,7 +125,7 @@ test('删书会连带删掉封面记录', async () => {
 
 const OLD_PATH = 'C:\\Users\\somebody\\AppData\\Roaming\\novel-manager\\covers\\12-1786812669012.jpg';
 const NEW_PATH = 'C:\\Users\\somebody\\AppData\\Roaming\\shuzhai\\covers\\12-1786812669012.jpg';
-const USER_DIR = 'D:\\novel-manager\\《剑来》作者：烽火戏诸侯.txt';
+const USER_DIR = 'D:\\novel-manager\\《示例》作者：示例某人甲.txt';
 
 /*
  * 数据目录从 `novel-manager` 换成 `shuzhai` 那次（`src/main/migrate-userdata.ts`）

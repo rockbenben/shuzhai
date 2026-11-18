@@ -15,13 +15,13 @@ const HTML = `
 <ul>
 <li class="book">
   <img src="https://x.com/a.jpg">
-  <a class="name">斗破<em>苍穹</em></a>
-  <span class="author">天蚕土豆</span>
+  <a class="name">示例书<em>甲</em></a>
+  <span class="author">示例某人乙</span>
 </li>
 <li class="book">
   <img src="https://x.com/b.jpg">
-  <a class="name">武炼巅峰</a>
-  <span class="author">莫默</span>
+  <a class="name">示例书土</a>
+  <span class="author">示例某人戌</span>
 </li>
 <li class="ad">广告位</li>
 </ul>`;
@@ -29,8 +29,8 @@ const HTML = `
 test('按规则抽候选：书名剥内嵌标签，作者封面都取到', () => {
   const c = parseByRules(HTML, SRC);
   assert.equal(c.length, 2);
-  assert.equal(c[0].title, '斗破苍穹', '关键词高亮的 <em> 要剥掉');
-  assert.equal(c[0].author, '天蚕土豆');
+  assert.equal(c[0].title, '示例书甲', '关键词高亮的 <em> 要剥掉');
+  assert.equal(c[0].author, '示例某人乙');
   assert.equal(c[0].coverUrl, 'https://x.com/a.jpg');
   assert.equal(c[0].site, 'demo');
 });
@@ -78,7 +78,7 @@ test('urlRe：抽到详情页地址，相对路径按搜索地址补全', () => 
 <ul>
 <li class="book">
   <a class="name" href="/book/123">斗破<em>苍穹</em></a>
-  <span class="author">天蚕土豆</span>
+  <span class="author">示例某人乙</span>
 </li>
 </ul>`;
   const src = {
@@ -93,8 +93,8 @@ test('urlRe：抽到详情页地址，相对路径按搜索地址补全', () => 
 test('urlRe：绝对地址原样保留', () => {
   const html = `
 <li class="book">
-  <a class="name" href="https://other-site.com/b/9">武炼巅峰</a>
-  <span class="author">莫默</span>
+  <a class="name" href="https://other-site.com/b/9">示例书土</a>
+  <span class="author">示例某人戌</span>
 </li>`;
   const src = { ...SRC, urlRe: '<a class="name"[^>]*href="([^"]+)"' };
   const c = parseByRules(html, src);

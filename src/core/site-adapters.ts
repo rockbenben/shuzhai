@@ -105,7 +105,7 @@ function parseQidianCandidates(html: string): Candidate[] {
 /**
  * 书旗的搜索页分两块：`matchbook` 是**精确匹配**那一本，`searchlist-main` 是相关结果。
  *
- * **只收 matchbook。** 相关结果那一列是模糊推荐（搜《人间冰器》给的是《人间有剑》），
+ * **只收 matchbook。** 相关结果那一列是模糊推荐（搜一本，给的是名字相近的另一本），
  * 收进来只会让 `isExactMatch` 白跑一遍——而万一书名恰好撞上、作者也撞上，
  * 那就是配错封面。这个源的价值在精确块本身。
  */
@@ -134,7 +134,7 @@ function parseShuqiCandidates(html: string): Candidate[] {
  * **「没问出来」和「问过了没有」必须分开**，这是踩出来的：反爬页是 HTTP **200**，
  * 原来直接当「没搜到」，于是一整段时间里所有走到豆瓣这步的书都被写成
  * 「没匹配上」并持久化。实测那一段里抽 8 本重试，**5 本立刻经豆瓣命中**
- * ——《幽灵客栈》蔡骏、《封神记》黄易这类出版书正是豆瓣的强项。
+ * ——其中就有出版书，出版书正是豆瓣的强项。
  *
  * 同一个文件里对 429/403 早就写着「必须抛出去，不能悄悄放过当没搜到」，
  * 而反爬页是同一件事**披了个 200 的皮**。
@@ -264,7 +264,7 @@ export function parseOpenGraph(html: string, site: string): Candidate | null {
  * 简介在 `class="bookDesc"`，标签在 `class="tags clear"` 一串 `/label?label=` 链接。
  */
 function parseShuqiDetail(html: string, url: string): Candidate | null {
-  // 标题在 <title>：《斗破苍穹》最新章节免费阅读_天蚕土豆_…_书旗小说
+  // 标题在 <title>：《某书》最新章节免费阅读_某作者_…_书旗小说
   const title = /<title>[^《]*《([^》]+)》/.exec(html)?.[1]?.trim() ?? null;
   const author =
     /作者：?\s*<a[^>]*href="\/author\/[^"]*"[^>]*>([^<]+)</.exec(html)?.[1]
@@ -350,7 +350,7 @@ function hostOf(url: string): string {
 
 /**
  * 书名的变体：整串、括号外、括号内。
- * 库里 171 本是《国产英雄(我的邻居是女妖)》这种带别名的，整串跟谁都不相等。
+ * 库里 171 本是《书名(别名)》这种带别名的，整串跟谁都不相等。
  */
 function titleVariants(title: string): string[] {
   const m = /^(.*?)[（(]([^）)]+)[）)]\s*$/.exec(title.trim());
@@ -358,8 +358,8 @@ function titleVariants(title: string): string[] {
 }
 
 /**
- * 在候选里找**精确**匹配。首条几乎总是错书（实测：搜「官仙」首条是
- * 《重置世界》），所以这里遍历全部候选找严格相等的，而不是取第一条。
+ * 在候选里找**精确**匹配。首条几乎总是错书（实测：搜一本冷门书，首条给的是
+ * 另一本不相干的书），所以这里遍历全部候选找严格相等的，而不是取第一条。
  * 判据沿用 isExactMatch：书名、作者都要一致，本地没作者直接不匹配。
  */
 export function matchWithAliases(
@@ -387,7 +387,7 @@ export function matchWithAliases(
  * 对照组还成功 → 站点没坏，那些 nomatch 是真的；对照组也失败 → 是限流。
  * 这里就是把那个手法固化成产品逻辑，别再靠人半夜去看曲线。
  *
- * 选《武炼巅峰》：起点自家的头部作品，不会下架，`verify-cover-fetch.mjs`
+ * 选一本起点自家的头部作品：不会下架，`verify-cover-fetch.mjs`
  * 里也拿它当已知命中样本。
  */
 export const HEALTH_PROBE = { title: '武炼巅峰', author: '莫默' };
@@ -404,8 +404,8 @@ export function probeSaysHealthy(html: string): boolean {
  * 分「域名失效 / 搜索失效 / js 失效」打标签。**源必然会坏**（改版、限流、下架），
  * 而坏了在我们这儿的表现是「命中率悄悄往下掉」，不主动查根本发现不了。
  *
- * 每本都是实测选的：《武炼巅峰》起点自家头部作品；《斗破苍穹》书旗有；
- * 《幽灵客栈》蔡骏是出版书，正是豆瓣的强项（实测走豆瓣命中过）。
+ * 每本都是实测选的：起点用自家头部作品；书旗那本在书旗站内；
+ * 豆瓣用一本出版书，正是豆瓣的强项（实测走豆瓣命中过）。
  */
 export const SOURCE_PROBES = [
   { site: 'qidian', label: SITE_LABELS.qidian, title: HEALTH_PROBE.title, needsBrowser: true },
@@ -527,7 +527,7 @@ const ZONGHENG_SEARCH = 'https://search.zongheng.com/search/book?keyword={q}';
 /** 纵横：搜索是 JSON 接口、普通 HTTP 可用。**不进封面链**——实测它有的书书旗全有，
  *  补封面边际为 0；它的价值在更新检查（一个请求同时给连载状态和最新章）。
  *
- *  ⚠️ 搜索相关性是模糊的（实测搜《武炼巅峰》首条是简介里提到这四个字的另一本），
+ *  ⚠️ 搜索相关性是模糊的（实测搜一本热门书，首条是简介里提到这几个字的另一本），
  *  必须书名+作者都精确相等才认；而且命中字段里裹着 `<font color="RED">…</font>`
  *  高亮标签，匹配前和存章名前都要剥。 */
 export const zonghengAdapter: SiteAdapter = {
@@ -549,7 +549,7 @@ export const zonghengAdapter: SiteAdapter = {
     if (!Array.isArray(list)) return null;
     if (!book.author) return null;
     // ⚠️ 书名/作者/章名里都可能裹着 <font color="RED">…</font> 高亮标签
-    // （实测《剑来》命中书名就是 <font color="RED">剑来</font>），
+    // （实测命中的书名就是 <font color="RED">书名</font> 这种带高亮标签的），
     // 匹配前必须先剥，normalizeForMatch 只管全角/书名号/空白，不管 HTML 标签
     const hit = list.find((x) => {
       const name = stripTags(String(x.name ?? ''));
@@ -665,7 +665,7 @@ function parseFanqieDetail(html: string, url: string): Candidate | null {
  * `newestChapter`；VIP 章标题也在锚文本里（`[VIP]` 标记是后面另一个锚）。
  */
 function parseJjwxcDetail(html: string, url: string): Candidate | null {
-  // <title>《海岛求生…》绯夷_晋江文学城_【原创小说|纯爱小说】
+  // <title>《某书》某作者_晋江文学城_【原创小说|纯爱小说】
   const title = /<title>《([^》]+)》/.exec(html)?.[1]?.trim() ?? null;
   const author = /<title>《[^》]+》\s*([^_<]+?)_晋江/.exec(html)?.[1]?.trim() ?? null;
   const cover =

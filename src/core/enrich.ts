@@ -65,7 +65,7 @@ export function applySerialIfUnknown(db: DatabaseSync, bookId: number, serial: S
  * 归一化后再比。
  *
  * 只做**不改变身份**的归一：去首尾空白、全角转半角、去掉书名号。
- * 不做繁简转换也不做模糊匹配——「斗破苍穹」和「斗破苍穹之无上之境」
+ * 不做繁简转换也不做模糊匹配——「某书」和「某书之续集」
  * 是两本书，放宽一点就会张冠李戴。
  */
 export function normalizeForMatch(s: string | null | undefined): string {

@@ -106,7 +106,7 @@ export function CoverSources() {
                 }
               })()}
             >
-              {testing === s.id ? '试着…' : '用《斗破苍穹》试一下'}
+              {testing === s.id ? '试着…' : '用一本热门书试一下'}
             </button>
             <button onClick={() => save(list.filter((x) => x.id !== s.id))} title="删掉这个源">删掉</button>
           </div>

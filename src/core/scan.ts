@@ -597,7 +597,7 @@ export async function scanRoot(
        * （`parsed_at is null`）会被这一档**永远跳下去**——而它的 `status`
        * 还是 `'ok'`，于是「需要处理」那一档也看不见它。
        *
-       * 真实库里就有一本这样的：7.1 MB 的《超维入侵》，`chapter_count` /
+       * 真实库里就有一本这样的：《示例书》7.1 MB，`chapter_count` /
        * `parsed_at` / `encoding` 全是 null，而当场试解析 **204 毫秒切出 1624 章**
        * ——文件一点问题都没有，只是那条记录从来没被喂给解析器，
        * 而每次扫描都因为「没变」跳过它。用户点开看到的是一本没有章节的书。

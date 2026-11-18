@@ -40,9 +40,9 @@ console.log('\n── 2. 整条链 ──');
 //
 // ⚠️ **这几本在库里必须带作者，否则量到的 `nomatch` 是假的。**
 // 匹配判据是 `matchWithAliases`：书名和作者都要一致，**本地没作者一律不匹配**。
-// 在走查库上手工添一本《武炼巅峰》不填作者再跑，报的是
+// 在走查库上手工添一本上面清单里的书、不填作者再跑，报的是
 // 「10 条候选 → nomatch」——看起来像起点的解析器坏了，其实是这本书没作者。
-// 补上「莫默」再跑就 `ok via qidian`。
+// 补上作者再跑就 `ok via qidian`。
 const KNOWN = ['武炼巅峰', '踏星', '重生：我老婆是天后'];
 const books = await q(`
   select id, title, author from book

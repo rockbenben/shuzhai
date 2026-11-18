@@ -74,7 +74,7 @@ beforeEach(() => {
   mkdirSync(userData);
   db = openDb(join(dir, 'library.db'));
   bookId = Number(
-    db.prepare("insert into book(title, author) values('斗破苍穹', '天蚕土豆')").run().lastInsertRowid,
+    db.prepare("insert into book(title, author) values('示例书甲', '示例某人乙')").run().lastInsertRowid,
   );
   db.prepare('insert into reading_state(book_id) values(?)').run(bookId);
 });
@@ -87,21 +87,21 @@ afterEach(() => {
 // ── 匹配判据 ─────────────────────────────────────────────
 
 test('归一化只做不改变身份的处理', () => {
-  assert.equal(normalizeForMatch('《斗破苍穹》'), '斗破苍穹');
-  assert.equal(normalizeForMatch(' 斗破 苍穹 '), '斗破苍穹');
+  assert.equal(normalizeForMatch('《示例书甲》'), '示例书甲');
+  assert.equal(normalizeForMatch(' 示例书 甲 '), '示例书甲');
   assert.equal(normalizeForMatch('ＡＢＣ'), 'abc', '全角转半角');
-  assert.notEqual(normalizeForMatch('斗破苍穹'), normalizeForMatch('斗破苍穹之无上之境'));
+  assert.notEqual(normalizeForMatch('示例书甲'), normalizeForMatch('示例书甲之无上之境'));
 });
 
 test('书名和作者都一致才算匹配', () => {
-  const local = { title: '斗破苍穹', author: '天蚕土豆' };
-  assert.equal(isExactMatch(local, { title: '《斗破苍穹》', author: '天蚕土豆' }).matched, true);
-  assert.equal(isExactMatch(local, { title: '斗破苍穹', author: '别人' }).matched, false);
-  assert.equal(isExactMatch(local, { title: '斗破苍穹2', author: '天蚕土豆' }).matched, false);
+  const local = { title: '示例书甲', author: '示例某人乙' };
+  assert.equal(isExactMatch(local, { title: '《示例书甲》', author: '示例某人乙' }).matched, true);
+  assert.equal(isExactMatch(local, { title: '示例书甲', author: '别人' }).matched, false);
+  assert.equal(isExactMatch(local, { title: '示例书甲2', author: '示例某人乙' }).matched, false);
 });
 
 test('本地没有作者时不算匹配——只靠书名认太容易张冠李戴', () => {
-  const r = isExactMatch({ title: '斗破苍穹', author: null }, { title: '斗破苍穹', author: '天蚕土豆' });
+  const r = isExactMatch({ title: '示例书甲', author: null }, { title: '示例书甲', author: '示例某人乙' });
   assert.equal(r.matched, false);
   assert.match(r.reason!, /只靠书名/);
 });
@@ -116,8 +116,8 @@ test('不匹配时说清楚是哪儿对不上', () => {
 // ── 应用候选 ─────────────────────────────────────────────
 
 const good: Candidate = {
-  title: '斗破苍穹',
-  author: '天蚕土豆',
+  title: '示例书甲',
+  author: '示例某人乙',
   url: 'https://example.com/book/1',
   coverUrl: 'https://example.com/cover.png',
   category: '玄幻',
@@ -187,7 +187,7 @@ test('trustIdentity：书名和本地对不上也照补，但绝不改本地书�
   assert.ok(r.applied.includes('简介'));
   assert.equal(
     (db.prepare('select title from book where id = ?').get(bookId) as { title: string }).title,
-    '斗破苍穹',
+    '示例书甲',
     '书名以本地为准，候选书名只用于预览警告',
   );
 });
@@ -217,7 +217,7 @@ test('trustIdentity：本地没作者时从对面补上；已有作者绝不覆�
   assert.ok(r2.skipped.some((s) => s.includes('作者')));
   assert.equal(
     (db.prepare('select author from book where id = ?').get(bookId) as { author: string }).author,
-    '天蚕土豆',
+    '示例某人乙',
   );
 });
 
@@ -353,9 +353,9 @@ test('标签会被清洗：去空、限长、限量', async () => {
 
 test('按配置的正则从搜索页提取候选', async () => {
   const html = `
-    <li><a href="/b/1">斗破苍穹</a><span>天蚕土豆</span></li>
-    <li><a href="/b/2">雪中悍刀行</a><span>烽火戏诸侯</span></li>`;
-  const url = 'https://site.test/search?q=%E6%96%97%E7%A0%B4%E8%8B%8D%E7%A9%B9';
+    <li><a href="/b/1">示例书甲</a><span>示例某人乙</span></li>
+    <li><a href="/b/2">示例书甲乙</a><span>示例某人甲</span></li>`;
+  const url = 'https://site.test/search?q=%E7%A4%BA%E4%BE%8B%E4%B9%A6%E7%94%B2';
 
   const list = await searchSource(
     {
@@ -366,13 +366,13 @@ test('按配置的正则从搜索页提取候选', async () => {
       titleGroup: 2,
       authorGroup: 3,
     },
-    '斗破苍穹',
+    '示例书甲',
     { fetchImpl: fakeFetch({ [url]: { type: 'text/html', body: html } }) },
   );
 
   assert.equal(list.length, 2);
-  assert.equal(list[0].title, '斗破苍穹');
-  assert.equal(list[0].author, '天蚕土豆');
+  assert.equal(list[0].title, '示例书甲');
+  assert.equal(list[0].author, '示例某人乙');
   assert.equal(list[0].site, '测试站');
 });
 
@@ -420,12 +420,12 @@ test('校验：PNG 和 WEBP 也认', () => {
 
 test('mergeCandidates：详情页字段优先，封面用搜索候选兜底', () => {
   const detail: Candidate = {
-    title: '斗破苍穹', author: '天蚕土豆', site: 'qidian',
+    title: '示例书甲', author: '示例某人乙', site: 'qidian',
     intro: '这里是简介', category: '玄幻', tags: ['热血', '升级'],
     url: 'https://www.qidian.com/book/123/',
   };
   const search: Candidate = {
-    title: '斗破苍穹', author: '天蚕土豆', site: 'qidian',
+    title: '示例书甲', author: '示例某人乙', site: 'qidian',
     coverUrl: 'https://x.com/cover.jpg',
     url: 'https://www.qidian.com/book/123/',
   };

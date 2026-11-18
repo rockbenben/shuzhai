@@ -360,7 +360,7 @@ function mkDeps(
 
 test('checkUpdates：书旗适配器取最新章并落库', async () => {
   const bid = 种书(db, {
-    title: '斗破苍穹', author: '天蚕土豆', serial: 'ongoing',
+    title: '示例书甲', author: '示例某人乙', serial: 'ongoing',
     chapters: ['第一章 陨落的天才', '第二章 斗气大陆'],
   });
   addLink(db, bid, 'https://www.shuqi.com/book/53258.html', { isPrimary: true });
@@ -414,7 +414,7 @@ test('checkUpdates：needsBrowser 但没注入浏览器时跳过，不写状态�
   // 起点必须浏览器渲染；没注入 browserText 就应该静默跳过，
   // 不抛错、不写 last_status（免得污染）、不计入 checked 计数
   const bid = 种书(db, {
-    title: '武炼巅峰', author: '莫默', serial: 'ongoing',
+    title: '示例书土', author: '示例某人戌', serial: 'ongoing',
     chapters: ['第一章'],
   });
   const { id } = addLink(db, bid, 'https://www.qidian.com/book/1234/', { isPrimary: true });
@@ -468,12 +468,12 @@ test('checkUpdates：单本检查时非主链接也探活；批量时非主链�
 });
 
 test('checkUpdates：parseLatest 带 serial 时只补 unknown', async () => {
-  const b = 种书(db, { title: '武炼巅峰', author: '莫默', serial: 'unknown', chapters: ['第一章'] });
+  const b = 种书(db, { title: '示例书土', author: '示例某人戌', serial: 'unknown', chapters: ['第一章'] });
   addLink(db, b, 'https://www.zongheng.com/book/2.html', { isPrimary: true });
   const body = JSON.stringify({ data: { datas: { list: [
-    { name: '武炼巅峰', authorName: '莫默', serialStatus: 1, chapterName: '终章' },
+    { name: '示例书土', authorName: '示例某人戌', serialStatus: 1, chapterName: '终章' },
   ] } } });
-  const url = 'https://search.zongheng.com/search/book?keyword=' + encodeURIComponent('武炼巅峰');
+  const url = 'https://search.zongheng.com/search/book?keyword=' + encodeURIComponent('示例书土');
   const pages: Record<string, { text: string }> = {};
   pages[url] = { text: body };
   await checkUpdates(db, mkDeps(pages), { bookId: b });
