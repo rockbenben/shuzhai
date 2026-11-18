@@ -49,7 +49,7 @@ function book(n, { volume = false } = {}) {
     /*
      * **每章要够长**：真实书库里每章中位数 3200 字，而这里原来一章只有 6 段
      * （约 300 字）——`buildChapters` 的自动合并把不到 500 字的章并进上一章，
-     * 于是测试库一扫进来章数就腰斩（雪中悍刀行 60 → 30），
+     * 于是测试库一扫进来章数就腰斩（一本 60 章的书被并成 30），
      * 而走查量到的是一本**真实世界里不存在的书**。
      * 12 段约 700 字，稳稳越过门槛，也还够小、扫得快。
      */
@@ -82,8 +82,8 @@ rmSync(ROOT, { recursive: true, force: true });
 mkdirSync(join(ROOT, '未完'), { recursive: true });
 mkdirSync(join(ROOT, 'Archive'), { recursive: true });
 
-write(join(ROOT, '剑来 作者：烽火戏诸侯.txt'), book(45));
-write(join(ROOT, '雪中悍刀行 作者：烽火戏诸侯.txt'), book(60, { volume: true }));
+write(join(ROOT, '示例 作者：示例某人甲.txt'), book(45));
+write(join(ROOT, '示例书甲乙 作者：示例某人甲.txt'), book(60, { volume: true }));
 write(join(ROOT, '短篇集 作者：佚名.txt'), book(12));
 write(join(ROOT, '这本书名字特别长长长长长长长长到会换行 作者：某位名字也很长的作者.txt'), book(30));
 write(join(ROOT, '没有章节的散文 作者：某人.txt'), prose(900));
