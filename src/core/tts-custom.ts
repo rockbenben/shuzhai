@@ -139,16 +139,6 @@ export function normalizeLegadoUrl(raw: string): NormalizedUrl | { error: string
   return { url: 地址, double, dropped, ...(method ? { method, body } : {}), ...(headers ? { headers } : {}) };
 }
 
-/**
- * 从「阅读」（legado）的 `httpTTS.json` 导一份进来。
- *
- * 那份配置里的 URL 可以写 `{{java.encodeURI(speakText)}}` 这种 JS 模板，
- * 而我们**只认一种**：把正文 URI 编码之后填进去。所以这里做的事就是
- * 把认得出的那一种翻译成 `{text}`，其余**一律拒收**并数出来告诉用户——
- * 静默丢掉的话，他会以为导进来了、然后在某个引擎上听到一片安静。
- *
- * `double` 是原配置里 `encodeURI(encodeURI(...))` 那种双重编码，真实存在。
- */
 /** 按 `&` 切成一段一段，**`{{ }}` 里面的 `&` 不算分隔符**（`{{a && b}}` 真的存在） */
 function 切参数(s: string): string[] {
   const out: string[] = [];

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { rpc } from './rpc.ts';
 import type { ReadSettings } from './settings.ts';
-import type { TtsState } from './useTts.ts';
+import { 试听句子, type TtsState } from './useTts.ts';
 import type { TtsEngine } from '../core/builtin-tts.ts';
 
 /**
@@ -199,6 +199,3 @@ export function TtsPanel(
     </>
   );
 }
-
-/** 试听句子。**刻意带标点**——光念「测试」两个字，听不出这些引擎在语调和停顿上的区别 */
-const 试听句子 = '他抬头看了看天，说：这雪，怕是要下上一夜。';

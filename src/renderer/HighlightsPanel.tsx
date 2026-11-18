@@ -402,7 +402,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
   /**
    * 全库那一档怎么排。
    *
-   * **默认按书**：回看笔记多半是「《某某》里我记过什么」，同一本的挨在一起才好读。
+   * **默认按书**：回看笔记多半是「《某书》里我记过什么」，同一本的挨在一起才好读。
    * **另一档按时间**：而「我最近记了些什么」是同样常见的一问，
    * 原来这一档只能按书排，那个问题**在应用里根本问不出来**——
    * 库里 `created_at` 一直有，只是没人读它（书签那一档显示了，划线和全库都没有）。
@@ -1204,7 +1204,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
 
         <div className="row modal-actions" style={{ justifyContent: 'flex-end' }}>
           {/*
-            * **把全部笔记导出来。** 原来只有「导出《某某》」里那一个入口，
+            * **把全部笔记导出来。** 原来只有「导出某书」里那一个入口，
             * 按本导——在三十本书里记过东西的人要点三十次。
             * 导出来的是一份 markdown，而书斋自己能读 `.md`：
             * 放回书库再扫一次，它就是一本可以翻的书。

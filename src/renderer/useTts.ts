@@ -17,6 +17,9 @@ import { rpc } from './rpc.ts';
 import { splitForTts, type TtsChunk } from '../core/tts.ts';
 import type { ReadSettings } from './settings.ts';
 
+/** 试听句子。**刻意带标点**——光念「测试」两个字，听不出这些引擎在语调和停顿上的区别 */
+export const 试听句子 = '他抬头看了看天，说：这雪，怕是要下上一夜。';
+
 export interface TtsState {
   speaking: boolean;
   /**
