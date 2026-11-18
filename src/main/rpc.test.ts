@@ -89,7 +89,7 @@ test('并发导出占用不同文件名，已有产物完整保留', async () =>
 before(() => {
   dir = mkdtempSync(join(tmpdir(), 'rpc-'));
   db = openDb(join(dir, 'library.db'));
-  db.prepare("insert into book(id, title, author) values(1, '雪中悍刀行', '烽火戏诸侯')").run();
+  db.prepare("insert into book(id, title, author) values(1, '示例书甲乙', '示例某人甲')").run();
   fileCache = new FileCache();
   rpc = createRpc(db, fileCache, dir);
 });

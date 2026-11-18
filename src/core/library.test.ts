@@ -109,7 +109,7 @@ test('迁移 5 给 book 加上了 category_id 这一列', () => {
 test('分类树：删父分类不会删书，只是回到未分类', () => {
   const parent = addCategory(db, '玄幻');
   const child = addCategory(db, '东方玄幻', parent.id);
-  const bookId = addBook('斗破苍穹');
+  const bookId = addBook('示例书甲');
   db.prepare('update book set category_id = ? where id = ?').run(child.id, bookId);
 
   assert.equal(listCategories(db).length, 2);
@@ -143,13 +143,13 @@ test('打标签：重复打不会重复，标签自动创建', () => {
 });
 
 test('按关键词筛选，书名作者别名都参与匹配', () => {
-  addBook('斗破苍穹', { author: '天蚕土豆' });
-  const id = addBook('雪中悍刀行', { author: '烽火戏诸侯' });
-  db.prepare("update book set aliases = '雪中' where id = ?").run(id);
+  addBook('示例青灯', { author: '示例墨客' });
+  const id = addBook('示例长夜', { author: '示例孤舟' });
+  db.prepare("update book set aliases = '示例别名甲' where id = ?").run(id);
 
-  assert.deepEqual(titles(listBooks(db, { keyword: '斗破' })), ['斗破苍穹']);
-  assert.deepEqual(titles(listBooks(db, { keyword: '天蚕' })), ['斗破苍穹'], '作者也能搜到');
-  assert.deepEqual(titles(listBooks(db, { keyword: '雪中' })), ['雪中悍刀行'], '别名也能搜到');
+  assert.deepEqual(titles(listBooks(db, { keyword: '示例青灯' })), ['示例青灯']);
+  assert.deepEqual(titles(listBooks(db, { keyword: '示例墨客' })), ['示例青灯'], '作者也能搜到');
+  assert.deepEqual(titles(listBooks(db, { keyword: '示例别名甲' })), ['示例长夜'], '别名也能搜到');
 });
 
 test('按字数区间和连载状态组合筛选', () => {
@@ -1030,7 +1030,7 @@ test('还能按书名和字数排', () => {
     (listBooks(db, {}, { sort }) as Array<{ title: string }>).map((b) => b.title);
   // **按书名排是码位序，不是拼音序**：丙 U+4E19 < 乙 U+4E59 < 甲 U+7532。
   // SQLite 没有中文拼音排序，而分页要求排序在 SQL 里做（8000 本不可能拉到前端排）。
-  // 实际价值是把同前缀的系列排到一起（《斗破苍穹》《斗罗大陆》相邻），不是字典序
+  // 实际价值是把同前缀的系列排到一起（书名开头相同的几本相邻），不是字典序
   assert.deepEqual(by('title'), ['丙', '乙', '甲']);
   assert.deepEqual(by('words'), ['甲', '乙', '丙']);
 });
@@ -1114,11 +1114,11 @@ test('迁移 16 给 reading_state 加上了 rated_at', () => {
 });
 
 test('给整个筛选结果打标签，只动筛选进去的那些', () => {
-  const a = addBook('重生之都市修仙');
-  const b = addBook('重生八零年代');
-  const c = addBook('斗破苍穹');
+  const a = addBook('示例书金');
+  const b = addBook('示例书金外传');
+  const c = addBook('示例书甲');
 
-  const r = tagBooksByFilter(db, { keyword: '重生' }, ['重生']);
+  const r = tagBooksByFilter(db, { keyword: '示例书金' }, ['示例标签甲']);
   assert.equal(r.bookIds.length, 2);
   assert.deepEqual(r.bookIds.sort((x, y) => x - y), [a, b]);
 
@@ -1298,18 +1298,19 @@ test('清空评分但还留着短评时，评价时间不能一起清掉', () =>
 });
 
 test('从书名挖高频词：语法碎片要滤掉，「都市」不能误伤', () => {
-  // 中文没有词边界，只能数 n-gram，于是「重生之都市修仙」会同时数出
+  // 中文没有词边界，只能数 n-gram，于是一个书名会同时数出
   // 重生 / 生之 / 之都 / 都市……「生之」「我的」这类碎片在真实书名里频率极高
   // （实测「生之」140 次），排进前列会把真正的题材词挤下去
   for (let i = 0; i < 30; i++) {
-    addBook(`重生之都市修仙${i}`);
+    addBook(`示例长夜都市${i}`);
+    addBook(`示例青灯重生${i}`);
     addBook(`我的superb人生${i}`);
   }
   const kw = titleKeywords(db, 5);
   const words = kw.map((k) => k.word);
   assert.ok(words.includes('重生'), `应该有「重生」，实际：${words.join(' ')}`);
   assert.ok(words.includes('都市'), '「都市」不能被当成碎片滤掉——它含「都」，是这个库第二大的题材词');
-  for (const junk of ['生之', '之都', '我的']) {
+  for (const junk of ['我的', '之都', '生之']) {
     assert.ok(!words.includes(junk), `「${junk}」是语法碎片，不该出现`);
   }
 });

@@ -105,10 +105,10 @@ test('内容不同、但同名同作者的另一个版本还在，允许删—�
   // 真实书库里「重复」的典型形态就是这个：校对版 vs 精校版，同一本书内容不一样。
   // 只认字节完全相同的话，用户 8000 本书里一个都删不掉（实测 hash 相同的组是 0），
   // 删除按钮全程点不动。严到没人能用的安全阀不是安全阀，是坏了
-  const b1 = addBookWithAuthor('乌纱', '西风紧');
-  const b2 = addBookWithAuthor('乌纱', '西风紧');
-  const f1 = addFile(b1, '《乌纱》（校对版全本）.txt', 'hashA', true);
-  addFile(b2, '《乌纱》（精校版全本）.txt', 'hashB', true);
+  const b1 = addBookWithAuthor('示例书戌', '示例某人亥');
+  const b2 = addBookWithAuthor('示例书戌', '示例某人亥');
+  const f1 = addFile(b1, '《示例书戌》（校对版全本）.txt', 'hashA', true);
+  addFile(b2, '《示例书戌》（精校版全本）.txt', 'hashB', true);
 
   const check = await canDelete(db, f1);
   assert.equal(check.ok, true, check.reason ?? '');
@@ -126,15 +126,15 @@ test('内容不同、但同名同作者的另一个版本还在，允许删—�
  * 「磁盘上没有找到这本书的另一个文件」——一句事实上错误的话。
  */
 test('书名只差一个全角空格也算同一本——归组口径不许和 bookKey 分叉', async () => {
-  const b1 = addBookWithAuthor('　乌纱　', '西风紧');
-  const b2 = addBookWithAuthor('乌纱', '西风紧');
-  const f1 = addFile(b1, '《乌纱》（校对版）.txt', 'hashA', true);
-  addFile(b2, '《乌纱》（精校版）.txt', 'hashB', true);
+  const b1 = addBookWithAuthor('　示例书戌　', '示例某人亥');
+  const b2 = addBookWithAuthor('示例书戌', '示例某人亥');
+  const f1 = addFile(b1, '《示例书戌》（校对版）.txt', 'hashA', true);
+  addFile(b2, '《示例书戌》（精校版）.txt', 'hashB', true);
 
   const check = await canDelete(db, f1);
   assert.equal(check.ok, true, check.reason ?? '全角空格不该让它变成「只剩这一份」');
   assert.equal(check.survivors.length, 1);
-  assert.equal(bookKey('　乌纱　', '西风紧'), bookKey('乌纱', '西风紧'), 'bookKey 才是唯一裁判');
+  assert.equal(bookKey('　示例书戌　', '示例某人亥'), bookKey('示例书戌', '示例某人亥'), 'bookKey 才是唯一裁判');
 });
 
 test('书名相同但作者不同的，不算同一本书——不许拿它当幸存副本', async () => {

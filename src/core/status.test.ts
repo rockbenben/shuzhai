@@ -224,11 +224,11 @@ const mkBook = (title: string, status: string) => {
 };
 
 test('批量改状态作用于整个筛选结果，不是当前这一页', () => {
-  const a = mkBook('斗破苍穹', 'none');
-  const b = mkBook('斗破苍穹外传', 'want');
+  const a = mkBook('示例书甲', 'none');
+  const b = mkBook('示例书甲外传', 'want');
   mkBook('完全无关的书', 'none');
 
-  const r = setStatusByFilter(db, { keyword: '斗破' }, 'finished');
+  const r = setStatusByFilter(db, { keyword: '示例书甲' }, 'finished');
   assert.equal(r.changed.length, 2, JSON.stringify(r));
   assert.deepEqual(
     r.changed.map((x) => x.from).sort(),
@@ -268,7 +268,7 @@ test('已读完的书批量一律不动，进度和读完时间都不许被抹�
 
 /*
  * 这一条是**在真实库上量出来才发现的**：整库标成「想读」之后，
- * 《我从凡间来》成了「想读 + 读到 1104 章」——数据一个字没丢，
+ * 一本读到 1104 章的书成了「想读 + 读到 1104 章」——数据一个字没丢，
  * 但那条记录本身说不通。8 本的测试库上永远看不到，因为没有一本有进度。
  */
 test('读到过第几章的书批量也不动，免得出现「想读却读到第 1104 章」', () => {

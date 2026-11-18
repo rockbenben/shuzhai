@@ -32,8 +32,8 @@ before(async () => {
   dbPath = join(dir, 'library.db');
 
   const db = openDb(dbPath);
-  db.prepare("insert into book(id, title, author) values(1, '雪中悍刀行', '烽火戏诸侯')").run();
-  db.prepare("insert into book(id, title, author) values(2, '诡秘之主', '爱潜水的乌贼')").run();
+  db.prepare("insert into book(id, title, author) values(1, '示例书甲乙', '示例某人甲')").run();
+  db.prepare("insert into book(id, title, author) values(2, '示例书白', '示例某人白')").run();
   db.prepare("insert into reading_state(book_id, status) values(1, 'reading')").run();
   db.prepare("insert into reading_state(book_id, status) values(2, 'dropped')").run();
   db.close();
@@ -167,11 +167,11 @@ test('响应不带任何 CORS 头', async () => {
 test('POST /api/query 能查数据', async () => {
   const r = await post('/api/query', {
     sql: 'select title from book where author = ? order by title',
-    params: ['烽火戏诸侯'],
+    params: ['示例某人甲'],
   });
   const body = await r.json();
   assert.equal(r.status, 200);
-  assert.deepEqual(body.rows, [{ title: '雪中悍刀行' }]);
+  assert.deepEqual(body.rows, [{ title: '示例书甲乙' }]);
 });
 
 test('写操作经 /api/query 被挡下', async () => {

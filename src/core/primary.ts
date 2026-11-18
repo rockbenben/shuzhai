@@ -6,7 +6,7 @@ import { clearBookIndex } from './db.ts';
 /*
  * **主文件坏了就换一份还好的。**
  *
- * 起因是用户真实库上的一本《乌纱》：两个文件（校对版 / 精校版），
+ * 起因是用户真实库上的一本书：两个文件（校对版 / 精校版），
  * 校对版在磁盘上被删掉了，扫描把那条记录标成 `missing`——
  * **而它恰好是主文件，没人把旗子挪到旁边那份好的上**。后果不只是卡片上
  * 挂着「文件不见了」：`book.list` 的 `path` 取的就是主文件，
@@ -59,7 +59,7 @@ export function ensurePrimary(db: DatabaseSync, bookId: number): boolean {
  *
  * 只在**这本书的文件集刚变过**的那一刻用（现在只有 `mergeBooks` 一处）。
  *
- * 起因：把 `三体.txt` 和 `三体.epub` 合成一本之后，主文件是 **EPUB**——
+ * 起因：把 `某书.txt` 和 `某书.epub` 合成一本之后，主文件是 **EPUB**——
  * keeper 按阅读进度挑（两本都没进度就取 id 最小的那本），
  * 而败方的文件一律带着 `is_primary = 0` 搬过来，**keeper 自己那面旗从没被重问过**。
  * 当场量的：合并后 `epub is_primary=1 chapter_count=0`、`txt is_primary=0 chapter_count=2`。

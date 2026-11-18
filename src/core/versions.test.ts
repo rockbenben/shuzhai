@@ -92,8 +92,8 @@ test('只有一个文件的书不进归组视图', () => {
 });
 
 test('同名同作者的多个文件归到一组，并标出字数最多和最新', () => {
-  const a = addBook('斗破苍穹', '天蚕土豆');
-  const b = addBook('斗破苍穹', '天蚕土豆');
+  const a = addBook('示例书甲', '示例某人乙');
+  const b = addBook('示例书甲', '示例某人乙');
   addFile(a, 'C:\\旧版.txt', { words: 100_000, mtime: 100, primary: true });
   addFile(b, 'C:\\新版.txt', { words: 500_000, mtime: 900, primary: true });
 
@@ -108,8 +108,8 @@ test('同名同作者的多个文件归到一组，并标出字数最多和最�
 });
 
 test('书名首尾空白和大小写不影响归组', () => {
-  const a = addBook('斗破苍穹 ', '天蚕土豆');
-  const b = addBook('斗破苍穹', '天蚕土豆 ');
+  const a = addBook('示例书甲 ', '示例某人乙');
+  const b = addBook('示例书甲', '示例某人乙 ');
   addFile(a, 'C:\\1.txt');
   addFile(b, 'C:\\2.txt');
   assert.equal(listGroups(db).length, 1);
@@ -155,8 +155,8 @@ test('设主版本不会动阅读进度', () => {
 });
 
 test('合并时保留有进度的那一本', () => {
-  const a = addBook('斗破苍穹', '天蚕土豆');
-  const b = addBook('斗破苍穹', '天蚕土豆');
+  const a = addBook('示例书甲', '示例某人乙');
+  const b = addBook('示例书甲', '示例某人乙');
   addFile(a, 'C:\\a.txt', { primary: true });
   addFile(b, 'C:\\b.txt', { primary: true });
   // b 有进度，a 没有 —— 进度是不可再生的，必须保住 b
@@ -319,18 +319,13 @@ test('合并会把标签并过来', () => {
 /*
  * **合并不能把书评吃掉。**
  *
- * keeper 是按**阅读进度**挑的，跟「哪本写过书评」无关。真实场景：
- * 《诛仙》在库里有校对版和精校版两个文件，你在其中一本上读到 500 章、
- * 在另一本上打了分写了「结局烂尾了别看」——合并之后 keeper 是有进度的那本，
- * 另一本连同 `reading_state` 一起被 `on delete cascade` 删掉，那句话就没了。
- *
- * 标签早就并过来了（下面那条测试守着），评分和短评却没有——同一次合并里
- * 两种用户数据两套待遇。而书评和进度一样**重扫恢复不了**，
- * 这个应用的正事（「下次不用再想这本我看过没」）全靠它。
+ * keeper 按阅读进度挑，有书评的那本可能被并掉；它的 `reading_state` 会被
+ * `on delete cascade` 删掉，短评跟着消失。书评和进度一样重扫恢复不了，
+ * 所以评分短评要和标签一样并过来（原委见 `versions.ts` 的 `mergeBooks`）。
  */
 test('合并不能把评分和短评吃掉', () => {
-  const a = addBook('诛仙', '萧鼎');
-  const b = addBook('诛仙', '萧鼎');
+  const a = addBook('示例书亥', '示例某人酉');
+  const b = addBook('示例书亥', '示例某人酉');
   addFile(a, 'C:\jiaodui.txt', { primary: true });
   addFile(b, 'C:\jingjiao.txt', { primary: true });
   // b 有进度所以会当 keeper；书评写在 a 上
@@ -377,22 +372,22 @@ test('这个模块不碰磁盘：合并和设主版本都只改数据库', () =>
 });
 
 test('bookKey 的分隔符不能是空格——否则书名和作者会串味', () => {
-  // 「三体 刘」+「慈欣」和「三体」+「刘 慈欣」是两本不同的书，
-  // 拿空格拼 key 的话它们会撞成同一个，于是「重复的书」把两本无关的书归成一组，
+  // 书名里带空格和作者里带空格，拿空格拼 key 的话它们会撞成同一个，
+  // 于是「重复的书」把两本无关的书归成一组，
   // 而删除那条路是**按组**走的——归错组就等于把删除按钮指向了错的文件。
   //
   // 所以用一个正文里不可能出现的字符当分隔符。这条断言在这儿是因为
   // **把分隔符换成空格，全套测试里除了它一条都不会红**（实测过），
   // 也就是说这个不变式此前完全没人守。
   // （条数以当场跑出来的为准，别在这儿记一个会过期的数——AGENTS.md 那条规矩。）
-  assert.notEqual(bookKey('三体 刘', '慈欣'), bookKey('三体', '刘 慈欣'));
+  assert.notEqual(bookKey('示例书酉 刘', '慈欣'), bookKey('示例书酉', '刘 慈欣'));
 
   // 顺带钉住归一化：去首尾空白 + 转小写，两边都做
-  assert.equal(bookKey('  三体 ', '刘慈欣'), bookKey('三体', '  刘慈欣  '));
+  assert.equal(bookKey('  示例书酉 ', '示例某人申'), bookKey('示例书酉', '  示例某人申  '));
   assert.equal(bookKey('Dune', 'Herbert'), bookKey('dune', 'herbert'));
 
   // 作者为空和作者是空串必须同解——manual.ts 的认领逻辑依赖这一点
-  assert.equal(bookKey('三体', null), bookKey('三体', ''));
+  assert.equal(bookKey('示例书酉', null), bookKey('示例书酉', ''));
 });
 
 /*
@@ -402,8 +397,8 @@ test('bookKey 的分隔符不能是空格——否则书名和作者会串味', 
  * **同一次合并里两种用户数据两套待遇**，`mergeBooks` 自己的注释就在讲这句话。
  */
 test('合并时书签、划线、阅读会话跟着搬到留下的那本上', () => {
-  const keep = addBook('诛仙', '萧鼎'); // 有进度，会被选成 keeper
-  const gone = addBook('诛仙', '萧鼎');
+  const keep = addBook('示例书亥', '示例某人酉'); // 有进度，会被选成 keeper
+  const gone = addBook('示例书亥', '示例某人酉');
   addFile(keep, join(dir, 'zx-a.txt'), { primary: true });
   addFile(gone, join(dir, 'zx-b.txt'), { primary: true });
   db.prepare('update reading_state set chapter_idx = 500, percent = 80 where book_id = ?').run(keep);
@@ -430,8 +425,8 @@ test('合并时书签、划线、阅读会话跟着搬到留下的那本上', ()
 });
 
 test('合并：弃坑原因、阅读状态与时间戳不许被吃掉', () => {
-  const keep = addBook('凡人修仙传', '忘语');
-  const gone = addBook('凡人修仙传', '忘语');
+  const keep = addBook('示例书松', '示例某人松');
+  const gone = addBook('示例书松', '示例某人松');
   addFile(keep, join(dir, 'fr-a.txt'), { primary: true });
   addFile(gone, join(dir, 'fr-b.txt'), { primary: true });
   db.prepare("update reading_state set status = 'none', percent = 0 where book_id = ?").run(keep);
@@ -473,8 +468,8 @@ test('合并：两本都未标记时，合并后状态不能变成「想读」',
  * 那张图跟着一起没了，而重抓要排到几千本之后。
  */
 test('留下的那本缺的字段从别人那儿补，自己有的不动', () => {
-  const keep = addBook('斗破苍穹', '天蚕土豆');
-  const gone = addBook('斗破苍穹', '天蚕土豆');
+  const keep = addBook('示例书甲', '示例某人乙');
+  const gone = addBook('示例书甲', '示例某人乙');
   addFile(keep, join(dir, 'dp-a.txt'), { primary: true });
   addFile(gone, join(dir, 'dp-b.txt'), { primary: true });
   db.prepare('update reading_state set chapter_idx = 30 where book_id = ?').run(keep);
@@ -582,10 +577,10 @@ test('挂在 book 上的每一张表，名字都得在 versions.ts 里出现过'
 
 test('合并 txt + epub：主文件必须落在能读的那一份上', () => {
   // 顺序照真实扫描：目录里 .epub 排在 .txt 前面，于是它 id 更小、也就是 keeper
-  const a = addBook('三体', '刘慈欣');
-  addFile(a, 'C:\books\三体 刘慈欣.epub', { primary: true, words: 0, chapters: 0 });
-  const b = addBook('三体', '刘慈欣');
-  addFile(b, 'C:\books\三体 刘慈欣.txt', { primary: true, words: 7210, chapters: 2 });
+  const a = addBook('示例书酉', '示例某人申');
+  addFile(a, 'C:\books\示例书酉 示例某人申.epub', { primary: true, words: 0, chapters: 0 });
+  const b = addBook('示例书酉', '示例某人申');
+  addFile(b, 'C:\books\示例书酉 示例某人申.txt', { primary: true, words: 7210, chapters: 2 });
 
   const { keptBookId } = mergeBooks(db, [a, b]);
   const 主 = db
@@ -634,8 +629,8 @@ test('只编目的那一份坏不掉用户的选择：没有能读的 txt 时不
  * `ratedAt` 是后加的字段）。
  */
 test('合并书时写的 rated_at 和全库其它时间是同一种格式', () => {
-  const a = addBook('三体', '刘慈欣');
-  const b = addBook('三体', '刘慈欣');
+  const a = addBook('示例书酉', '示例某人申');
+  const b = addBook('示例书酉', '示例某人申');
   addFile(a, 'C:/a.txt', { primary: true });
   addFile(b, 'C:/b.txt', { primary: true });
   // 有评价、但没有 rated_at —— 合并时会给它补一个时间戳

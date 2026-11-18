@@ -369,17 +369,17 @@ test('短评里的回车要被引号包住，不能把 CSV 劈成两行', () => 
 test('导出落盘时让名，不覆盖任何已有文件', () => {
   const dir = mkdtempSync(join(tmpdir(), 'novel-free-'));
   try {
-    const 已有 = join(dir, '《剑来》.txt');
+    const 已有 = join(dir, '《示例》.txt');
     writeFileSync(已有, '这是用户原来那本书');
 
-    const 第二次 = freeName(dir, '《剑来》.txt');
+    const 第二次 = freeName(dir, '《示例》.txt');
     assert.notEqual(第二次, 已有, '让名失败就会覆盖掉原来那本书');
-    assert.match(第二次, /《剑来》 \(2\)\.txt$/);
+    assert.match(第二次, /《示例》 \(2\)\.txt$/);
     assert.equal(readFileSync(已有, 'utf8'), '这是用户原来那本书', '原文件一个字都不许动');
 
     // 第二个也占上之后再让一次
     writeFileSync(第二次, 'x');
-    assert.match(freeName(dir, '《剑来》.txt'), /《剑来》 \(3\)\.txt$/);
+    assert.match(freeName(dir, '《示例》.txt'), /《示例》 \(3\)\.txt$/);
 
     // 目录里没有同名的时候，就用原名
     assert.equal(freeName(dir, '没人占的名字.txt'), join(dir, '没人占的名字.txt'));

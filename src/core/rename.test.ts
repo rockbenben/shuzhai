@@ -33,8 +33,8 @@ beforeEach(async () => {
   const rootId = Number(
     db.prepare('insert into library_root(path) values(?)').run(lib).lastInsertRowid,
   );
-  writeFileSync(join(lib, '《雪中悍刀行》烽火戏诸侯.txt'), body, 'utf8');
-  writeFileSync(join(lib, '斗破苍穹-天蚕土豆.txt'), body, 'utf8');
+  writeFileSync(join(lib, '《示例书甲乙》示例某人甲.txt'), body, 'utf8');
+  writeFileSync(join(lib, '示例书甲-示例某人乙.txt'), body, 'utf8');
   await scanRoot(db, { id: rootId, path: lib });
 });
 
@@ -152,7 +152,7 @@ test('预览不碰任何文件', async () => {
   assert.ok(rows.every((r) => r.status === 'ok'));
   assert.deepEqual(
     rows.map((r) => r.newName).sort(),
-    ['天蚕土豆 - 斗破苍穹.txt', '烽火戏诸侯 - 雪中悍刀行.txt'],
+    ['示例某人乙 - 示例书甲.txt', '示例某人甲 - 示例书甲乙.txt'],
   );
   assert.deepEqual(ids().map(pathOf), before, '预览阶段路径不能变');
   for (const p of before) assert.ok(existsSync(p), '磁盘上的文件也不能动');
@@ -160,23 +160,23 @@ test('预览不碰任何文件', async () => {
 
 test('名字没变化的行标 unchanged', async () => {
   const rows = await previewRename(db, ids(), { template: '《{title}》{author}{ext}' });
-  const same = rows.find((r) => r.oldName === '《雪中悍刀行》烽火戏诸侯.txt');
+  const same = rows.find((r) => r.oldName === '《示例书甲乙》示例某人甲.txt');
   assert.equal(same?.status, 'unchanged');
 });
 
 test('目标已存在时默认跳过并标红', async () => {
-  writeFileSync(join(lib, '斗破苍穹.txt'), '占位', 'utf8');
+  writeFileSync(join(lib, '示例书甲.txt'), '占位', 'utf8');
   const rows = await previewRename(db, ids(), { template: '{title}{ext}' });
-  const conflict = rows.find((r) => r.newName === '斗破苍穹.txt');
+  const conflict = rows.find((r) => r.newName === '示例书甲.txt');
   assert.equal(conflict?.status, 'conflict');
   assert.match(conflict!.note!, /已存在/);
 });
 
 test('选自动加序号时给出不冲突的名字', async () => {
-  writeFileSync(join(lib, '斗破苍穹.txt'), '占位', 'utf8');
+  writeFileSync(join(lib, '示例书甲.txt'), '占位', 'utf8');
   const rows = await previewRename(db, ids(), { template: '{title}{ext}', onConflict: 'number' });
-  const row = rows.find((r) => r.oldName.startsWith('斗破苍穹'));
-  assert.equal(row?.newName, '斗破苍穹(2).txt');
+  const row = rows.find((r) => r.oldName.startsWith('示例书甲'));
+  assert.equal(row?.newName, '示例书甲(2).txt');
   assert.equal(row?.status, 'ok');
 });
 
@@ -245,7 +245,7 @@ test('一个失败不影响其它', async () => {
 
 test('只改大小写也能成功（Windows 上要借临时名）', async () => {
   const bookId = ids()[0];
-  db.prepare("update book set title = '斗破苍穹', author = null where id = ?").run(bookId);
+  db.prepare("update book set title = '示例书甲', author = null where id = ?").run(bookId);
   const before = pathOf(bookId);
 
   const rows = (await previewRename(db, [bookId], { template: '{title}{ext}' })).filter(

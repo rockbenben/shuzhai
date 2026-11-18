@@ -55,10 +55,10 @@ interface RawRow {
 
 /**
  * 多版本归组的口径：书名 + 作者，去首尾空白转小写。
- * 「斗破苍穹 」和「斗破苍穹」是同一本。
+ * 书名末尾多一个空格，和没有空格的是同一本。
  *
- * **分隔符是 NUL，不是空格**——用空格的话「三体 刘」+「慈欣」会和
- * 「三体」+「刘 慈欣」撞成同一个 key。NUL 不可能出现在书名或作者里。
+ * **分隔符是 NUL，不是空格**——用空格的话，书名里带的空格和作者里带的空格
+ * 会让两本不同的书撞成同一个 key。NUL 不可能出现在书名或作者里。
  *
  * 导出是因为 `manual.ts` 的「扫描时认领手工添的书」必须用**同一个口径**：
  * 那边曾经手抄了一份，而且抄的时候把 NUL 写成了空格——两份声称「一致」的实现
@@ -78,7 +78,7 @@ export function bookKey(title: string, author: string | null | undefined): strin
  * 和 `health.ts` 那两条查询同一个口径）。
  *
  * 这里原来一个条件都不加，于是 `status = 'missing'` 的文件也会被当成「另一个版本」
- * 列出来，还带着「移入回收站」那个按钮。实测撞到的：《乌纱》一本在磁盘上、
+ * 列出来，还带着「移入回收站」那个按钮。实测撞到一本书两个文件：一本在磁盘上、
  * 一本早就没了，界面照样算成一组重复；点确认之后 `shell.trashItem` 拿一个
  * 不存在的路径去解析，Windows 抛 **`Failed to parse path`**——一句用户完全看不懂的话，
  * 而真相是「那个文件本来就不在了，没什么可删的」。
@@ -87,7 +87,7 @@ export function bookKey(title: string, author: string | null | undefined): strin
  * **这两件事的动作正好相反**：一个是把多余的文件拿走，一个是把没了文件的记录收拾掉。
  *
  * ⚠️ **只滤 `missing`，不滤 `excluded`。** 第一版顺手照抄了 `health.ts` 的
- * `and ifnull(f.excluded, 0) = 0`，当场把《灵飞经》那一组（两个文件都在磁盘上、
+ * `and ifnull(f.excluded, 0) = 0`，当场把一组书（两个文件都在磁盘上、
  * 都被排除规则挡住）从界面上抹掉了。库里有 759 个 `excluded` 的文件——
  * **「不在书架上显示」不等于「这些文件我不在乎」**，它们照样占着磁盘，
  * 而这个界面问的正是「磁盘上要不要少一份」。
@@ -251,8 +251,8 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
   /*
    * **书评和阅读状态要跟着合并过来，不能只并标签。**
    *
-   * keeper 是按**阅读进度**挑的，跟「哪本写过书评」无关：《诛仙》在库里有
-   * 校对版和精校版两个文件，你在其中一本上读到 500 章、在另一本上写了
+   * keeper 是按**阅读进度**挑的，跟「哪本写过书评」无关：《示例书》在库里
+   * 有校对版和精校版两个文件，你在其中一本上读到 500 章、在另一本上写了
    * 「结局烂尾了别看」——合并之后另一本连同 `reading_state` 被
    * `on delete cascade` 删掉，那句话就没了。而书评、弃坑原因和进度一样**重扫恢复不了**，
    * 这个应用的正事全靠它。标签早就并过来了，评分短评没有，同一次合并里
@@ -412,7 +412,7 @@ export function mergeBooks(db: DatabaseSync, bookIds: number[]): { keptBookId: n
     /*
      * ⚠️ **再问一句「主文件能不能读」。** `ensurePrimary` 管的是「主文件坏没坏」，
      * 而这里刚发生的事情是**文件集变了**：败方那份 txt 带着 `is_primary = 0` 搬进来，
-     * keeper 自己那面旗从没被重问过。合并 `三体.epub` + `三体.txt` 的实测结果是
+     * keeper 自己那面旗从没被重问过。合并 `某书.epub` + `某书.txt` 的实测结果是
      * 主文件仍是 EPUB，于是这本书点开进的是查看器——整段理由写在 `preferReadable` 上面。
      */
     preferReadable(db, keeper.id);

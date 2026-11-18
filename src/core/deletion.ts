@@ -282,7 +282,7 @@ export async function canDelete(db: DatabaseSync, fileId: number): Promise<Delet
    * `.trim().toLowerCase()`）——**同一件事两套口径，必然分叉**：
    *
    *   sqlite  lower('CAFÉ') = 'cafÉ'      JS = 'café'      （lower 只认 ASCII）
-   *   sqlite  trim('　三体　') 原样不动     JS = '三体'      （trim 不吃全角空格）
+   *   sqlite  trim('　书名　') 原样不动     JS = '书名'      （trim 不吃全角空格）
    *
    * SQL 的归一化比 JS 弱，所以 SQL 判等是 JS 判等的**子集**：界面把两本归成
    * 一组、这里却找不到同伴，于是删除按钮点不动，理由还写着「磁盘上没有找到
@@ -298,7 +298,7 @@ export async function canDelete(db: DatabaseSync, fileId: number): Promise<Delet
    * `bookKey` 根本没机会判。
    *
    * 没有为它加机械，是**量过之后**的决定：真实库 8172 本里书名带
-   * 「非 ASCII 且有大小写」字符的只有 8 本（全是《诛仙Ⅱ》这类罗马数字续集），
+   * 「非 ASCII 且有大小写」字符的只有 8 本（全是 Ⅱ 这类罗马数字续集），
    * 而 `bookKey` 归成一组、预筛却会漏掉同伴的组是 **0 组**——
    * 同一本书的两个文件，书名是从文件名里解析出来的同一串字符，
    * 不会一份大写一份小写。要改先重跑这个普查。
@@ -473,13 +473,8 @@ export async function deleteDuplicates(
   /**
    * **回收站收不下时，把文件搬到这个目录里**（不给就照旧记成失败）。
    *
-   * ⚠️ **这不是真删，铁律 1 没有被破**：文件还在磁盘上、还能拿回来，
-   * 只是从书库目录挪进了应用自己的目录——和送进回收站是同一件事的两种做法。
-   * 所以**不限于「内容完全相同」的重复**：移动不丢内容，
-   * 那道只对 `identical` 放行的闸是给真删用的，这里没有存在的理由。
-   *
-   * 真实场景：网络共享上没有回收站（实测 `shell.trashItem` 抛
-   * `Failed to perform delete operation`），而那儿的重复文件照样占着空间。
+   * 移动不丢内容，所以不是真删、也不要求「内容完全相同」；为什么这样做见本文件
+   * 上面「暂存区」那段。
    */
   暂存目录?: string,
 ): Promise<DeleteResult> {

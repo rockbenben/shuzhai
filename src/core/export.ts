@@ -389,7 +389,7 @@ export function exportNotes(db: DatabaseSync, bookId: number): string {
 /**
  * **把全库的笔记导成一份 markdown。**
  *
- * `exportNotes` 一直是**按本**的，界面上唯一的入口在「导出《某某》」里。
+ * `exportNotes` 一直是**按本**的，界面上唯一的入口在「导出这本书」里。
  * 一个在三十本书里记过东西的人，想把笔记拿出来得点三十次——
  * 而「我记过一句关于 XX 的」这种问题恰恰是跨书的。
  *

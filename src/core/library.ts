@@ -372,7 +372,7 @@ export function renameTag(db: DatabaseSync, tagId: number, raw: string): { merge
 /**
  * 语法碎片里的字。含这些字的 n-gram 一律丢掉。
  *
- * 中文没有词边界，只能数 n-gram，于是「重生之都市修仙」会同时数出
+ * 中文没有词边界，只能数 n-gram，于是一个书名会同时数出
  * `重生` `生之` `之都` `都市`……其中「生之」「游之」「我的」「我是」「这个」
  * 这类碎片在真实书名里出现频率极高（实测「生之」140 次、「我的」176 次），
  * 排进前列会把真正有用的题材词挤下去。
@@ -594,7 +594,7 @@ export function hasNotesSql(): string {
  *
  * ⚠️ `%` 和 `_` 在 `like` 里是通配符，而用户以为自己搜的是字面上那个字符。
  * 实测：书架顶上那个搜索框里输一个 `%`，11 本书全中；输 `_` 一样；
- * 输 `剑%来` 也能命中《剑来》——看起来像「搜得挺聪明」，其实是搜错了。
+ * 输 `剑%来` 也能把「剑」开头、「来」结尾的书搜出来——看起来像「搜得挺聪明」，其实是搜错了。
  *
  * **三处 like 拼接共用这一份**：书架筛选（本文件 `buildFilter`）、
  * 全库搜索的元数据档（`search.ts` 的 `searchMeta`，书名 / 作者 / 标签 / 短评）、
@@ -1426,7 +1426,7 @@ export function repairLibrary(db: DatabaseSync, dryRun = false): RepairReport {
      *   - 压根没有主版本（合并/删除的中间态）——这种书读不了，
      *     读章节的查询都带 `is_primary = 1`；
      *   - **主版本在，但它标着 missing / parse_failed，而旁边有一份好的**。
-     *     后者是真实库上撞见的《乌纱》：磁盘上被删掉的那份恰好是主文件，
+     *     后者是真实库上撞见的一本书：磁盘上被删掉的那份恰好是主文件，
      *     卡片挂着「文件不见了」，而 `book.list` 的 `path` 取的就是主文件——
      *     **这本书打不开**，虽然另一份好好地在磁盘上。扫描那头已经修了
      *     （标 missing 时顺手换），但**已经坏掉的不会自己好**：那条记录
@@ -1599,9 +1599,8 @@ export function bookHasUserData(db: DatabaseSync, bookId: number, ignoreWant = f
       `viewer.${bookId}`, `outline.${bookId}`,
       bookId, bookId, bookId, bookId, bookId,
     ) as Record<string, number>;
-  // 繁简转换模式（`convert.book.<id>`）**单独判**：它用模块自己的 API 问，
-  // 因为 `off` 也会在库里留一行（`setSetting` 写的是值不是「有没有」），
-  // 而「行在不在」会把用户早就改回「原文」的书也算成有数据。
+  // 繁简转换模式（`convert.book.<id>`）**单独判**：`off` 也会在库里留一行，
+  // 「行在不在」不等于「模式开着」。
   if (bookConvertMode(db, bookId) !== 'off') return true;
   return Object.values(r).some((v) => v === 1);
 }
