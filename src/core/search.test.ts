@@ -49,7 +49,7 @@ beforeEach(async () => {
   );
 
   writeFileSync(
-    join(lib, '《雪中悍刀行》烽火戏诸侯.txt'),
+    join(lib, '《示例书甲乙》示例某人甲.txt'),
     [
       `第一章 初入江湖\n少年提剑出门，风雪满衣。\n${filler}`,
       `第二章 客栈遇故人\n他在客栈里遇到了旧识。\n${filler}`,
@@ -57,7 +57,7 @@ beforeEach(async () => {
     'utf8',
   );
   writeFileSync(
-    join(lib, '斗破苍穹-天蚕土豆.txt'),
+    join(lib, '示例书甲-示例某人乙.txt'),
     [`第一章 楔子\n斗气大陆，唯有强者为尊。\n${filler}`, `第二章 起风了\n他握紧了拳头。\n${filler}`].join('\n'),
     'utf8',
   );
@@ -74,15 +74,15 @@ afterEach(async () => {
 
 test('元数据搜索不需要索引，随时能用', () => {
   assert.equal(isIndexed(db), false);
-  const r = searchMeta(db, '烽火') as Array<{ title: string }>;
-  assert.deepEqual(r.map((x) => x.title), ['雪中悍刀行']);
+  const r = searchMeta(db, '示例某人甲') as Array<{ title: string }>;
+  assert.deepEqual(r.map((x) => x.title), ['示例书甲乙']);
 });
 
 test('标签也能搜到', () => {
-  const id = (db.prepare("select id from book where title='斗破苍穹'").get() as { id: number }).id;
+  const id = (db.prepare("select id from book where title='示例书甲'").get() as { id: number }).id;
   tagBooks(db, [id], ['热血']);
   const r = searchMeta(db, '热血') as Array<{ title: string }>;
-  assert.deepEqual(r.map((x) => x.title), ['斗破苍穹']);
+  assert.deepEqual(r.map((x) => x.title), ['示例书甲']);
 });
 
 test('没建索引就搜正文要明确报错，不能假装没结果', () => {
@@ -96,7 +96,7 @@ test('建索引后能搜到正文，并给出上下文片段', async () => {
 
   const hits = searchFullText(db, '客栈里');
   assert.equal(hits.length, 1);
-  assert.equal(hits[0].bookTitle, '雪中悍刀行');
+  assert.equal(hits[0].bookTitle, '示例书甲乙');
   assert.equal(hits[0].chapterTitle, '第二章 客栈遇故人');
   assert.match(hits[0].snippet, /【客栈里】/, '命中词要标出来');
 });
@@ -132,7 +132,7 @@ test('关掉索引会清空并禁用正文搜索', async () => {
  * 点过去会落到另一章、或者直接报「这本书没有第 N 章」。
  */
 test('重新解析之后，这本书的旧索引要作废（不能搜出已经不存在的章）', async () => {
-  const id = (db.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+  const id = (db.prepare("select id from book where title='示例书甲乙'").get() as { id: number }).id;
   const file = (
     db.prepare('select path from book_file where book_id = ? and is_primary = 1').get(id) as {
       path: string;
@@ -167,7 +167,7 @@ test('重新解析之后，这本书的旧索引要作废（不能搜出已经�
 });
 
 test('删掉建过索引的书，它的索引行要一起没——不留点不开的幽灵结果', async () => {
-  const id = (db.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+  const id = (db.prepare("select id from book where title='示例书甲乙'").get() as { id: number }).id;
   await buildIndex(db, cache, undefined, [id]);
   assert.ok(searchFullText(db, '少年提剑出门').length >= 1);
 
@@ -181,7 +181,7 @@ test('删掉建过索引的书，它的索引行要一起没——不留点不�
 });
 
 test('换主文件之后这本书的索引也要作废——索引跟着主文件的章节走', async () => {
-  const id = (db.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+  const id = (db.prepare("select id from book where title='示例书甲乙'").get() as { id: number }).id;
   await buildIndex(db, cache, undefined, [id]);
   assert.ok(searchFullText(db, '少年提剑出门').length >= 1);
 
@@ -203,7 +203,7 @@ test('换主文件之后这本书的索引也要作废——索引跟着主文�
 });
 
 test('书内搜索不依赖索引', async () => {
-  const bookId = (db.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+  const bookId = (db.prepare("select id from book where title='示例书甲乙'").get() as { id: number }).id;
   assert.equal(isIndexed(db), false, '故意不建索引');
 
   const hits = await searchInBook(db, cache, bookId, '客栈');
@@ -213,7 +213,7 @@ test('书内搜索不依赖索引', async () => {
 });
 
 test('书内搜索只在这一本里找', async () => {
-  const bookId = (db.prepare("select id from book where title='斗破苍穹'").get() as { id: number }).id;
+  const bookId = (db.prepare("select id from book where title='示例书甲'").get() as { id: number }).id;
   assert.equal((await searchInBook(db, cache, bookId, '客栈')).length, 0, '那是另一本书里的词');
   assert.ok((await searchInBook(db, cache, bookId, '斗气')).length >= 1);
 });
@@ -241,8 +241,8 @@ const idOf = (title: string): number =>
 test('按书建索引：只灌这一本，别的书不受影响', async () => {
   // 原来 buildIndex 无脑 `delete from chapter_fts`——给第二本建索引
   // 会把第一本的悄悄删掉，用户完全看不出来
-  const b1 = idOf('雪中悍刀行');
-  const b2 = idOf('斗破苍穹');
+  const b1 = idOf('示例书甲乙');
+  const b2 = idOf('示例书甲');
 
   await buildIndex(db, cache, undefined, [b1]);
   const after1 = indexedBooks(db);
@@ -254,8 +254,8 @@ test('按书建索引：只灌这一本，别的书不受影响', async () => {
 });
 
 test('删索引也能按书删', async () => {
-  const b1 = idOf('雪中悍刀行');
-  const b2 = idOf('斗破苍穹');
+  const b1 = idOf('示例书甲乙');
+  const b2 = idOf('示例书甲');
   await buildIndex(db, cache, undefined, [b1, b2]);
   assert.equal(indexedBooks(db).length, 2);
 
@@ -268,7 +268,7 @@ test('删索引也能按书删', async () => {
 });
 
 test('重复给同一本建索引不会翻倍', async () => {
-  const b1 = idOf('雪中悍刀行');
+  const b1 = idOf('示例书甲乙');
   await buildIndex(db, cache, undefined, [b1]);
   const n1 = indexedBooks(db)[0].chapters;
   await buildIndex(db, cache, undefined, [b1]);
@@ -309,7 +309,7 @@ test('书内搜索：跨窗口边界的匹配不会丢', async () => {
 
 test('书内搜索：命中要落在正确的章里', async () => {
   const cache2 = new FileCache();
-  const id = (db.prepare("select id from book where title = '雪中悍刀行'").get() as { id: number }).id;
+  const id = (db.prepare("select id from book where title = '示例书甲乙'").get() as { id: number }).id;
   const r = await searchInBook(db, cache2, id, '客栈里遇到了旧识');
   assert.equal(r.length, 1);
   assert.equal(r[0].chapterIdx, 1, '这句在第二章');
@@ -322,7 +322,7 @@ test('书内搜索不需要索引', async () => {
   // 全文索引是按书建的、多数书没建。书内搜索必须任何时候都能用
   assert.equal(isIndexed(db), false);
   const cache2 = new FileCache();
-  const id = (db.prepare("select id from book where title = '斗破苍穹'").get() as { id: number }).id;
+  const id = (db.prepare("select id from book where title = '示例书甲'").get() as { id: number }).id;
   const r = await searchInBook(db, cache2, id, '唯有强者为尊');
   assert.equal(r.length, 1);
   await cache2.releaseAll();
@@ -335,10 +335,10 @@ test('书内搜索不需要索引', async () => {
  * 搜索结果里原来只有书名/作者/标签，恰好在最该回答的地方不答。
  */
 test('搜书名的结果里带着评分和短评', () => {
-  const id = (db.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+  const id = (db.prepare("select id from book where title='示例书甲乙'").get() as { id: number }).id;
   db.prepare("update reading_state set rating = 2, comment = '烂尾了别看' where book_id = ?").run(id);
 
-  const r = searchMeta(db, '雪中') as Array<Record<string, unknown>>;
+  const r = searchMeta(db, '示例书甲乙') as Array<Record<string, unknown>>;
   assert.equal(r.length, 1);
   assert.equal(r[0].rating, 2, `没带评分：${JSON.stringify(r[0])}`);
   assert.equal(r[0].comment, '烂尾了别看');
@@ -449,7 +449,7 @@ test('% 和 _ 是字面量，不是通配符——三处 like 都要转义', asy
  * 不成立，整章偏移集体挪一个标题的长度）。
  */
 test('书内搜索：显示繁体时搜繁体词得搜得到，片段也是看得见的字形', async () => {
-  const id = idOf('雪中悍刀行');
+  const id = idOf('示例书甲乙');
   setBookConvertMode(db, id, 'to-traditional');
 
   const hits = await searchInBook(db, cache, id, '客棧');
@@ -465,7 +465,7 @@ test('书内搜索：显示繁体时搜繁体词得搜得到，片段也是看�
  * 搜出来的会是屏幕上根本没有的那几个字，片段和落点都对不上用户看到的正文。
  */
 test('书内搜索：原文模式不擅自换字形', async () => {
-  const id = idOf('雪中悍刀行');
+  const id = idOf('示例书甲乙');
   setBookConvertMode(db, id, 'off');
   assert.equal((await searchInBook(db, cache, id, '客棧')).length, 0, '原文模式搜繁体不该命中');
   assert.ok((await searchInBook(db, cache, id, '客栈')).length >= 1, '简体原样搜仍然成立');
