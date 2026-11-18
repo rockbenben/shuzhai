@@ -15,10 +15,25 @@ import type { ParseRule } from './chapter.ts';
 
 /** 这本书当前生效的自定义规则，没有就返回 null */
 export function bookRule(db: DatabaseSync, bookId: number): string | null {
-  const row = db
-    .prepare("select pattern from parse_rule where book_id = ? and scope = 'book' and enabled = 1")
-    .get(bookId) as { pattern: string } | undefined;
-  return row?.pattern ?? null;
+  return readBookRule(db, bookId)?.pattern ?? null;
+}
+
+interface BookRuleRow {
+  pattern: string;
+  keep_short_chapters: number;
+}
+
+export function readBookRule(db: DatabaseSync, bookId: number): BookRuleRow | undefined {
+  return db.prepare(
+    "select pattern, keep_short_chapters from parse_rule where book_id = ? and scope = 'book' and enabled = 1",
+  ).get(bookId) as BookRuleRow | undefined;
+}
+
+export function saveBookRule(db: DatabaseSync, bookId: number, pattern: string, keepShortChapters: boolean): void {
+  db.prepare("delete from parse_rule where book_id = ? and scope = 'book'").run(bookId);
+  db.prepare(
+    "insert into parse_rule(name, pattern, scope, book_id, keep_short_chapters) values('自定义', ?, 'book', ?, ?)",
+  ).run(pattern, bookId, Number(keepShortChapters));
 }
 
 /**
@@ -35,14 +50,18 @@ export function bookRule(db: DatabaseSync, bookId: number): string | null {
 export function ruleForFile(db: DatabaseSync, fileId: number): ParseRule[] | undefined {
   const row = db
     .prepare(
-      `select p.pattern from parse_rule p
+      `select p.pattern, p.keep_short_chapters from parse_rule p
          join book_file f on f.book_id = p.book_id
         where f.id = ? and p.scope = 'book' and p.enabled = 1`,
     )
-    .get(fileId) as { pattern: string } | undefined;
+    .get(fileId) as BookRuleRow | undefined;
   if (!row) return undefined;
   try {
-    return [{ name: 'custom', pattern: new RegExp(row.pattern) }];
+    return [{
+      name: 'custom',
+      pattern: new RegExp(row.pattern),
+      keepShortChapters: row.keep_short_chapters === 1,
+    }];
   } catch {
     return undefined;
   }

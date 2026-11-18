@@ -497,8 +497,9 @@ export function createRpc(
      * **一个字都不写库**——用户拿不准时可以随便试。pattern 省略则用内置规则。
      */
     'chapter.preview': (params) => {
-      const { pattern } = asRecord(params);
-      return previewChapters(db, num(params, 'bookId'), pattern ? String(pattern) : undefined);
+      const { pattern, keepShortChapters } = asRecord(params);
+      if (keepShortChapters !== undefined && typeof keepShortChapters !== 'boolean') throw new Error('保留短章选项必须是布尔值');
+      return previewChapters(db, num(params, 'bookId'), pattern ? String(pattern) : undefined, keepShortChapters);
     },
 
     /**
@@ -512,9 +513,10 @@ export function createRpc(
 
     /** **写库**：确认应用某条规则，重新切章并记住这条规则。进度按 spec §2.3 恢复 */
     'chapter.applyRule': (params) => {
-      const { pattern } = asRecord(params);
+      const { pattern, keepShortChapters } = asRecord(params);
       if (typeof pattern !== 'string' || pattern === '') throw new Error('缺少 pattern');
-      return applyRule(db, num(params, 'bookId'), pattern);
+      if (keepShortChapters !== undefined && typeof keepShortChapters !== 'boolean') throw new Error('保留短章选项必须是布尔值');
+      return applyRule(db, num(params, 'bookId'), pattern, keepShortChapters);
     },
 
     /** **写库**：清掉自定义规则，回到内置规则重新解析 */

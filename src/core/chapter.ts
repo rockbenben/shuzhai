@@ -55,19 +55,20 @@ export interface ParseResult {
 export interface ParseRule {
   name: string;
   pattern: RegExp;
+  keepShortChapters?: boolean;
   /**
    * 命中之后再筛一遍。给那些「光靠正则分不清标题和正文」的规则用。
    *
    * 目前只有 `bare-number` 需要：`^\d+标题` 这种格式在真实书库里确实存在
-   * （《北洋反动派》的章节就是 `1反动派？` `2准备`），但同样的正则也会命中
+   * （有的书的章节就是 `1反动派？` `2准备`），但同样的正则也会命中
    * 「1994年12月14日，日本关东地区」「5点半，我领着嘉琪出了门」这类正文句子。
    * 判别标准是**序号连不连得成递增序列**——实测这一条把两者分得干干净净。
    */
-  refine?: (hits: Line[]) => Line[];
+  refine?: (hits: Line[], volumes: Line[]) => Line[];
 }
 
 /**
- * 序号字符。含罗马数字（U+2160–U+217F）——《星海猎人》6.1MB 的卷号就是
+ * 序号字符。含罗马数字（U+2160–U+217F）——《示例书》6.1MB，卷号就是
  * `第Ⅰ卷 梦开始的地方 第001章 降临`，不认罗马数字的话行首匹配不上，
  * 后面那个 `第001章` 也就一起丢了，整本 985 章掉进机械分段。
  * 全库普查这个字符段只有这一本命中，中文正文里不会出现，零误伤
@@ -92,7 +93,7 @@ const UNIT = '(?:章|节(?!课)|節|回(?![合来事去])|话|話)';
  * 无编号但确定是章节的标题词，同样来自 legado。
  * **必须和「第N章」写在同一条规则里**，不能单开一条：整本书里
  * 序章楔子番外加起来也就几处，单独成规则永远赢不了打分，
- * 于是《狩魔手记》那种「序章 人生若只如初见」开头的书就整本掉进机械分段
+ * 于是一本以「序章 人生若只如初见」开头的书就整本掉进机械分段
  */
 const NAMED = '(?:序章|楔子|正文(?!完|结)|终章|後记|后记|尾声|番外|引子|[序前]言|卷首语|扉页)';
 
@@ -110,7 +111,7 @@ const NAMED = '(?:序章|楔子|正文(?!完|结)|终章|後记|后记|尾声|�
 export const BUILTIN_RULES: ParseRule[] = [
   { name: 'body-prefix', pattern: new RegExp(`^正文\\s*第\\s*${NUM}+\\s*[章节節回]`) },
   // `第一卷第一章` / `第一集 误入天庭 第一章 紫炎心`。
-  // 两处放宽都是实测逼出来的：**「集」也是卷的说法**（《飘邈之旅》《星辰变》都用它），
+  // 两处放宽都是实测逼出来的：**「集」也是卷的说法**（《示例书甲》《示例书乙》都用它），
   // 而且**卷名会夹在中间**——原来要求「第N卷」和「第M章」紧挨着，
   // 中间隔个卷名就一行都认不出来，整本掉进机械分段
   {
@@ -119,7 +120,7 @@ export const BUILTIN_RULES: ParseRule[] = [
   },
   // `卷一 卷土重来 第1章 人生无常` —— **卷号在「卷」字后面**，和上面那条相反。
   // 上面那条要求 `第一卷`，这种写法它一个字都认不出来，整本书会掉进机械分段。
-  // 实测这个库里 8.3MB 的《枭臣》、6.1MB 的《星海猎人》都是这个格式。
+  // 实测这个库里 8.3MB、6.1MB 的两本大书都是这个格式。
   // 卷名允许有（`卷一 山海盗 第一章 …`）也允许没有（`卷一 第1章 …`）
   {
     name: 'volume-first-chapter',
@@ -150,17 +151,16 @@ export const BUILTIN_RULES: ParseRule[] = [
     pattern: /^(?:chapter|section|part|ＰＡＲＴ|episode|no[.、]?)\s*\d{1,4}\b.{0,30}$/i,
   },
   // `章一 初入江湖` / `卷三` / `段一 廷杖`。**量词在前、序号在后**，和「第一章」正好反过来。
-  // legado「章/卷 序号 标题」，另加了「段」——《乌纱》395 处、《奉天承运》261 处都用它，
+  // legado「章/卷 序号 标题」，另加了「段」：实测《示例书甲》395 处、《示例书乙》261 处都用它，
   // 而全库普查行首「段N」**只有这两本命中**，零误伤
   { name: 'unit-first', pattern: new RegExp(`^[卷章段][\\s　]*${NUM}{1,8}[\\s　]{0,4}.{0,30}$`) },
-  // `第五十幕 地底之王（一）`。**不并进 `standard` 的 UNIT**：全库 206 本行首出现
-  // 「第N幕」，真假参半——《琥珀之剑》1467 处是真章节，而《蛊真人》的
-  // 「第一幕徐徐在他眼前消散」《地狱电影院》的「第一幕，在此终结。」是正文。
-  // 并进去会往那些本来切得好的书里塞假章节；单独成一条规则则由打分决定，
-  // 有真「第N章」的书天然赢过它
+  // `第五十幕 地底之王（一）`。**不并进 `standard` 的 UNIT**：全库 206 本行首出现「第N幕」，
+  // 真假参半——《示例书甲》1467 处是真章节；《示例书乙》的「第一幕徐徐在他眼前消散」、
+  // 《示例书丙》的「第一幕，在此终结。」是正文。并进去会往切得好的书里塞假章节；
+  // 单独成一条规则则由打分决定，有真「第N章」的书天然赢过它
   { name: 'mu', pattern: new RegExp(`^第\\s*${NUM}{1,8}\\s*幕`) },
   // `〔一〕桃花带杀`。序号在括号里、标题跟在外面——已有的 bracket 要求括号里带量词，
-  // bracket-num 要求闭括号在行尾，这种两条都不认。《斩龙》220 处，全库零误伤
+  // bracket-num 要求闭括号在行尾，这种两条都不认。《示例书》220 处，全库零误伤
   {
     name: 'bracket-lead',
     pattern: new RegExp(`^[〔〖]\\s*${NUM}{1,8}\\s*[〕〗]\\s*\\S.{0,30}$`),
@@ -170,7 +170,7 @@ export const BUILTIN_RULES: ParseRule[] = [
     name: 'split-read',
     pattern: new RegExp(`^(?:.{0,15}分[页节章段]阅读[-_ ]|第\\s*${NUM}{1,6}\\s*[页节]).{0,30}$`),
   },
-  // `雪中悍刀行（12）` / `雪中悍刀行 12`。legado「书名 括号 序号」「书名 序号」
+  // `某书（12）` / `某书 12`。legado「书名 括号 序号」「书名 序号」
   {
     name: 'title-num',
     pattern: new RegExp(`^[一-龥]{1,20}[\\s　]{0,4}(?:[(（]${NUM}{1,8}[)）]|${NUM}{1,8})[\\s　]{0,4}$`),
@@ -178,7 +178,7 @@ export const BUILTIN_RULES: ParseRule[] = [
   },
   // `☆、重生` / `★ 第一夜`。legado「特殊符号 标题(单个)」，晋江系的 txt 常见。
   // **后面必须有能读的字**：`※※※` `◇◇◇◇` 这类是场景分隔线，不是标题——
-  // 不加这个前瞻的话《光年》被切成 126 章，每一章都叫「※※※」
+  // 不加这个前瞻的话一本书被切成 126 章，每一章都叫「※※※」
   {
     name: 'star-title',
     pattern: /^[☆★✦✧◆◇※](?=.*[^\s\p{P}\p{S}]).{1,30}$/u,
@@ -207,13 +207,14 @@ export const BUILTIN_RULES: ParseRule[] = [
  * 只留下序号能连成递增序列的那些命中。
  *
  * 判据来自真实书库的实测：
- *   - 《北洋反动派》286 处命中 / 150 处连续递增 → 真章节（`1反动派？` `2准备`）
- *   - 《横刀》83 / 81 → 真章节（`01 雁然` `02 无相禅斗`）
- *   - 《捡个萝莉当老婆》78 / 10 → **全是正文**（「5点半，我领着嘉琪出了门」）
- *   - 《东京医途》83 / 2 → 也是正文（「1994年12月14日」）
+ *   - 《示例书甲》286 处命中 / 150 处连续递增 → 真章节（`1反动派？` `2准备`）
+ *   - 《示例书乙》83 / 81 → 真章节（`01 雁然` `02 无相禅斗`）
+ *   - 《示例书丙》78 / 10 → **全是正文**（「5点半，我领着嘉琪出了门」）
+ *   - 《示例书丁》83 / 2 → 也是正文（「1994年12月14日」）
  *
  * 光靠正则分不开前两组和后两组，序号递不递增能。
- * 找最长的一条递增链（允许跳号，网文缺章很常见），链太短就整条规则作废。
+ * 找最长的一条编号链（允许跳号，网文缺章很常见），有证据时接上另一组编号。
+ * 链太短就整条规则作废。
  */
 const CN_DIGIT: Record<string, number> = {
   〇: 0, 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5,
@@ -260,8 +261,8 @@ function leadingNumber(s: string): number {
  *
  * 分开写是因为 `ascendingRun` 的「最长链要占 40%」在这里会误杀一大片：
  * 中文小说的序号**换卷就重新从一开始**，`1、游原 2、原上 3、大家 1、明鸿 2、冷暖`
- * （《相府教子》）这种最长链只有三四条，占比远不到 40%。实测被它误杀的有
- * 《五大贼王》111 章、《大宋金手指》407 章、《挽天倾》357 章、《鬼股》165 章，
+ * （《示例书》就是换卷重编号的）这种最长链只有三四条，占比远不到 40%。实测被它误杀的有
+ * 四本书：《示例书甲》111 章、《示例书乙》407 章、《示例书丙》357 章、《示例书丁》165 章，
  * 全都掉进了机械分段或只剩几个卷。
  *
  * 判据改成看**相邻两条的关系**：递增一小步、原地不动（`（上）`/`（下）` 拆两条）、
@@ -289,21 +290,91 @@ function mostlyAscending(hits: Line[]): Line[] {
   return hits;
 }
 
-function ascendingRun(hits: Line[]): Line[] {
+const NUMBER_LOOKAROUND = 40;
+const NUMBER_GROUP_LINKS = 4;
+
+/** 没有卷标记时，两边各要有一组实质章节。几行编号列表不能作为重排的依据。 */
+function numberedGroupLinks(hits: Line[], nums: number[], direction: 1 | -1): Uint8Array {
+  const links = new Uint8Array(hits.length);
+  for (let i = direction === 1 ? 0 : hits.length - 1; i >= 0 && i < hits.length; i += direction) {
+    for (let j = i - direction; j >= 0 && j < hits.length && Math.abs(i - j) <= NUMBER_LOOKAROUND; j -= direction) {
+      const step = (nums[i] - nums[j]) * direction;
+      const gap = (hits[i].byteOffset - hits[j].byteOffset) * direction;
+      if (step < 1 || step > 2 || gap < NUMBER_GROUP_GAP || gap > MAX_MEAN_CHAPTER_BYTES) continue;
+      links[i] = Math.max(links[i], Math.min(NUMBER_GROUP_LINKS, links[j] + 1));
+      if (links[i] === NUMBER_GROUP_LINKS) break;
+    }
+  }
+  return links;
+}
+
+function dropCompactNumberLists(candidates: Line[]): Line[] {
+  const hits: Line[] = [];
+  const nums = candidates.map((h) => leadingNumber(h.text));
+  for (let start = 0; start < candidates.length;) {
+    let end = start + 1;
+    while (end < candidates.length
+      && nums[end] === nums[end - 1] + 1
+      && candidates[end].byteOffset - candidates[end - 1].byteOffset < MIN_MEDIAN_CHAPTER_BYTES) end++;
+    if (end - start < 3) {
+      for (let i = start; i < end; i++) hits.push(candidates[i]);
+    }
+    start = end;
+  }
+  return hits;
+}
+
+function ascendingRun(candidates: Line[], volumes: Line[]): Line[] {
+  // 先排除紧挨着的编号列表，否则最后一项可能恰好接上下一章。
+  const hits = dropCompactNumberLists(candidates);
+  const grouped = longestNumberedRun(hits, volumes);
+  const single = longestNumberedRun(candidates);
+  /*
+   * **多组拼接只多收「像标题位、而且不像数字正文」的行。**
+   *
+   * 三类回归都是全库逐本回测撞出来的：缩进的数字正文（`　　3！`）、金额/日期正文
+   * （`8.1日。` `1.2万吨TNT。`）、跨卷的超长空档（`restartsAtVolume` 已拦）。
+   * 前两类只筛多组拼接新收的行，不动单组判据——缩进的真标题真有（量到 2%），一刀切会误伤。
+   * 量与案例见 `docs/lessons.md`「多组编号拼接」那节，这里只留判据。
+   */
+  const singleOffsets = new Set(single.map((h) => h.byteOffset));
+  const 数字正文 = /^\d{1,4}[.．]\d+|^\d{1,4}(?:亿|万|千|百|美元|元|块|%|％)/;
+  const grouped2 = grouped.filter((h) => singleOffsets.has(h.byteOffset)
+    || (h.headingShape && !数字正文.test(h.text)));
+  if (grouped2.length > single.length && grouped.some((hit, i) => {
+    if (i === 0) return false;
+    const step = leadingNumber(hit.text) - leadingNumber(grouped[i - 1].text);
+    return step < 0 || step > 20;
+  })) return grouped2;
+  // 多组判据没有找回更多章节时，沿用原来的单组判据。
+  return single;
+}
+
+function longestNumberedRun(hits: Line[], volumes?: Line[]): Line[] {
   if (hits.length < 5) return [];
   const nums = hits.map((h) => leadingNumber(h.text));
-  // 读不出序号的太多就别硬判——这条规则本来就不该管这种书
-  if (nums.filter(Number.isFinite).length < hits.length * 0.6) return [];
+  const runBefore = volumes && numberedGroupLinks(hits, nums, 1);
+  const runAfter = volumes && numberedGroupLinks(hits, nums, -1);
 
-  // 最长递增子序列。只认「后一个比前一个大、且没大太多」——
-  // 章号跳过几章正常，从 3 跳到 1994 就不是章号了
   const from: number[] = new Array(hits.length).fill(-1);
   const len: number[] = new Array(hits.length).fill(1);
   let bestEnd = 0;
+  let volume = -1;
   for (let i = 1; i < hits.length; i++) {
-    for (let j = i - 1; j >= 0 && i - j <= 40; j--) {
+    while (volumes && volume + 1 < volumes.length && volumes[volume + 1].byteOffset <= hits[i].byteOffset) volume++;
+    for (let j = i - 1; j >= 0 && i - j <= NUMBER_LOOKAROUND; j--) {
       const step = nums[i] - nums[j];
-      if (step > 0 && step <= 20 && len[j] + 1 > len[i]) {
+      if (len[j] + 1 <= len[i]) continue;
+      const gap = hits[i].byteOffset - hits[j].byteOffset;
+      // 换卷重启也要有章节级的间距：中间隔着几 MB 的是附录/换页，不是换卷
+      const restartsAtVolume = volumes && volume > 0 && step < 0 && nums[i] <= 3
+        && gap >= NUMBER_GROUP_GAP && gap <= MAX_MEAN_CHAPTER_BYTES
+        && hits[j].byteOffset < volumes[volume].byteOffset;
+      const startsNewRange = step <= -5 || (step < 0 && nums[i] <= 3) || step > 20;
+      const joinsNumberGroups = startsNewRange
+        && gap >= NUMBER_GROUP_GAP && gap <= MAX_MEAN_CHAPTER_BYTES
+        && runBefore?.[j] === NUMBER_GROUP_LINKS && runAfter?.[i] === NUMBER_GROUP_LINKS;
+      if ((step > 0 && step <= 20) || restartsAtVolume || joinsNumberGroups) {
         len[i] = len[j] + 1;
         from[i] = j;
       }
@@ -327,11 +398,10 @@ function ascendingRun(hits: Line[]): Line[] {
  * 「书名 序号」这条规则必须**每次命中的书名部分都一样**——它本来就是
  * 「同一个书名重复出现、后面跟递增的序号」这个格式。
  *
- * 不加这条的话，正则 `^汉字{1,20}数字{1,8}$` 会去咬正文里任何一行
- * 「短句 + 数字结尾」。实测《琥珀之剑》11.3 MB 被它切成 34 章，
- * 标题是「水元素1」「风元素3」「地2」「光5」——全是正文里的属性面板；
- * 《温故一九四二》切出「十一」「十一」「温故一九四二」三章。
- * 这两本原来走机械分段，反而比切错强
+ * 不加这条的话，正则 `^汉字{1,20}数字{1,8}$` 会去咬正文里任何一行「短句 + 数字结尾」。
+ * 《示例书甲》11.3 MB 被它切成 34 章，标题是「水元素1」「风元素3」「地2」「光5」——
+ * 全是正文里的属性面板；《示例书乙》切出「十一」「十一」「示例书乙」三章。
+ * 这两本原来走机械分段，反而比切错强。
  */
 function sameStem(hits: Line[]): Line[] {
   if (hits.length < 3) return [];
@@ -348,9 +418,9 @@ function sameStem(hits: Line[]): Line[] {
  * 一本书里这些词加起来也就几处，光凭它们不构成章节结构。
  * 必须至少有一处是带编号的「第N章」，NAMED 才作为补充一起收进来。
  *
- * 实测挡掉的：《魅生》2.1 MB 只匹配到 13 条「番外：xxx」、
- * 《案藏玄机》1 MB 匹配到 3 条一模一样的「引子」、
- * 《辛亥：摇晃的中国》只匹配到「序言…」「后记…」两条。
+ * 实测挡掉的：《示例书甲》2.1 MB 只匹配到 13 条「番外：xxx」、
+ * 《示例书乙》1 MB 匹配到 3 条一模一样的「引子」、
+ * 《示例书丙》只匹配到「序言…」「后记…」两条。
  * 这三本正文的章节是别的格式，被这几处一带就整本切歪，前面的内容还会被丢掉
  */
 function needsNumbered(hits: Line[]): Line[] {
@@ -359,7 +429,7 @@ function needsNumbered(hits: Line[]): Line[] {
 
 /** 卷 / 部 / 篇。单独一张表：识别得出来就建两级目录，识别不出就单级（spec §2.2） */
 export const VOLUME_RULES: ParseRule[] = [
-  // 「折」也是卷：《乌纱》《奉天承运》的结构是「第一折 …」下面挂「段一 …」，
+  // 「折」也是卷：《示例书甲》《示例书乙》的结构是「第一折 …」下面挂「段一 …」，
   // 折只有 8 处和 6 处，当章节太少、当卷正合适
   { name: 'volume', pattern: new RegExp(`^第\\s*${NUM}+\\s*[卷部集篇折](?!\\s*第)`) },
   { name: 'volume-bracket', pattern: new RegExp(`^[【\\[]\\s*第?\\s*${NUM}+\\s*[卷部集篇]`) },
@@ -383,10 +453,10 @@ const MIN_MEAN_CHAPTER_BYTES = 200;
  * 根本没找到章节结构——这时机械分段反而更好用。
  *
  * 这条是补出来的：`num-sep`（收「一、标题」「1.标题」，早先叫 dun-num）这类宽松规则
- * 在一本 6.7MB 的书里可能只命中 3–4 行
+ * 在《示例书》6.7MB 里可能只命中 3–4 行
  * （正文里偶然出现的「一、」），却因为「命中数 ≥ 2 且平均章长超过下限」而胜出，
  * 把整本书切成 4 个 1.7MB 的「章节」——**比兜底的机械分段还糟**，
- * 而且看起来像是正常识别出来的。实测踩到两本（《萌娘武侠世界》《朕，都是为了大汉！》）。
+ * 而且看起来像是正常识别出来的。实测踩到两本。
  *
  * 取 40 万字节：GBK 下约 20 万字，比任何正常章节都长一个量级，
  * 而机械分段是 3 万字符，落在这条线以内。
@@ -403,7 +473,7 @@ const MAX_MEAN_CHAPTER_BYTES = 400_000;
  *
  * **起因是用户的一句话**：「如果切的过小，应该自动合并，直到达到 500 字以上」。
  * 太短的「章」几乎全是误判——正文里的选项列表、条目清单、写了两遍的标题行
- * 被当成了标题（《路明非挑战FGO》1949 章里 1489 章短于 200 字节就是这么来的）。
+ * 被当成了标题（一本互动小说 1949 章里 1489 章短于 200 字节就是这么来的）。
  * 对读者来说，一本被剁成上千个几十字碎片的书，目录比没有更难用。
  *
  * **并进上一章，不是丢掉**：那一行假标题变回正文的一部分，一个字都不少。
@@ -412,6 +482,7 @@ const MAX_MEAN_CHAPTER_BYTES = 400_000;
  * utf-8 里 3 字节。这是个下限不是契约，中英混排时估得粗一点没关系。
  */
 export const MIN_CHAPTER_CHARS = 500;
+const NUMBER_GROUP_GAP = MIN_CHAPTER_CHARS * 2;
 
 function bytesPerChar(encoding: Encoding): number {
   if (encoding === 'utf-8') return 3;
@@ -425,9 +496,9 @@ export const MIN_MEDIAN_CHAPTER_BYTES = 200;
 第1章 XXX
 正文……」。
  *
- * 真实书库里量出来的：13 本、共 1124 处。最典型的《火红年代：成为工业巨擘》
+ * 真实书库里量出来的：13 本、共 1124 处。最典型的《示例书甲》
  * 597 「章」里 291 处是这样——目录里每个标题出现两次，点开前一个是
- * 二三十字节的空壳。《这个明星很想退休》359 处、《我太想重生了》150 处。
+ * 二三十字节的空壳。《示例书乙》359 处、《示例书丙》150 处。
  *
  * 两条判据缺一不可：标题**一模一样**，而且两次之间**只隔了几十字节**
  * （真的有两章同名时，中间隔着整整一章的正文）。
@@ -456,7 +527,7 @@ function dropRepeatedTitleLines(hits: Line[]): Line[] {
  * 「第二节课下课后」被当成「第二节」、「第四卷是什么呢？」被当成卷标题。
  *
  * **必须和「占了大半本」一起判**：单看这一条会误伤（一本书里偶尔有一章特别长是可能的，
- * 《我从凡间来》1127 章里就有一章 6.49MB，但它占全书才 27%，那个解析是好的）；
+ * 《示例书》1127 章里就有一章 6.49MB，但它占全书才 27%，那个解析是好的）；
  * 单看占比又会误伤小书（两章的书最后一章天然占 50%）。
  */
 const ABSURD_CHAPTER_BYTES = 1_200_000;
@@ -537,8 +608,8 @@ export function splitLines(buf: Uint8Array, encoding: Encoding): Line[] {
  * markdown 风格的标题前缀。**在 `matchLines` 里统一剥掉，不写进每条规则**——
  * 这是整个文件的写法（有的下载源直接导出成 md），跟具体是哪种章节格式无关。
  *
- * 全库普查 19 本这么写，而且都是大书：《那年华娱》19 MB 有 1603 处
- * `# 第一章 新生【修】`、《朕，都是为了大汉！》728 处、《华娱：重生了》727 处。
+ * 全库普查 19 本这么写，而且都是大书：《示例书甲》19 MB 有 1603 处
+ * `# 第一章 新生【修】`、《示例书乙》728 处、《示例书丙》727 处。
  * 不剥的话行首是 `#`，所有规则的 `^第` 一律匹配不上，整本掉进机械分段。
  * 剥掉之后 `#` 那几个字节仍然算在这一章里（byteOffset 用的是行首），只是不进标题
  *
@@ -572,10 +643,10 @@ const CHAPTER_MARK_ANYWHERE = new RegExp(`第\\s*${NUM}+\\s*[章節]`, 'u');
  * 真实库上量出来的形状：篮球竞技文把比赛进程写成正文，
  * 「第一节打完，两队打成28平。」这样的句子独占一行、还带递增的序号，
  * 而 `standard` 认「第N节」、`mu` 认「第N幕」——光靠正则和打分都分不开。
- * 全库这一类有 8500 余处（《球霸的黑科技系统》667 处 / 1701 章）。
+ * 全库这一类有 8500 余处（其中《示例书丙》667 处 / 1701 章）。
  *
  * ⚠️ **单看这一条不能用来删命中**，必须配 `dropProseHits` 那两条一起判：
- * 有些书的章节单位**就是**「节」——《殖装》1199 章里有 1198 章叫「第226节 来吧，我们捕猎。」，
+ * 有些书的章节单位**就是**「节」——《示例书乙》1199 章里有 1198 章叫「第226节 来吧，我们捕猎。」，
  * 逐条按句子样丢掉会把它的目录吃掉六章。
  */
 function looksLikeProseSentence(text: string): boolean {
@@ -597,13 +668,13 @@ function headMarkerOf(text: string): string | null {
  * 最多的那一个就是这本书的章节单位；句子样命中的标记不是它，才是正文里的一句话。
  * 于是同一套句子判据在两本书记得完全相反：
  *
- *   - 《球霸的黑科技系统》干净的命中全是「第N章」（961 条），句子样的 667 条标记是
+ *   - 《示例书丙》干净的命中全是「第N章」（961 条），句子样的 667 条标记是
  *     「节」→ 单位是章，那些「第N节…」全是正文，删掉；
- *   - 《殖装》干净的命中是 1192 条「第N节」→ 单位就是节，它那 6 条
+ *   - 《示例书乙》干净的命中是 1192 条「第N节」→ 单位就是节，它那 6 条
  *     「第226节 来吧，我们捕猎。」是真标题，一条都不动。
  *
  * ⚠️ **数单位的时候必须把句子样命中排除在外。** 第一版数的是全部命中，
- * 结果测试当场抓到：一本 12 章的竞技文里 22 行比赛进程，
+ * 结果测试当场抓到：《示例书甲》12 章里 22 行比赛进程，
  * 「节」以 22 > 12 把自己投成了这本书的单位，一条都没删掉。
  * 正文比目录多，正是这类书的样子。
  *
@@ -613,7 +684,7 @@ function headMarkerOf(text: string): string | null {
  * 包圆，它会凭命中数赢过真正的章规则——一本好好的书被按正文切碎。
  *
  * ⚠️ **还加过第三条「同标记但编号回头」，量完撤掉了。** 它对章规则全库只多删
- * 3 条命中，代价是《无限群芳谱》那条「第001节 不是正文，而是通知。」——作者把
+ * 3 条命中，代价是一本书那条「第001节 不是正文，而是通知。」——作者把
  * 一则通知重新编号、夹在中间，那是真章。三条换一条不值。
  *
  * **`headingShape` 那道豁免管的是「宁可漏切，不吞看着像标题的行」**：
@@ -658,7 +729,7 @@ function dropProseHits(hits: Line[]): Line[] {
   return hits.filter((h) => !正文句(h) || headMarkerOf(h.text) === dominant);
 }
 
-function matchLines(lines: Line[], rule: ParseRule): Line[] {
+function matchLines(lines: Line[], rule: ParseRule, volumes: Line[] = []): Line[] {
   const hits: Line[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -673,7 +744,8 @@ function matchLines(lines: Line[], rule: ParseRule): Line[] {
     const 前面空 = i === 0 || lines[i - 1].text.trim() === '';
     hits.push({ text: t, byteOffset: line.byteOffset, headingShape: 顶格 || 前面空 });
   }
-  return rule.refine ? rule.refine(dropProseHits(hits)) : dropProseHits(hits);
+  const candidates = dropProseHits(hits);
+  return rule.refine ? rule.refine(candidates, volumes) : candidates;
 }
 
 /**
@@ -692,7 +764,7 @@ export function scoreRule(hits: Line[], totalBytes: number): number {
   // 它前面的内容不进任何章节——正常书那是标题和简介，几 KB，丢了无所谓；
   // 但如果规则只在书的后半段撞上几行，前面**整本书**就凭空消失了。
   //
-  // 实测：《萌娘武侠世界》6.7MB，`num-sep` 只命中 4 行，全挤在 6.628M 处
+  // 实测：《示例书》6.7MB，`num-sep` 只命中 4 行，全挤在 6.628M 处
   // （正文里的一个条件列表「一、朱元璋交出……」），间隔 72/48/54 字节加一个
   // 373KB 的尾巴——**平均 93KB 反而低于上限，光看平均值拦不住**。
   // 结果是前面 6.6MB 全部丢失，而界面上看起来是「识别出 4 章」。
@@ -701,7 +773,7 @@ export function scoreRule(hits: Line[], totalBytes: number): number {
   // **一章不能吞掉整本。** 正文里的句子会撞上规则——
   // 「第二节课下课后，项南去上卫生间。」被当成「第二节」、
   // 「第四卷是什么呢？」被当成卷标题、「第二章写得胸闷，就好像……」被当成章标题。
-  // 撞上三五次，一本 25MB 的书就成了 4 章，其中一章 24.76MB（实测《蛊真人》）。
+  // 撞上三五次，《示例书》25MB 就成了 4 章，其中一章 24.76MB（实测如此）。
   // 读者点进去等于打开整本书：实测渲染 171 万字 / 4 万段要**卡死 20 秒**。
   //
   // 这条比「第一处命中要靠前」更通用：误命中出现得早时那条拦不住，
@@ -720,8 +792,8 @@ export function scoreRule(hits: Line[], totalBytes: number): number {
    * **中位数，不是平均数。**
    *
    * 上面那条下限拦不住「切成一地碎片」这一类：平均数会被少数几个真章拽上去。
-   * 实测《路明非挑战FGO》——一本互动小说，正文里写着
-   * 「【1、《JOJO的奇妙冒险》】」「【2、《龙族》】」这样的选项行，
+   * 实测一本互动小说，正文里写着
+   * 「【1、《书名一》】」「【2、《书名二》】」这样的选项行，
    * 被 `bracket-num` 规则当成了标题。270 万字切出 **1949 章**，
    * 其中 **1489 章短于 200 字节**（31、71、25、59……），
    * 而平均每章 1389 字节，高高地越过了 `MIN_MEAN_CHAPTER_BYTES`。
@@ -859,15 +931,16 @@ export function parseChapters(
   // 「这条规则认出几行标题」和「最终用了哪条路」是两件事，见 `ParseResult.titleHits`
   let titleHits = 0;
   for (const rule of rules) {
-    const hits = dropRepeatedTitleLines(matchLines(lines, rule));
+    const hits = dropRepeatedTitleLines(matchLines(lines, rule, volumeHits));
     if (hits.length > titleHits) titleHits = hits.length;
     const score = scoreRule(hits, totalBytes);
     if (score > 0 && (best === null || score > best.score)) best = { rule, hits, score };
   }
 
   if (best) {
+    const minBytes = best.rule.keepShortChapters ? 0 : MIN_CHAPTER_CHARS * bytesPerChar(encoding);
     return {
-      chapters: buildChapters(best.hits, totalBytes, volumeHits, MIN_CHAPTER_CHARS * bytesPerChar(encoding)),
+      chapters: buildChapters(best.hits, totalBytes, volumeHits, minBytes),
       ruleName: best.rule.name,
       recognized: true,
       titleHits,
@@ -877,7 +950,7 @@ export function parseChapters(
   // 没有章节但有卷标记时，卷自己当章用，好过机械分段。
   //
   // **但要过同一套体检。** 这条路原来完全不打分，只要有两个卷标记就直接用——
-  // 而卷规则一样会撞上正文（《蛊真人》34MB，「第四卷是什么呢？」这句话被当成卷标题，
+  // 而卷规则一样会撞上正文（《示例书》34MB，「第四卷是什么呢？」这句话被当成卷标题，
   // 于是全书成了 4 章、其中一章 24.76MB）。读者点进去等于打开整本书，
   // 实测渲染 171 万字要卡死 20 秒。
   if (volumeHits.length >= 2 && scoreRule(volumeHits, totalBytes) > 0) {

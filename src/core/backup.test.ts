@@ -105,11 +105,11 @@ const body = ['第一章 起', '第二章 承'].map((t) => `${t}\n${filler}\n`).
  * 恢复时两本书双双认到同一本，后写的把先写的进度覆盖掉。
  */
 async function seed(): Promise<number> {
-  writeFileSync(join(lib, '《雪中悍刀行》烽火戏诸侯.txt'), body, 'utf8');
-  writeFileSync(join(lib, '斗破苍穹-天蚕土豆.txt'), `${body}\n另一本书的独有内容。\n`, 'utf8');
+  writeFileSync(join(lib, '《示例书甲乙》示例某人甲.txt'), body, 'utf8');
+  writeFileSync(join(lib, '示例书甲-示例某人乙.txt'), `${body}\n另一本书的独有内容。\n`, 'utf8');
   await scanRoot(db, { id: rootId, path: lib });
 
-  const id = (db.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+  const id = (db.prepare("select id from book where title='示例书甲乙'").get() as { id: number }).id;
   setStatus(db, id, { status: 'reading', rating: 4.5, comment: '前期神作' });
   db.prepare('update reading_state set chapter_idx = 1, char_offset = 88 where book_id = ?').run(id);
   addBookmark(db, id, 1, { charOffset: 50, note: '这段好' });
@@ -137,7 +137,7 @@ test('备份带上全部不可再生的数据', async () => {
   assert.equal(bk.version, BACKUP_VERSION);
   assert.equal(bk.books.length, 2);
 
-  const b = bk.books.find((x) => x.title === '雪中悍刀行')!;
+  const b = bk.books.find((x) => x.title === '示例书甲乙')!;
   assert.equal(b.reading?.status, 'reading');
   assert.equal(b.reading?.chapterIdx, 1);
   assert.equal(b.reading?.charOffset, 88);
@@ -163,7 +163,7 @@ test('备份带上全部不可再生的数据', async () => {
 test('评价时间也要备份，否则「我的书评」的顺序恢复不回来', async () => {
   await seed();
   const bk = exportBackup(db);
-  const b = bk.books.find((x) => x.title === '雪中悍刀行')!;
+  const b = bk.books.find((x) => x.title === '示例书甲乙')!;
   assert.ok(b.reading?.ratedAt, '打过分的书必须带上评价时间');
 
   // 恢复到一个空库：时间戳要原样回来，不是变成 null，也不是变成「现在」
@@ -172,7 +172,7 @@ test('评价时间也要备份，否则「我的书评」的顺序恢复不回�
   await importBackup(db, bk);
   const row = db
     .prepare('select rating, rated_at from reading_state where book_id = (select id from book where title = ?)')
-    .get('雪中悍刀行') as { rating: number | null; rated_at: string | null };
+    .get('示例书甲乙') as { rating: number | null; rated_at: string | null };
   assert.equal(row.rating, 4.5);
   assert.equal(row.rated_at, before, '评价时间要原样回来');
 });
@@ -186,7 +186,7 @@ test('手填章数备份带得出、恢复写得回', async () => {
   db.prepare('update book set chapter_count_override = ? where id = ?').run(777, id);
 
   const bk = exportBackup(db);
-  const b = bk.books.find((x) => x.title === '雪中悍刀行')!;
+  const b = bk.books.find((x) => x.title === '示例书甲乙')!;
   assert.equal(b.chapterCountOverride, 777, '导出要带手填章数');
 
   // 抹掉再恢复：值要原样写回，不是停在 null
@@ -212,7 +212,7 @@ test('划线和上面的笔记也要备份，恢复完还在原处', async () =>
   addHighlight(db, { bookId: id, chapterIdx: 3, charOffset: 120, length: 18, excerpt: '他看了一眼远处的雪', note: '这段写得真好', color: 'yellow' });
 
   const bk = exportBackup(db);
-  const b = bk.books.find((x) => x.title === '雪中悍刀行')!;
+  const b = bk.books.find((x) => x.title === '示例书甲乙')!;
   assert.equal(b.highlights?.length, 1, `备份里没带划线：${JSON.stringify(Object.keys(b))}`);
   assert.equal(b.highlights[0].note, '这段写得真好');
   assert.equal(b.highlights[0].excerpt, '他看了一眼远处的雪');
@@ -247,7 +247,7 @@ test('阅读会话也要备份，导两次不翻倍', async () => {
     .run(id, '2026-01-01T10:00:00Z', '2026-01-01T11:30:00Z', 10, 42);
 
   const bk = exportBackup(db);
-  const b = bk.books.find((x) => x.title === '雪中悍刀行')!;
+  const b = bk.books.find((x) => x.title === '示例书甲乙')!;
   assert.equal(b.sessions?.length, 1, `备份里没带阅读会话：${JSON.stringify(Object.keys(b))}`);
   assert.equal(b.sessions[0].fromPercent, 10);
 
@@ -280,7 +280,7 @@ test('恢复：文件改名了也能靠 hash 认回来，进度不丢', async ()
   db.prepare('update reading_state set status = ?, chapter_idx = 0, char_offset = 0 where book_id = ?')
     .run('want', id);
   db.prepare('delete from bookmark').run();
-  renameSync(join(lib, '《雪中悍刀行》烽火戏诸侯.txt'), join(lib, '完全不同的名字.txt'));
+  renameSync(join(lib, '《示例书甲乙》示例某人甲.txt'), join(lib, '完全不同的名字.txt'));
   await scanRoot(db, { id: rootId, path: lib });
 
   const report = importBackup(db, bk);
@@ -300,7 +300,7 @@ test('PDF / EPUB 读到哪儿也要备份，而且要跟着新的 book id 走', 
   db.prepare('insert into app_setting(key, value) values(?, ?)').run(`viewer.${id}`, '7');
   const bk = exportBackup(db);
 
-  const 那本 = bk.books.find((b) => b.title === '雪中悍刀行');
+  const 那本 = bk.books.find((b) => b.title === '示例书甲乙');
   assert.equal(那本?.viewerPos, '7', '备份里要带上它——这是不可再生的阅读进度，和 txt 的 chapter_idx 同一类');
 
   /*
@@ -316,7 +316,7 @@ test('PDF / EPUB 读到哪儿也要备份，而且要跟着新的 book id 走', 
     await scanRoot(fresh, { id: r2, path: lib });
     importBackup(fresh, bk);
 
-    const 新 = (fresh.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+    const 新 = (fresh.prepare("select id from book where title='示例书甲乙'").get() as { id: number }).id;
     assert.notEqual(新, id, '夹具没造出差值——id 一样的话这条测试什么都没验');
     assert.equal(
       (fresh.prepare('select value from app_setting where key = ?').get(`viewer.${新}`) as { value: string } | undefined)?.value,
@@ -338,10 +338,10 @@ test('繁简转换设置也要备份，而且要跟着新的 book id 走', async
   setBookConvertMode(db, id, 'to-simplified');
   const bk = exportBackup(db);
 
-  const 那本 = bk.books.find((b) => b.title === '雪中悍刀行');
+  const 那本 = bk.books.find((b) => b.title === '示例书甲乙');
   assert.equal(那本?.convertMode, 'to-simplified', '备份里要带上繁简设置');
 
-  const 另一本 = bk.books.find((b) => b.title === '斗破苍穹');
+  const 另一本 = bk.books.find((b) => b.title === '示例书甲');
   assert.equal(另一本?.convertMode, undefined, '默认 off 不写进备份，保持精简');
 
   // 换一个库恢复，先塞两本占位书把自增顶掉
@@ -353,7 +353,7 @@ test('繁简转换设置也要备份，而且要跟着新的 book id 走', async
     await scanRoot(fresh, { id: r2, path: lib });
     importBackup(fresh, bk);
 
-    const 新 = (fresh.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+    const 新 = (fresh.prepare("select id from book where title='示例书甲乙'").get() as { id: number }).id;
     assert.notEqual(新, id, '夹具必须有差值');
     assert.equal(bookConvertMode(fresh, 新), 'to-simplified', '繁简设置要落在恢复之后那本书的 id 上');
     assert.equal(
@@ -409,7 +409,7 @@ test('在线地址也要恢复，而且要落在恢复之后那本书上', async
   addLink(db, id, 'https://example.com/book');
   const bk = exportBackup(db);
   assert.equal(
-    bk.books.find((b) => b.title === '雪中悍刀行')!.onlineLinks.length,
+    bk.books.find((b) => b.title === '示例书甲乙')!.onlineLinks.length,
     2,
     '导出要带上在线地址',
   );
@@ -423,7 +423,7 @@ test('在线地址也要恢复，而且要落在恢复之后那本书上', async
     await scanRoot(fresh, { id: r2, path: lib });
     importBackup(fresh, bk);
 
-    const 新 = (fresh.prepare("select id from book where title='雪中悍刀行'").get() as { id: number }).id;
+    const 新 = (fresh.prepare("select id from book where title='示例书甲乙'").get() as { id: number }).id;
     const links = listLinks(fresh, 新);
     assert.equal(links.length, 2, '两条地址都要回来');
     assert.equal(
@@ -495,10 +495,10 @@ test('格式不对要报错', () => {
 test('手动指认只搬进度和书签，不覆盖本地元数据', async () => {
   const id = await seed();
   const bk = exportBackup(db);
-  const b = bk.books.find((x) => x.title === '雪中悍刀行')!;
+  const b = bk.books.find((x) => x.title === '示例书甲乙')!;
 
   // 另一本书，本地已经改过书名
-  const other = (db.prepare("select id from book where title='斗破苍穹'").get() as { id: number }).id;
+  const other = (db.prepare("select id from book where title='示例书甲'").get() as { id: number }).id;
   db.prepare("update book set title = '我本地改过的名字' where id = ?").run(other);
 
   linkManually(db, b, other);
@@ -684,7 +684,7 @@ test('恢复：标签回到书上，新建了几个标签也数得对', async ()
   const r = await importBackup(db, bk);
   assert.equal(r.createdTags, distinct, `新建的标签数不对：${r.createdTags} / 该是 ${distinct}`);
   // 期望值也从备份里取：夹具给这本书打过什么，我不该在这儿重写一遍
-  const want = [...(bk.books.find((b) => b.title === '雪中悍刀行')?.tags ?? [])].sort();
+  const want = [...(bk.books.find((b) => b.title === '示例书甲乙')?.tags ?? [])].sort();
   const back = db
     .prepare(`select t.name from book_tag bt join tag t on t.id = bt.tag_id
                where bt.book_id = ? order by t.name`)
@@ -721,7 +721,7 @@ test('恢复盖掉本地评价时要如实报出来', async () => {
   db.prepare('update reading_state set rating = 5, comment = ? where book_id = ?')
     .run('备份里的那句', id);
   // 第二本占「本地和备份一模一样」那一档
-  const same = (db.prepare("select id from book where title='斗破苍穹'").get() as { id: number }).id;
+  const same = (db.prepare("select id from book where title='示例书甲'").get() as { id: number }).id;
   setStatus(db, same, { rating: 3, comment: '一样的话' });
   // 第三本占「备份里有、而本地是空的」那一档——**这一档才逼得出「本地本来有内容」
   // 那半判据**：少了它，把那半拆掉测试照样绿（第一次就是这么绿的）
@@ -883,12 +883,12 @@ test('手动指认：划线、书签、阅读状态都要回来，而且指认�
     bookId: id, chapterIdx: 1, charOffset: 10, length: 6, excerpt: '寻常的一行', note: '这句好',
   });
   const backup = exportBackup(db);
-  const bb = backup.books.find((b) => b.title === '雪中悍刀行')!;
+  const bb = backup.books.find((b) => b.title === '示例书甲乙')!;
 
   // 换一个空库，造一本同名的书当作「用户指认的那本」
   const fresh = openDb(join(dir, 'link.db'));
   const target = Number(
-    fresh.prepare("insert into book(title) values('雪中悍刀行')").run().lastInsertRowid,
+    fresh.prepare("insert into book(title) values('示例书甲乙')").run().lastInsertRowid,
   );
   fresh.prepare("insert into reading_state(book_id, status) values(?, 'none')").run(target);
 
@@ -1188,7 +1188,7 @@ test('换台机器：认不回来 → 扫描 → 再恢复一次就认回来了�
     assert.equal(第二次.unmatched.length, 0);
 
     const got = db2
-      .prepare("select rating, comment from reading_state r join book b on b.id = r.book_id where b.title = '雪中悍刀行'")
+      .prepare("select rating, comment from reading_state r join book b on b.id = r.book_id where b.title = '示例书甲乙'")
       .get() as { rating: number; comment: string };
     assert.equal(got.rating, 原来的书评.rating);
     assert.equal(got.comment, 原来的书评.comment);
@@ -1363,9 +1363,8 @@ test('备份：EPUB 划线按 cfi 去重，同一节里两句一样长的不许�
   const bk = exportBackup(db);
   const fresh = openDb(join(dir, 'f-cfi2.db'));
   try {
-    // ⚠️ **先把书扫进新库再恢复。** 按书走的那些数据（划线、书签、进度）
-    // 是挂在「认得回来的那本书」上的——空库里一本都对不上，
-    // 于是整段跳过，而 `importBackup` 不报错。第一版这三条测试就栽在这儿
+    // ⚠️ 先把书扫进新库再恢复：按书走的数据（划线/书签/进度）在空库里一本都对不上，
+    // 会整段跳过而不报错（原委见本文件第一条 cfi 测试上的注释）。
     const 根 = Number(fresh.prepare('insert into library_root(path) values(?)').run(lib).lastInsertRowid);
     await scanRoot(fresh, { id: 根, path: lib });
     await importBackup(fresh, bk);
@@ -1388,9 +1387,8 @@ test('备份：老备份里没有 cfi 字段，恢复成 null 而不是报错', 
 
   const fresh = openDb(join(dir, 'f-cfi3.db'));
   try {
-    // ⚠️ **先把书扫进新库再恢复。** 按书走的那些数据（划线、书签、进度）
-    // 是挂在「认得回来的那本书」上的——空库里一本都对不上，
-    // 于是整段跳过，而 `importBackup` 不报错。第一版这三条测试就栽在这儿
+    // ⚠️ 先把书扫进新库再恢复：按书走的数据（划线/书签/进度）在空库里一本都对不上，
+    // 会整段跳过而不报错（原委见本文件第一条 cfi 测试上的注释）。
     const 根 = Number(fresh.prepare('insert into library_root(path) values(?)').run(lib).lastInsertRowid);
     await scanRoot(fresh, { id: 根, path: lib });
     await importBackup(fresh, bk);

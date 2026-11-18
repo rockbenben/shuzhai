@@ -8,6 +8,8 @@ import { openDb } from './db.ts';
 import { scanRoot } from './scan.ts';
 import { previewChapters, applyRule, bookRule, clearRule } from './reparse.ts';
 import { addManualBook } from './manual.ts';
+import { reparseBooks } from './metadata.ts';
+import { exportBackup, importBackup } from './backup.ts';
 
 let dir: string;
 let db: DatabaseSync;
@@ -72,6 +74,28 @@ test('确认后才落库，并记住这条规则', async () => {
   );
 });
 
+test('保留短章从预览、应用和重解析到备份恢复都一致', async () => {
+  const { path } = db.prepare('select path from book_file where book_id = ?').get(bookId) as { path: string };
+  const long = '风雪夜归人。'.repeat(200);
+  writeFileSync(path, ['@@@ 开篇\n' + long, '@@@ 短章\n短正文', '@@@ 下篇\n' + long].join('\n'));
+  const pattern = '^@@@';
+  assert.equal((await previewChapters(db, bookId, pattern)).count, 2);
+
+  const preview = await previewChapters(db, bookId, pattern, true);
+  assert.deepEqual(preview.titles, ['@@@ 开篇', '@@@ 短章', '@@@ 下篇']);
+  assert.equal(bookRule(db, bookId), null);
+  assert.deepEqual(await applyRule(db, bookId, pattern, true), preview);
+  assert.equal(chapterCount(), 3);
+  assert.equal((await reparseBooks(db, [bookId])).ok, 1);
+  assert.equal(chapterCount(), 3);
+
+  const backup = exportBackup(db);
+  assert.equal(backup.books[0].keepShortChapters, true);
+  db.prepare('update parse_rule set keep_short_chapters = 0').run();
+  importBackup(db, backup);
+  assert.deepEqual(await previewChapters(db, bookId, pattern), preview);
+});
+
 test('改规则是覆盖，不是叠加', async () => {
   await applyRule(db, bookId, '^@@@');
   await applyRule(db, bookId, '^@@@ 其');
@@ -122,11 +146,11 @@ test('清掉自定义规则会回到内置规则', async () => {
 /*
  * **`recognized` 挡不住「这条规则一条标题都没认出来」。**
  *
- * 一本有卷标记的书：一条啥都不匹配的自定义标题规则，会被 `parseChapters`
+ * 《示例书》有卷标记：一条啥都不匹配的自定义标题规则，会被 `parseChapters`
  * 的按卷兜底接住——`recognized` 是 true、`ruleName` 是 `volume-only`，
  * 而用户写的正则**一行都没命中**。规则编辑器如果拿 `recognized` 当
  * 「要不要问一句」的判据，这条规则会被**直接落库**，以后每次追更都按卷切。
- * 走查里真实撞到过（一本 60 章的书，输入一条不可能匹配的规则，点「应用」
+ * 走查里真实撞到过（《示例书》60 章，输入一条不可能匹配的规则，点「应用」
  * 没有任何确认就存进去了）。
  *
  * 判据只能是「这条规则认出几行标题」，也就是 `titleHits`。

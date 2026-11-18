@@ -33,6 +33,7 @@ import { COLORS, 解析矩形, tagsOfHighlights } from './highlight.ts';
 import { READING_STATUS_IDS, asFinite, asText, asWhen } from './status.ts';
 import { sqlTime } from './format.ts';
 import { readOutline, writeOutline } from './outline.ts';
+import { saveBookRule } from './book-rule.ts';
 import { bookConvertMode, setBookConvertMode, type ConvertMode } from './convert.ts';
 import { addLink } from './links.ts';
 
@@ -170,6 +171,7 @@ export interface BackupBook {
   }>;
   /** 这本书的自定义章节规则 */
   parseRule: string | null;
+  keepShortChapters?: boolean;
   /**
    * PDF / EPUB 读到哪儿了（PDF 是页码，EPUB 是章序号）。
    *
@@ -291,6 +293,10 @@ export function exportBackup(db: DatabaseSync): BackupFile {
       )
       .get(id) as unknown as BackupBook['reading'];
 
+    const parseRule = db.prepare(
+      "select pattern, keep_short_chapters from parse_rule where book_id = ? and scope = 'book'",
+    ).get(id) as { pattern: string; keep_short_chapters: number } | undefined;
+
     return {
       title: b.title as string,
       author: (b.author as string | null) ?? null,
@@ -342,12 +348,8 @@ export function exportBackup(db: DatabaseSync): BackupFile {
           const t = tagsOfHighlights(db, [hid])[hid] ?? [];
           return t.length ? { ...剩下, tags: t } : 剩下;
         }),
-      parseRule:
-        (
-          db
-            .prepare("select pattern from parse_rule where book_id = ? and scope = 'book'")
-            .get(id) as { pattern: string } | undefined
-        )?.pattern ?? null,
+      parseRule: parseRule?.pattern ?? null,
+      ...(parseRule?.keep_short_chapters === 1 ? { keepShortChapters: true } : {}),
       viewerPos:
         (
           db
@@ -978,10 +980,7 @@ export function importBackup(db: DatabaseSync, backup: BackupFile): RestoreRepor
       }
 
       if (bb.parseRule) {
-        db.prepare("delete from parse_rule where book_id = ? and scope = 'book'").run(bookId);
-        db.prepare(
-          "insert into parse_rule(name, pattern, scope, book_id) values('自定义', ?, 'book', ?)",
-        ).run(bb.parseRule, bookId);
+        saveBookRule(db, bookId, bb.parseRule, bb.keepShortChapters === true);
       }
 
       /*

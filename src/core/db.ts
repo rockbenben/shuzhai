@@ -660,6 +660,13 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
       end;
     `);
   },
+  // 自定义的目录规则可以保留原书中确实存在的短章。
+  (db) => {
+    const columns = db.prepare('pragma table_info(parse_rule)').all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'keep_short_chapters')) {
+      db.exec('alter table parse_rule add column keep_short_chapters integer not null default 0');
+    }
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

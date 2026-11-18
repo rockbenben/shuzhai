@@ -9,6 +9,7 @@ import { parseChapters, type ParseRule } from './chapter.ts';
 import { suggestRules, type Suggestion } from './suggest.ts';
 import { parseAndStore, 这本书的编码 } from './scan.ts';
 import { readBook } from './reader.ts';
+import { readBookRule, saveBookRule } from './book-rule.ts';
 
 /** 预览里最多列几个标题。spec §2.2 写的是「前 20 章标题」 */
 const PREVIEW_TITLES = 20;
@@ -27,9 +28,9 @@ export interface ParsePreview {
  * 无效的在这里就报清楚；回溯的靠 chapter.ts 里「标题行不超过 40 字」那条限住——
  * 每次只拿一个短字符串去匹配，炸不出什么来。
  */
-function compile(pattern: string): ParseRule {
+function compile(pattern: string, keepShortChapters: boolean): ParseRule {
   try {
-    return { name: 'custom', pattern: new RegExp(pattern) };
+    return { name: 'custom', pattern: new RegExp(pattern), keepShortChapters };
   } catch (e) {
     throw new Error(`正则无效：${e instanceof Error ? e.message : String(e)}`);
   }
@@ -65,6 +66,7 @@ export async function previewChapters(
   db: DatabaseSync,
   bookId: number,
   pattern?: string,
+  keepShortChapters = readBookRule(db, bookId)?.keep_short_chapters === 1,
 ): Promise<ParsePreview> {
   const { id: fileId, path } = primaryFile(db, bookId);
   const buf = await readBook(path);
@@ -77,7 +79,7 @@ export async function previewChapters(
    * 而界面照样报「切出 2 章」。预览在骗人，正是这个功能最不能有的毛病。
    */
   const encoding = 这本书的编码(db, fileId, buf);
-  const rules = pattern ? [compile(pattern)] : undefined;
+  const rules = pattern ? [compile(pattern, keepShortChapters)] : undefined;
   const { chapters, recognized, ruleName, titleHits } = parseChapters(buf, encoding, rules);
 
   return {
@@ -111,11 +113,12 @@ export async function applyRule(
   db: DatabaseSync,
   bookId: number,
   pattern: string,
+  keepShortChapters = readBookRule(db, bookId)?.keep_short_chapters === 1,
 ): Promise<ParsePreview> {
-  compile(pattern); // 先验一遍，别写进库才发现是坏的
+  const rule = compile(pattern, keepShortChapters);
   const { id: fileId, path } = primaryFile(db, bookId);
 
-  const r = await parseAndStore(db, fileId, path, [compile(pattern)]);
+  const r = await parseAndStore(db, fileId, path, [rule]);
   db.prepare(
     `update book_file set chapter_count = ?, word_count = ?, encoding = ?,
             status = 'ok', parse_error = null, failed_at = null,
@@ -123,12 +126,9 @@ export async function applyRule(
   ).run(r.chapters, r.words, r.encoding, fileId);
 
   // 一本书只留一条自定义规则，改了就覆盖——留一串历史规则没人看得懂哪条在生效
-  db.prepare("delete from parse_rule where book_id = ? and scope = 'book'").run(bookId);
-  db.prepare(
-    "insert into parse_rule(name, pattern, scope, book_id) values('自定义', ?, 'book', ?)",
-  ).run(pattern, bookId);
+  saveBookRule(db, bookId, pattern, keepShortChapters);
 
-  return previewChapters(db, bookId, pattern);
+  return previewChapters(db, bookId, pattern, keepShortChapters);
 }
 
 // 「这本书用哪条规则」只此一份，见 `book-rule.ts`。这里转出去是为了让 rpc
