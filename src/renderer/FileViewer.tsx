@@ -13,7 +13,7 @@ import { TtsLayer, useSleepTimer } from './TtsLayer.tsx';
 import { HighlightsPanel } from './HighlightsPanel.tsx';
 import { NoteCard } from './NoteCard.tsx';
 import { useTts } from './useTts.ts';
-import { NightToggle, TocHead, TtsEnginesModal } from './ReaderChrome.tsx';
+import { NightToggle, ReaderPager, TocHead, TtsEnginesModal } from './ReaderChrome.tsx';
 import {
   画划线, 清划线, 命中, 闪一下, 找第几处, HL_COLORS, use色名, 画矩形, 命中矩形, 底色, RECT_CLASS,
   type 画布,
@@ -2488,7 +2488,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
           用不着那边为一万章写的分窗加载（`TOC_WINDOW`）——**只搬样式不搬机械**。 */}
       {tocOpen && 有目录入口 && (
         <aside className="toc" ref={目录层}>
-          {/* 书名 + 收起 + 搜索框和 txt 阅读器共用一份（`ReaderChrome.tsx`）。
+          {/* 目录标题、收起和搜索框与 TXT 阅读器共用（`ReaderChrome.tsx`）。
               下面塞进去的那块只有 PDF 有，不属于共用判据 */}
           <TocHead
             bookTitle={bookTitle}
@@ -2594,7 +2594,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
             不该分开」）。判据抄 `styles.css` 那条：**左轨在左上放常驻动作，
             右轨在右下放读的时候临时用一下的**。原来这些键全挤在左边一条上，
             于是「评价」「夜间」和「上一页」并排——一个是随手标一下，一个是每分钟按几十次。 */}
-        <nav className="reader-rail" aria-label="查看器功能" ref={左轨}>
+        <nav className="reader-rail" aria-label="阅读导航与显示" ref={左轨}>
           <button onClick={onExit} title="回书架（Esc）">{ICO.back}<span>书架</span></button>
           {/* **只有真取到目录才摆这个键**：PDF 没有 nav，摆一个点开是空的抽屉
               比不摆更糟（本仓库那条老规矩） */}
@@ -2611,8 +2611,6 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
               {ICO.toc}<span>目录</span>
             </button>
           )}
-          <button onClick={() => api.current.prev?.()} title={`上一页（${键('prev')}）`}>{ICO.prev}<span>上一页</span></button>
-          <button onClick={() => api.current.next?.()} title={`下一页（${键('next')}）`}>{ICO.next}<span>下一页</span></button>
           {/* 设置：纸色、字号、行距、正文字体。**和 txt 阅读器同一个面板**
               （`ReadSettings.tsx`），不是这儿抄一份。
               ⚠️ PDF 那一页是 canvas 上的一张图，「字」那一组作用不到它——
@@ -2621,14 +2619,28 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
             ref={设置键}
             aria-current={panel}
             onClick={() => 切换('设置')}
-            title="纸色、字号、行距、繁简"
+            title={viewer === 'pdf' ? '阅读方式、纸色和自动滚动速度' : '纸色、字号、行距、繁简'}
           >
             {ICO.gear}<span>设置</span>
           </button>
+          <NightToggle theme={settings.theme} setTheme={(v) => set('theme', v)} />
+          {viewer === 'pdf' && (
+            <>
+              <button onClick={() => setZoom((z) => Math.min(4, Number((z + 0.2).toFixed(1))))}
+                disabled={zoom >= 4} title="放大 PDF 页面">{ICO.up}<span>放大</span></button>
+              <button onClick={() => setZoom((z) => Math.max(0.4, Number((z - 0.2).toFixed(1))))}
+                disabled={zoom <= 0.4} title="缩小 PDF 页面">{ICO.down}<span>缩小</span></button>
+            </>
+          )}
+          {onEdit && (
+            <button onClick={onEdit} title="改书名、作者、封面、简介这些（不离开阅读）">
+              {ICO.info}<span>编辑</span>
+            </button>
+          )}
         </nav>
 
         {/* 右轨：读的时候临时用一下的那几样。和 txt 阅读器同一个位置、同一套样式 */}
-        <div className="reader-tools" ref={右轨}>
+        <div className="reader-tools" role="group" aria-label="本书工具" ref={右轨}>
           {/* **评价是那条「右轨对 PDF/EPUB 一条都不成立」规矩的唯一例外**：
               评分和短评存在 `reading_state` 里、按 book_id 记，和格式一个字的关系都没有。
               理由整段写在 `ReviewCard.tsx` 上面 */}
@@ -2683,22 +2695,6 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
           >
             {ICO.search}<span>搜索</span>
           </button>
-          <button
-            ref={评价键}
-            aria-current={!!reviewing}
-            onClick={() => 切换('评价')}
-            title="给这本书打分、写一句短评。读不下去了也记一句，下次在书架上就能看见"
-          >
-            {ICO.star}<span>评价</span>
-          </button>
-          {viewer === 'pdf' && (
-            <>
-              <button onClick={() => setZoom((z) => Math.min(4, Number((z + 0.2).toFixed(1))))}
-                title="放大">{ICO.up}<span>放大</span></button>
-              <button onClick={() => setZoom((z) => Math.max(0.4, Number((z - 0.2).toFixed(1))))}
-                title="缩小">{ICO.down}<span>缩小</span></button>
-            </>
-          )}
           {/* 自动滚。**和 txt 阅读器同一个键、同一句说明**。
               翻页那一档它是灰的——那一屏根本不滚，摆一个点了没反应的键比没有更糟 */}
           <button
@@ -2725,17 +2721,14 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
           >
             {ICO.tts}<span>朗读</span>
           </button>
-          {/* 一键白天/夜间。**和 txt 阅读器共用同一份**（`ReaderChrome.tsx`）。
-              ⚠️ PDF 这一档变的只有壳：那一页是 canvas 上的图，纸色作用不到它。 */}
-          <NightToggle theme={settings.theme} setTheme={(v) => set('theme', v)} />
-          {/* 编辑书信息＝低频，原来摆在左轨第二格太靠前，挪到右轨最后（判据同
-              `Reader.tsx`：右轨是「临时用一下」那一档，这一档里它最不常用）。
-              点它就地盖编辑弹窗、**不退出查看**。 */}
-          {onEdit && (
-            <button onClick={onEdit} title="改书名、作者、封面、简介这些（不离开阅读）">
-              {ICO.info}<span>编辑</span>
-            </button>
-          )}
+          <button
+            ref={评价键}
+            aria-current={!!reviewing}
+            onClick={() => 切换('评价')}
+            title="给这本书打分、写一句短评。读不下去了也记一句，下次在书架上就能看见"
+          >
+            {ICO.star}<span>评价</span>
+          </button>
         </div>
 
         {/* 选中一段文字：**贴着它开**，和 txt 阅读器一套（`.note-pop`）。
@@ -3009,11 +3002,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
         </div>
 
         <div className="reader-foot">
-          {/* **底下这一行要说「现在读到哪一章」**，光一个书名等于没说——
-              txt 阅读器那边这一格写的就是章节名。EPUB 取目录里
-              **序号不超过当前节的最后一条**（一节里可能有好几条目录，
-              也可能一条都没有，那就退回书名） */}
-          <span className="foot-at" title={当前章名 ?? bookTitle}>{当前章名 ?? bookTitle}</span>
+          <span className="foot-at" title={当前章名 ?? undefined}>{当前章名 !== bookTitle ? 当前章名 : null}</span>
           {/*
             * **划线漂了要说一声**（判据抄 `Reader.tsx` 那一处）。
             *
@@ -3032,13 +3021,6 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
               {漂了} 条划线对不上原文了
             </button>
           )}
-          <span className="pager">
-            <button className="mini" onClick={() => api.current.prev?.()} title={`上一页（${键('prev')}）`}>‹ 上一页</button>
-            <span className="muted" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {viewer === 'pdf' ? `${page} / ${pages || '…'} 页` : pct == null ? '…' : `${pct}%`}
-            </span>
-            <button className="mini" onClick={() => api.current.next?.()} title={`下一页（${键('next')}）`}>下一页 ›</button>
-          </span>
           {/* PDF 才有整本的页码，拖得动；EPUB 那边 epub.js 要先生成 locations 才谈得上按比例跳 */}
           {viewer === 'pdf' && pages > 1 && (
             <input
@@ -3048,12 +3030,17 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
               max={pages}
               value={page}
               aria-label="跳到第几页"
+              aria-valuetext={`第 ${page} 页`}
               onChange={(e) => api.current.goto?.(Number(e.target.value))}
             />
           )}
-          <span className="foot-pct">
-            {viewer === 'pdf' ? `${Math.round(zoom * 100)}%` : ''}
-          </span>
+          {viewer === 'pdf' && <span className="foot-pct" title="缩放比例">{Math.round(zoom * 100)}%</span>}
+          <ReaderPager
+            unit="页"
+            position={viewer === 'pdf' ? `${page} / ${pages || '…'} 页` : pct == null ? undefined : `${pct}%`}
+            previous={{ run: () => api.current.prev?.(), disabled: viewer === 'pdf' && page <= 1, title: `上一页（${键('prev')}）` }}
+            next={{ run: () => api.current.next?.(), disabled: viewer === 'pdf' && page >= pages, title: `下一页（${键('next')}）` }}
+          />
         </div>
       </div>
 

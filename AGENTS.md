@@ -128,7 +128,7 @@ sed -n '1234,1300p' docs/lessons.md   # 读那一段
 
 ### `src/renderer/ReaderChrome.tsx`
 
-两个阅读界面共用的那几块**壳**：一键白天/夜间、朗读引擎弹窗、目录浮层的头（书名 + 收起 + 搜索框）。**同 `NoteCard.tsx` 是一个理由**——去重扫描报出这三处在 `Reader.tsx` 和 `FileViewer.tsx` 里逐字节相同。⚠️ **只收「两边判据必须一样」的**：往哪儿贴、PDF 那一页是 canvas 所以纸色作用不到，那些两边算法不同，不共用；查看器目录头上那块「把这一页加进目录」走 `children` 塞进去。⚠️ **「现在是不是夜间」走 `settings.ts` 的 `isNightTheme`**：两边原来各手写一份 `theme.endsWith('-night')`，而导进来的 legado 主题 id 是 `imported-<名字>`——深色的导入主题 `night` 是 true 而 id 不以 `-night` 结尾，于是外观已经是暗的、那个键还写着「切到夜间」
+两个阅读界面共用的那几块**壳**包括一键白天/夜间、朗读引擎弹窗、目录浮层的标题和搜索、底栏导航。书名作为附加信息放在目录里。连续阅读的翻页或换章集中在底栏，TXT 左右翻页模式在左轨另外保留跳章。左轨也放显示和书籍管理，右轨放书签、划线、搜索、朗读等本书工具。⚠️ **只收「两边判据必须一样」的**。格式相关的翻页和换章逻辑由调用方传入，PDF 的「把这一页加进目录」走 `children`。⚠️ **「现在是不是夜间」走 `settings.ts` 的 `isNightTheme`**。导入的深色主题 `night` 是 true，id 可以是 `imported-<名字>`。
 
 ### `src/renderer/TagPicker.tsx`
 

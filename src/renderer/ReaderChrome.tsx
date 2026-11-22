@@ -15,6 +15,25 @@ import { ICO } from './icons.tsx';
 import { TtsEngines } from './TtsEngines.tsx';
 import { isNightTheme, type ReadSettings, type ThemeId } from './settings.ts';
 
+export function ReaderPager({ unit, previous, next, position }: {
+  unit: '章' | '页';
+  previous: { run: () => void; title: string; disabled?: boolean };
+  next: { run: () => void; title: string; disabled?: boolean };
+  position?: string;
+}) {
+  return (
+    <div className="pager" role="group" aria-label={unit === '章' ? '章节导航' : '翻页'}>
+      <button disabled={previous.disabled} onClick={previous.run} title={previous.title}>
+        {ICO.prev}<span>上一{unit}</span>
+      </button>
+      {position && <span className="pager-n">{position}</span>}
+      <button disabled={next.disabled} onClick={next.run} title={next.title}>
+        <span>下一{unit}</span>{ICO.next}
+      </button>
+    </div>
+  );
+}
+
 /**
  * 一键白天 / 夜间。
  *
@@ -72,7 +91,7 @@ export function TtsEnginesModal({ settings, setSettings, onClose }: {
 }
 
 /**
- * 目录浮层的头：书名 + 收起 + 搜索框。
+ * 书名放在目录和搜索旁边，读正文时不占空间。
  *
  * 「收起」那个键不能省：Esc 和再按一次「目录」也行，但**只有写出来的那个才算入口**
  * （同本仓库那条「有入口不等于找得到」）。
@@ -90,12 +109,13 @@ export function TocHead({ bookTitle, filter, setFilter, onClose, children }: {
   return (
     <div className="toc-head">
       <div className="toc-title">
-        {/* 原来这里只印书名——那一层里「目录」两个字一处都没有，而开它那颗键写的
-            是「目录」。层名同时是可见标题和可及名字（`modal-a11y` 接 h1/h2/h3） */}
-        <h3 className="pop-title" style={{ fontWeight: 600 }}>目录 · {bookTitle}</h3>
+        <h3 className="pop-title">目录</h3>
+        <span className="toc-book-context" title={bookTitle}>{bookTitle}</span>
         <button className="toc-close" onClick={onClose}>收起</button>
       </div>
       <input
+        type="search"
+        aria-label="搜索章节标题"
         placeholder="搜索章节标题"
         value={filter}
         onChange={(e) => setFilter(e.target.value)}

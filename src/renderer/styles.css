@@ -416,21 +416,38 @@ tbody tr:hover {
   overflow: hidden;
 }
 .toc-head {
-  padding: 0.7rem 0.8rem;
+  padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--line);
 }
 .toc-title {
   display: flex;
   /* 里面的层名是 h3（`.pop-title`），UA 的外边距在这个 flex 里会撑开一条缝 */
   align-items: center;
-  align-items: baseline;
   justify-content: space-between;
   gap: 0.6rem;
   margin-bottom: 0.4rem;
 }
+.toc-title .pop-title {
+  flex: none;
+  margin: 0;
+}
+.toc-book-context {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toc-head input[type='search'] {
+  min-height: 2rem;
+}
 /* 浮层的出口。做成文字键而不是图标——参考里那排也是文字（收起/倒序/顶部…），
    而且这个仓库有一条硬判据：每个控件的可及名称里必须有能读的字 */
 .toc-close {
+  flex: none;
+  min-height: 2rem;
   background: none;
   border: none;
   color: var(--accent);
@@ -496,7 +513,7 @@ tbody tr:hover {
   font-variant-numeric: tabular-nums;
 }
 .toc-item[aria-current='true'] .toc-mark {
-  color: var(--accent);
+  color: inherit;
 }
 /* ── 个人评价体系 ────────────────────────────────────── */
 
@@ -755,7 +772,8 @@ button.toc-more:hover {
   background: var(--bg);
 }
 .toc-item[aria-current='true'] {
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  box-shadow: inset 3px 0 var(--accent);
   font-weight: 600;
 }
 .toc-item.read {
@@ -845,6 +863,12 @@ button.toc-more:hover {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.reader-foot .foot-at {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-foot .foot-at:empty { display: none; }
 
 /* 进度条原来用浏览器默认样式，在暖纸和夜间纸上都是一条突兀的蓝灰。
    轨道用 --line、滑块用 --accent，跟着纸色走 */
@@ -857,9 +881,11 @@ button.toc-more:hover {
  */
 .reader-foot .foot-range {
   flex: 1;
-  min-width: 6rem;
+  min-width: 4rem;
   appearance: none;
   height: 24px;
+  border: 0;
+  padding: 0;
   background: none;
   cursor: pointer;
 }
@@ -911,7 +937,6 @@ button.toc-more:hover {
 }
 
 .reader-rail {
-  /* 和纸的上沿齐平（.reader-body 的 padding-top 就是 2rem） */
   top: 2rem;
   left: max(1.1rem, calc(50% - var(--read-col, 1113px) / 2 - 4.6rem));
   background: color-mix(in srgb, var(--panel) 88%, transparent);
@@ -940,7 +965,7 @@ button.toc-more:hover {
   align-items: center;
   gap: 0.15rem;
   width: 3.4rem;
-  padding: 0.5rem 0.2rem;
+  padding: 0.4rem 0.2rem;
   border: 0;
   border-radius: 0;
   background: none;
@@ -1132,7 +1157,7 @@ button.toc-more:hover {
   }
 
   /* 轨不在两侧了，正文左右不用再让——**改这一个变量，滚动和翻页两个模式一起跟上** */
-  .reader-body { --rail-clear: 1rem; }
+  .reader { --rail-clear: 1rem; }
 
   .reader-rail,
   .reader-tools,
@@ -1144,8 +1169,8 @@ button.toc-more:hover {
   }
   .reader-rail,
   .reader-tools { flex-direction: row; }
-  .reader-rail button + button { border-top: 0; border-left: 1px solid var(--line); }
-  .reader-tools { padding: 0.4rem 0; }
+  .reader-rail button + button,
+  .reader-tools button + button { border-top: 0; border-left: 1px solid var(--line); }
 
   /*
    * ⚠️ **窄屏这套是竖向排的，两条轨会被上面的浮层挤扁。** 量出来（760×520）：
@@ -1216,12 +1241,12 @@ button.toc-more:hover {
     max-height: 60vh;
   }
 
-  /* DOM 顺序是 轨→工具→浮层→正文→状态条，这里排成 正文→浮层→工具→轨→状态条 */
   .reader-body { order: 0; }
   .reader-panel { order: 1; }
-  .reader-tools { order: 2; }
-  .reader-rail { order: 3; }
-  .reader-foot { order: 4; }
+  .reader-rail { order: 2; }
+  .reader-tools { order: 3; }
+  .tts-fallback { order: 4; }
+  .reader-foot { order: 5; }
 }
 
 /*
@@ -1541,8 +1566,10 @@ button.toc-more:hover {
  * 会按它自己的字号解析，算出个不相干的数。
  */
 .reader-foot {
+  flex: none;
   border-top: 1px solid var(--line);
-  padding: 0.4rem max(0.9rem, calc(50% - var(--read-col, 1113px) / 2));
+  background: var(--panel);
+  padding: 0.35rem max(var(--rail-clear), calc(50% - var(--read-col, 1113px) / 2));
   display: flex;
   gap: 0.8rem;
   align-items: center;
@@ -1561,10 +1588,26 @@ button.toc-more:hover {
   align-items: center;
   gap: 0.4rem;
   flex-shrink: 0;
+  margin-inline-start: auto;
+}
+.pager button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 2rem;
+  padding: 0.2rem 0.55rem;
+  background: var(--bg);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.pager svg {
+  width: 0.9rem;
+  height: 0.9rem;
 }
 .pager-n {
   min-width: 3.2rem;
   text-align: center;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums; /* 页码跳动时宽度不抖 */
 }
 

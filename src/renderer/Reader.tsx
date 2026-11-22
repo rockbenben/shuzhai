@@ -25,7 +25,7 @@ import {
   type ReadSettings, type Action, 滚动方式 } from './settings.ts';
 import { FindInBook, type Hit } from './FindInBook.tsx';
 import { TtsPanel } from './TtsPanel.tsx';
-import { NightToggle, TocHead, TtsEnginesModal } from './ReaderChrome.tsx';
+import { NightToggle, ReaderPager, TocHead, TtsEnginesModal } from './ReaderChrome.tsx';
 import { HighlightsPanel } from './HighlightsPanel.tsx';
 import { splitParagraphs, sliceByMarks, speakingParagraph, splitImages, 第n处, type Mark } from '../core/paragraphs.ts';
 import { 是机械分段 } from '../core/labels.ts';
@@ -1690,7 +1690,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           * 现在按「多久用一次」分三处：常驻动作在左轨，读的时候临时用一下的在右轨，
           * 排版类的收进设置浮层——那些是**设一次就不动**的。
           */}
-        <nav className="reader-rail" aria-label="阅读器功能" ref={左轨}>
+        <nav className="reader-rail" aria-label="阅读导航与显示" ref={左轨}>
           <button onClick={onExit} title={`回书架（${键('exit')}）`}>{ICO.back}<span>书架</span></button>
           {/* ⚠️ **开着要看得出来，而左轨认的是 `aria-current` 不是 `.on`**
               （`.reader-rail button[aria-current="true"] { color: accent }`，
@@ -1703,31 +1703,34 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
             onClick={() => 切换('目录')}
             title={`开关目录侧栏（${键('toc')}）`}
           >{ICO.toc}<span>目录</span></button>
-          <button onClick={() => go(idx - 1)} disabled={idx <= 0} title={`上一章（${键('prev')}）`}>
-            {ICO.prev}<span>上一章</span>
-          </button>
-          <button
-            onClick={() => go(idx + 1)}
-            disabled={!chapter || idx >= chapter.total - 1}
-            title={`下一章（${键('next')}）`}
-          >
-            {ICO.next}<span>下一章</span>
-          </button>
+          {settings.mode === 'page' && (
+            <>
+              <button onClick={() => go(idx - 1)} disabled={idx <= 0} title="直接跳到上一章">
+                {ICO.prev}<span>上一章</span>
+              </button>
+              <button
+                onClick={() => go(idx + 1)}
+                disabled={!chapter || idx >= chapter.total - 1}
+                title="直接跳到下一章"
+              >
+                {ICO.next}<span>下一章</span>
+              </button>
+            </>
+          )}
           <button ref={设置键} aria-current={panel} onClick={() => 切换('设置')} title="纸色、字号、行距、繁简">
             {ICO.gear}<span>设置</span>
           </button>
-          <button
-            onClick={() => bodyRef.current?.scrollTo({ top: 0, behavior: 滚动方式() })}
-            title="回到本章开头"
-          >
-            {ICO.up}<span>顶部</span>
-          </button>
-          <button
-            onClick={() => bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight, behavior: 滚动方式() })}
-            title="到本章末尾"
-          >
-            {ICO.down}<span>底部</span>
-          </button>
+          <NightToggle theme={settings.theme} setTheme={(v) => set('theme', v)} />
+          {settings.mode !== 'page' && (
+            <>
+              <button onClick={() => bodyRef.current?.scrollTo({ top: 0, behavior: 滚动方式() })} title="滚到顶部">
+                {ICO.up}<span>顶部</span>
+              </button>
+              <button onClick={() => bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight, behavior: 滚动方式() })} title="滚到底部">
+                {ICO.down}<span>底部</span>
+              </button>
+            </>
+          )}
           {/* 追更覆盖写：重新从磁盘读这本书。打开时 stat 发现文件变过会挂提示条 */}
           <button
             onClick={() => void 刷新()}
@@ -1736,6 +1739,11 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           >
             {ICO.refresh}<span>{刷新中 ? '刷新中' : '刷新'}</span>
           </button>
+          {onEdit && (
+            <button onClick={onEdit} title="改书名、作者、封面、简介这些（不离开阅读）">
+              {ICO.info}<span>编辑</span>
+            </button>
+          )}
         </nav>
 
         {/* 右轨：读的时候会临时用一下的几样。**每格都写名字**，和左轨同一套——
@@ -1745,7 +1753,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
             看不出开没开就只能靠试。**这一族只认这一个属性**（`.on` 撤了，
             理由写在 `styles.css` 两条轨那份合并的注释上）：设了它就有画法，
             想「有视觉没读屏」或反过来都设不出来 */}
-        <div className="reader-tools" ref={右轨}>
+        <div className="reader-tools" role="group" aria-label="本书工具" ref={右轨}>
           {/* 亮 = 这一章有书签。**再点一下是撤掉，不是再加一个** */}
           <button
             // 状态只认 `aria-current` 这一份：眼睛和读屏从此是同一件事。
@@ -1760,6 +1768,13 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           >
             {ICO.mark}<span>{markedHere ? '撤书签' : '加书签'}</span>
           </button>
+          <button
+            aria-current={开着的 === '书签划线'}
+            onClick={() => 切换('书签划线')}
+            title="书签、划线和笔记（这本书的，以及全库带笔记的划线）"
+          >
+            {ICO.pen}<span>书签划线</span>
+          </button>
           {/* 原来这颗既没有 `.on` 也没有 `aria-current`——点开搜索层后键上
               一个像素都不变，而查看器同名那颗两样都有（两个阅读界面的分叉） */}
           <button
@@ -1769,25 +1784,6 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
             title={`在这本书里找一段话（${键('search')}）`}
           >
             {ICO.search}<span>搜索</span>
-          </button>
-          {/* 评价随时能记，不用读完。**说明里要写「读不下去」**——
-              那是这个入口存在的理由，而它在按钮名字里看不出来 */}
-          <button
-            ref={评价键}
-            aria-current={!!reviewing}
-            onClick={() => 切换('评价')}
-            title="给这本书打分、写一句短评。读不下去了也记一句，下次在书架上就能看见"
-          >
-            {ICO.star}<span>评价</span>
-          </button>
-          {/* 说明里必须带上「书签」：书签**加**在左边那个按钮、**看**在这里，
-              而原来这句只说划线——按 B 加完的人根本找不到它们去哪了 */}
-          <button
-            aria-current={开着的 === '书签划线'}
-            onClick={() => 切换('书签划线')}
-            title="书签、划线和笔记（这本书的，以及全库带笔记的划线）"
-          >
-            {ICO.pen}<span>书签划线</span>
           </button>
           <button
             aria-current={scrolling}
@@ -1816,17 +1812,14 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           >
             {ICO.tts}<span>朗读</span>
           </button>
-          {/* 一键白天/夜间。**和查看器共用一份**（`ReaderChrome.tsx`）——
-              两边原来逐字节相同地各写一份，而各自的 `isNight` 都在手写 id 的拼法 */}
-          <NightToggle theme={settings.theme} setTheme={(v) => set('theme', v)} />
-          {/* 编辑书信息＝**低频**（一本书改不了一两次资料），原来摆在左轨第二格、
-              紧跟「书架」，太靠前。挪到右轨**最后**：右轨是「读的时候临时用一下」
-              那一档，这一档里它最不常用。点它是就地盖一层编辑弹窗、**不退出阅读**。 */}
-          {onEdit && (
-            <button onClick={onEdit} title="改书名、作者、封面、简介这些（不离开阅读）">
-              {ICO.info}<span>编辑</span>
-            </button>
-          )}
+          <button
+            ref={评价键}
+            aria-current={!!reviewing}
+            onClick={() => 切换('评价')}
+            title="给这本书打分、写一句短评。读不下去了也记一句，下次在书架上就能看见"
+          >
+            {ICO.star}<span>评价</span>
+          </button>
         </div>
 
         {ttsOpen && (
@@ -2277,30 +2270,6 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
             留下的是能拖的这条——它既是显示也是控件，角标只能看 */}
         <div className="reader-foot">
           <span className="foot-at">第 {footIdx + 1} / {chapter?.total ?? '…'} 章</span>
-          {/* 左右翻页模式下，界面上原来**一个能点的翻页控件都没有**——
-              turn() 只绑在快捷键上，底部仅有一行「本章 1/12 页」的文字。
-              鼠标用户根本翻不了页 */}
-          {settings.mode === 'page' && (
-            <span className="pager">
-              <button
-                className="mini"
-                onClick={() => turn(-1)}
-                disabled={idx <= 0 && page <= 0}
-                title="上一页（翻到头会退到上一章）"
-              >
-                ‹ 上一页
-              </button>
-              <span className="pager-n">{page + 1} / {pages}</span>
-              <button
-                className="mini"
-                onClick={() => turn(1)}
-                disabled={!chapter || (idx >= chapter.total - 1 && page >= pages - 1)}
-                title="下一页（翻到底会进下一章）"
-              >
-                下一页 ›
-              </button>
-            </span>
-          )}
           {/* 拖动条**只在松手时才跳章**。原来绑 onChange，拖过去的每一章都会真的
               去读一次正文——12058 章的书上拖一下发几十次请求，界面直接卡住。
               拖动时只更新预览数字，`onPointerUp`/`onKeyUp` 才 go()。
@@ -2315,6 +2284,8 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           <input
             className="foot-range"
             type="range"
+            aria-label="跳到第几章"
+            aria-valuetext={`第 ${footIdx + 1} 章`}
             min={0}
             max={Math.max(0, (chapter?.total ?? 1) - 1)}
             value={footIdx}
@@ -2325,6 +2296,20 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
             title="拖到哪一章，松手才跳"
           />
           <span className="foot-pct">{pct}%</span>
+          {settings.mode === 'page' ? (
+            <ReaderPager
+              unit="页"
+              position={`${page + 1} / ${pages} 页`}
+              previous={{ run: () => turn(-1), disabled: idx <= 0 && page <= 0, title: '上一页（翻到头会退到上一章）' }}
+              next={{ run: () => turn(1), disabled: !chapter || (idx >= chapter.total - 1 && page >= pages - 1), title: '下一页（翻到底会进下一章）' }}
+            />
+          ) : (
+            <ReaderPager
+              unit="章"
+              previous={{ run: () => go(idx - 1), disabled: idx <= 0, title: `上一章（${键('prev')}）` }}
+              next={{ run: () => go(idx + 1), disabled: !chapter || idx >= chapter.total - 1, title: `下一章（${键('next')}）` }}
+            />
+          )}
         </div>
       </div>
 
