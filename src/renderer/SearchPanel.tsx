@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadShowRating } from './settings.ts';
 import { rpc } from './rpc.ts';
+import { 拆标签 } from './TagPicker.tsx';
 
 interface Hit {
   bookId: number;
@@ -63,6 +64,10 @@ export function SearchPanel({ onOpen, onClose }: Props) {
   const [hits, setHits] = useState<Hit[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [manageIndex, setManageIndex] = useState(false);
+  const results = useRef<HTMLDivElement>(null);
   /** 建了索引的书。**正文搜索只在这些书里搜** */
   const [books, setBooks] = useState<IndexedBook[]>([]);
   /** 「删掉全部索引」问过一次了吗。按仓库已有的行内确认写法（同「分类」那个删除键） */
@@ -70,6 +75,7 @@ export function SearchPanel({ onOpen, onClose }: Props) {
   /** 想给哪本书建索引：在这里搜书名，选中就建 */
   const [pick, setPick] = useState('');
   const [picks, setPicks] = useState<MetaHit[]>([]);
+  const term = q.trim().toLowerCase();
 
   const reloadIndexed = () =>
     rpc<IndexedBook[]>('search.indexedBooks').then(setBooks).catch(() => setBooks([]));
@@ -87,28 +93,31 @@ export function SearchPanel({ onOpen, onClose }: Props) {
    * 判据和 `App.tsx` 的 `refresh` 一样（那边叫 `gen`）：**输入一变，旧结果立刻作废。**
    */
   const 代 = useRef(0);
+  const 选书代 = useRef(0);
 
   // 「给哪本书建索引」的书名搜索。走 searchMeta，不需要索引
   useEffect(() => {
-    const 我的 = ++代.current;
-    if (!pick.trim()) { setPicks([]); return; }
+    const 我的 = ++选书代.current;
+    setPicks([]);
+    if (!pick.trim()) return;
     const t = setTimeout(() => {
       rpc<MetaHit[]>('search.meta', { query: pick })
-        .then((r) => { if (代.current === 我的) setPicks(r.slice(0, 8)); })
-        .catch(() => { if (代.current === 我的) setPicks([]); });
+        .then((r) => { if (选书代.current === 我的) setPicks(r.slice(0, 8)); })
+        .catch(() => { if (选书代.current === 我的) setPicks([]); });
     }, 250);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); ++选书代.current; };
   }, [pick]);
 
   useEffect(() => {
     const 我的 = ++代.current;
-    if (!q.trim()) {
-      setMeta([]);
-      setHits([]);
-      return;
-    }
+    setMeta([]);
+    setHits([]);
+    setSearchError(null);
+    results.current?.scrollTo({ top: 0 });
+    const canSearch = !!q.trim() && (scope === 'meta' || books.length > 0);
+    setSearching(canSearch);
+    if (!canSearch) return;
     const t = setTimeout(() => {
-      setError(null);
       /*
        * ⚠️ **出错要把上一次的结果清掉。**
        *
@@ -124,20 +133,22 @@ export function SearchPanel({ onOpen, onClose }: Props) {
         if (代.current !== 我的) return;
         setMeta([]);
         setHits([]);
-        setError(e.message);
+        setSearchError(e.message);
       };
       if (scope === 'meta') {
         rpc<MetaHit[]>('search.meta', { query: q })
           .then((r) => { if (代.current === 我的) setMeta(r); })
-          .catch(出错);
+          .catch(出错)
+          .finally(() => { if (代.current === 我的) setSearching(false); });
       } else {
         rpc<Hit[]>('search.fullText', { query: q })
           .then((r) => { if (代.current === 我的) setHits(r); })
-          .catch(出错);
+          .catch(出错)
+          .finally(() => { if (代.current === 我的) setSearching(false); });
       }
     }, 300);
-    return () => clearTimeout(t);
-  }, [q, scope]);
+    return () => { clearTimeout(t); ++代.current; };
+  }, [q, scope, books]);
 
   /**
    * 给一本书建索引。
@@ -179,264 +190,171 @@ export function SearchPanel({ onOpen, onClose }: Props) {
   };
 
   const dropFor = async (bookId?: number) => {
-    await rpc('search.dropIndex', bookId ? { bookIds: [bookId] } : {});
-    await reloadIndexed();
-    setHits([]);
+    setBusy('正在删除索引…');
+    setError(null);
+    try {
+      await rpc('search.dropIndex', bookId ? { bookIds: [bookId] } : {});
+      await reloadIndexed();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" style={{ width: 'min(52rem, 100%)' }} onClick={(e) => e.stopPropagation()}>
-        {/*
-          * **这个弹窗原来一个标题都没有。**
-          *
-          * 点开「全库搜索」，弹出来的是一个输入框加一个下拉——和书架头部那个
-          * 搜索框长得一模一样，而默认档位（书名/作者/标签）**干的也确实是同一件事**。
-          * 于是「这跟上面那个框有什么区别」没人答得上来，真正的区别（能搜正文）
-          * 藏在一个没人会去点的下拉里。标题加上，差别写在第一句话里。
-          */}
-        <h2>全库搜索</h2>
-        <p className="muted" style={{ margin: '0 0 0.7rem', fontSize: '0.85rem' }}>
-          书名、作者、标签、<strong>你自己写的短评</strong>随时能搜。
-          <strong>要搜正文，先给那本书建索引</strong>——按书建不是整库建：一本 500 章的书几秒，12000 章的要一分多钟。
-        </p>
-        <div className="row">
-          <input
-            autoFocus
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder={scope === 'meta' ? '搜书名 / 作者 / 标签 / 你写的短评' : '搜正文'}
-            style={{ flex: 1 }}
-          />
-          <select
-            value={scope}
-            onChange={(e) => setScope(e.target.value as 'meta' | 'full')}
-            aria-label="搜哪一片"
-          >
-            {/* 「书名作者标签」三个词连着读，第一眼分不出是三样还是一样 */}
-            {/* 「你写的短评」要写出来：搜得到但没人知道搜得到，等于没有 */}
-            <option value="meta">书名 / 作者 / 标签 / 短评</option>
-            <option value="full">正文内容</option>
-          </select>
-        </div>
-
-        {scope === 'full' && (
-          <div className="card" style={{ marginTop: '.6rem' }}>
-            <div className="row">
-              <strong style={{ fontSize: '0.9rem' }}>
-                正文搜索的范围：{books.length ? `${books.length} 本书` : '还没有书建索引'}
-              </strong>
-              <span style={{ flex: 1 }} />
-              {/*
-                * ⚠️ **两处都改过，原因是同一个**：这个键原来叫「全部删掉」，
-                * 而它左边紧挨着的字是「正文搜索的范围：**N 本书**」——
-                * 扫过去读到的是「N 本书……全部删掉」。这个应用**真的有删文件的功能**，
-                * 所以最危险的那个动词后面必须跟着宾语。单本那个键的提示写的就是
-                * 「删掉这本书的索引」，这里跟它对齐。
-                *
-                * 而且原来**一点就没了，不问一句**——下面那句话自己写着
-                * 「全库建一次要跑几小时」。索引是能重建的（不算铁律 3），
-                * 所以不上二次确认那一套，行内问一句就够。
-                */}
-              {books.length > 0 && (要全删吗 ? (
-                <>
-                  <button
-                    className="danger"
-                    style={{ fontSize: '0.78rem', padding: '.1em .5em' }}
-                    onClick={() => { set要全删吗(false); void dropFor(); }}
-                  >
-                    确认删掉这 {books.length} 本的索引
-                  </button>
-                  <button style={{ fontSize: '0.78rem', padding: '.1em .5em' }} onClick={() => set要全删吗(false)}>
-                    再看看
-                  </button>
-                </>
-              ) : (
-                <button style={{ fontSize: '0.78rem', padding: '.1em .5em' }} onClick={() => set要全删吗(true)}>
-                  删掉全部索引
-                </button>
-              ))}
-            </div>
-            <p className="muted" style={{ margin: '0.25rem 0 0.5rem', fontSize: '0.82rem' }}>
-              索引<strong>按本建</strong>——这个库有六百多万章，全库建一次要跑几小时。建索引只<strong>读</strong> txt，把正文副本存进数据库；
-              <strong>原文件一个字节都不会改</strong>，索引随时能删。
-            </p>
-
-            {books.length > 0 && (
-              <div className="row" style={{ flexWrap: 'wrap', gap: '.3rem', marginBottom: '.5rem' }}>
-                {books.map((b) => (
-                  <span key={b.bookId} className="chip">
-                    {b.title}
-                    <span className="chip-n">{b.chapters}</span>
-                    <button
-                      style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, color: 'inherit' }}
-                      title="删掉这本书的索引"
-                      onClick={() => void dropFor(b.bookId)}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <div className="row">
-              <input
-                value={pick}
-                onChange={(e) => setPick(e.target.value)}
-                placeholder="输入书名，给它建索引"
-                style={{ flex: 1 }}
-              />
-              {busy && <span className="muted" style={{ fontSize: '0.82rem' }}>{busy}</span>}
-            </div>
-            {picks.length > 0 && (
-              <div className="row" style={{ flexWrap: 'wrap', gap: '.3rem', marginTop: '.4rem' }}>
-                {/*
-                  * ⚠️ **没有正文的书不能点，而且要说清为什么。**
-                  *
-                  * 这个列表原来什么书都收：选中一本 PDF，界面会说
-                  * 「《X》建好了，共 **0** 章」——**一句为「什么都没干」而发的成功提示**，
-                  * 那本书随后还会出现在「正文搜索的范围」里，而搜什么都搜不到。
-                  *
-                  * 判据写成**「有没有章节」而不是「是不是 PDF」**：只编目的格式章节表
-                  * 天生是空的，而一本没解析成功的 txt 同样建不出东西——后者按格式判会漏掉。
-                  *
-                  * **不是藏起来而是禁用**：用户按书名搜过来，书却不出现，比出现但点不动更让人犯嘀咕
-                  * （同这个仓库那条「摆一个点了必然出错的按钮比没有更糟」的另一半——
-                  * 该说的是「为什么点不了」）。
-                  */}
-                {picks.map((b) => {
-                  const 建过 = books.some((x) => x.bookId === b.bookId);
-                  const 没正文 = !b.chapters;
-                  return (
-                    <button
-                      key={b.bookId}
-                      className="chip"
-                      disabled={busy !== null || 建过 || 没正文}
-                      title={没正文 ? '只有 txt 的正文能搜。这本没有正文可搜，所以建不了' : undefined}
-                      onClick={() => void buildFor(b.bookId, b.title)}
-                    >
-                      {建过 ? '已建 · ' : 没正文 ? '没有正文 · ' : '+ '}
-                      {b.title}
-                    </button>
-                  );
-                })}
-              </div>
+      <div className="modal library-search" onClick={(e) => e.stopPropagation()}>
+        <header className="library-search-head">
+          <h2>全库搜索</h2>
+          <div className="search-scopes" role="group" aria-label="搜索范围">
+            <button aria-pressed={scope === 'meta'} onClick={() => { setScope('meta'); setManageIndex(false); }}>
+              书籍资料
+            </button>
+            <button aria-pressed={scope === 'full'} onClick={() => setScope('full')}>正文内容</button>
+          </div>
+          <div className="search-query">
+            <input
+              autoFocus
+              className="search-box"
+              type="search"
+              value={q}
+              aria-label={scope === 'meta' ? '搜书名、别名、作者、标签或短评' : '搜已索引的正文'}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={scope === 'meta' ? '搜书名 / 作者 / 标签 / 短评' : '搜已索引的正文'}
+            />
+            {scope === 'full' && (
+              <button aria-expanded={manageIndex} onClick={() => setManageIndex((v) => !v)}>管理索引</button>
             )}
           </div>
-        )}
+          {scope === 'full' && <p className="search-scope-hint muted">正文范围：已建索引的 {books.length} 本书</p>}
+        </header>
 
-        {error && <p className="danger">{error}</p>}
-
-        <div style={{ maxHeight: '26rem', overflowY: 'auto', marginTop: '.6rem' }}>
-          {scope === 'meta' ? (
-            meta.length === 0 ? (
-              /*
-               * **「没有匹配的书」不是「书里没有这个词」。** 这一档搜的是书名、
-               * 作者、标签和你写的短评，正文在另一档；零结果时给一条切过去的路，
-               * 别让人以为这本书里没有。
-               */
-              q && (
-                <p className="muted">
-                  没有匹配的书。要搜正文，<button className="mini" onClick={() => setScope('full')}>切到「正文内容」</button>（第一次要先给那本书建索引）。
-                </p>
-              )
-            ) : (
-              <table className="search-meta">
-                {/* 列头跟着列一起条件渲染：「用评分」关掉时那一列整列收起，
-                    留一个没人对应的表头就是句假话 */}
-                <thead>
-                  <tr>
-                    <th scope="col">书名</th>
-                    <th scope="col">作者</th>
-                    {showRating && <th scope="col">评分</th>}
-                    <th scope="col">标签</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {meta.map((m) => (
-                    <tr key={m.bookId}>
-                      <td>
-                        <button
-                          style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left' }}
-                          onClick={() => onOpen(m.bookId)}
-                        >
-                          {m.title}
-                        </button>
-                        {/*
-                          * **那句短评要在这儿出现。**
-                          * 「下次不用再想这本我看过没」是这个应用的正事，而用户最常走的
-                          * 就是在这里搜书名——卡片上兑现了，搜索结果里原来只有
-                          * 书名/作者/标签，恰好在最该回答的地方不答。
-                          * 说法和卡片一致：引号是画上去的，一眼看得出这是「我说的话」。
-                          */}
-                        {m.comment && (
-                          <div className="book-note" style={{ maxWidth: '22rem' }} title={m.comment}>
-                            {m.comment}
-                          </div>
-                        )}
-                      </td>
-                      <td className="muted">{m.author ?? '—'}</td>
-                      {/* 「用评分」关掉时整列收起来——留一列空的只会让书名和
-                          作者白挨挤（那张表在 760px 上本来就紧） */}
-                      {showRating && (
-                        <td style={{ width: '3.2rem' }}>
-                          {m.rating != null && <span className="book-rating">★{m.rating}</span>}
-                        </td>
-                      )}
-                      {/*
-                        * ⚠️ **clamp 必须加在里面这个 `<div>` 上，不能加在 `<td>` 上。**
-                        * Chromium 会把表格单元格上的 `display: -webkit-box`
-                        * **blockify 成 `flow-root`**（当场量的 computed 值），
-                        * 于是 `-webkit-line-clamp` 整个不生效——那一格不是「收成两行」，
-                        * 是被 `overflow: hidden` **拦腰切断**（142px 的内容切在 55px 上，
-                        * 最后一行从中间横着削掉半个字）。
-                        * 而 CSS 里那段注释写着「收成两行」，**代码从来没兑现过**。
-                        * 全文放 title 里。
-                        */}
-                      <td className="muted" style={{ fontSize: '0.8rem' }} title={m.tags ?? ''}>
-                        <div className="clamp2">{m.tags ?? ''}</div>
-                      </td>
-                    </tr>
+        <div className="library-search-body" ref={results}>
+          {scope === 'full' && manageIndex && (
+            <section className="search-indexes" aria-label="正文索引">
+              <div className="search-index-heading">
+                <h3>正文索引</h3>
+                {books.length > 0 && (要全删吗 ? (
+                  <>
+                    <button className="danger" disabled={!!busy} onClick={() => { set要全删吗(false); void dropFor(); }}>
+                      确认删掉这 {books.length} 本的索引
+                    </button>
+                    <button onClick={() => set要全删吗(false)}>取消</button>
+                  </>
+                ) : (
+                  <button disabled={!!busy} onClick={() => set要全删吗(true)}>删掉全部索引</button>
+                ))}
+              </div>
+              <p className="muted">给 TXT 按本建索引。原文件保持原样。</p>
+              {books.length > 0 && (
+                <ul className="search-index-list">
+                  {books.map((b) => (
+                    <li key={b.bookId}>
+                      <span className="search-index-title" title={b.title}>{b.title}</span>
+                      <span className="muted">{b.chapters} 章</span>
+                      <button disabled={!!busy} aria-label={`删除《${b.title}》的索引`} onClick={() => void dropFor(b.bookId)}>
+                        删索引
+                      </button>
+                    </li>
                   ))}
-                </tbody>
-              </table>
-            )
-          ) : hits.length === 0 ? (
-            q && books.length > 0 && <p className="muted">这 {books.length} 本书的正文里没有找到。</p>
-          ) : (
+                </ul>
+              )}
+              <input
+                autoFocus
+                className="search-index-pick"
+                type="search"
+                value={pick}
+                aria-label="输入书名，选择要建索引的书"
+                onChange={(e) => setPick(e.target.value)}
+                placeholder="输入书名，选择要建索引的书"
+              />
+              {picks.length > 0 && (
+                <div className="search-index-picks">
+                  {picks.map((b) => {
+                    const 建过 = books.some((x) => x.bookId === b.bookId);
+                    const 没正文 = !b.chapters;
+                    return (
+                      <button key={b.bookId} disabled={!!busy || 建过 || 没正文} onClick={() => void buildFor(b.bookId, b.title)}>
+                        {b.title} <span>{建过 ? '已建索引' : 没正文 ? '没有可索引的正文' : '建索引'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
+
+          {busy && <p className="search-feedback muted" role="status">{busy}</p>}
+          {error && <p className="search-feedback danger" role="alert">{error}</p>}
+          {searchError ? <p className="search-feedback danger" role="alert">{searchError}</p> : searching ? (
+            <p className="search-feedback muted" role="status">正在搜索…</p>
+          ) : scope === 'meta' && meta.length ? (
             <>
-              <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 0.3rem' }}>
-                命中 {hits.length} 处
-              </p>
-              <table>
-                <tbody>
-                  {hits.map((h, i) => (
-                    <tr key={i}>
-                      <td style={{ width: '11rem', fontSize: '0.82rem' }}>
-                        <div>{h.bookTitle}</div>
-                        <div className="muted" style={{ fontSize: '0.75rem' }}>{h.chapterTitle}</div>
-                      </td>
-                      <td style={{ fontSize: '0.85rem' }}>
-                        <Snippet text={h.snippet} />
-                      </td>
-                      <td style={{ width: '4rem' }}>
-                        <button
-                          style={{ fontSize: '0.78rem', padding: '.1em .5em' }}
-                          onClick={() => onOpen(h.bookId, h.chapterIdx)}
-                        >
-                          跳转
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <p className="search-feedback muted" role="status">匹配 {meta.length} 本</p>
+              <ul className="library-result-list">
+                {meta.map((m) => {
+                  const tags = 拆标签(m.tags);
+                  const visibleTags = [...tags].sort((a, b) =>
+                    Number(b.toLowerCase().includes(term)) - Number(a.toLowerCase().includes(term))).slice(0, 4);
+                  return (
+                    <li key={m.bookId}>
+                      <button className="library-result" onClick={() => onOpen(m.bookId)}>
+                        <span className="library-result-heading">
+                          <strong>{m.title}</strong>
+                          {showRating && m.rating != null && <span className="book-rating">★{m.rating}</span>}
+                        </span>
+                        {m.author && <span className="library-result-meta">{m.author}</span>}
+                        {m.comment && <span className="book-note" title={m.comment}>{m.comment}</span>}
+                        {tags.length > 0 && (
+                          <span className="library-result-tags" title={tags.join('、')}>
+                            {visibleTags.map((tag) => <span className="chip sm" key={tag}>{tag}</span>)}
+                            {tags.length > visibleTags.length && (
+                              <span className="muted">其余 {tags.length - visibleTags.length} 个标签</span>
+                            )}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             </>
+          ) : scope === 'full' && hits.length ? (
+            <>
+              <p className="search-feedback muted" role="status">显示 {hits.length} 处匹配</p>
+              <ul className="library-result-list">
+                {hits.map((h, i) => (
+                  <li key={i}>
+                    <button className="library-result" onClick={() => onOpen(h.bookId, h.chapterIdx)}>
+                      <span className="library-result-heading"><strong>{h.bookTitle}</strong></span>
+                      <span className="library-result-meta">{h.chapterTitle}</span>
+                      <span className="library-result-snippet"><Snippet text={h.snippet} /></span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <div className="library-search-empty">
+              {scope === 'meta' ? q.trim() ? (
+                <>
+                  <strong>没有匹配的书</strong>
+                  <button onClick={() => setScope('full')}>切到「正文内容」</button>
+                </>
+              ) : <p>输入书名、别名、作者、标签或你写过的短评。</p> : books.length ? (
+                <p>{q.trim() ? '已建索引的正文中没有匹配内容。' : '输入记得的词或句子，查找所在章节。'}</p>
+              ) : !manageIndex && (
+                <>
+                  <strong>还没有可搜的正文</strong>
+                  <button onClick={() => setManageIndex(true)}>给一本书建索引</button>
+                </>
+              )}
+            </div>
           )}
         </div>
 
-        <div className="row modal-actions" style={{ marginTop: '.8rem', justifyContent: 'flex-end' }}>
+        <div className="modal-actions library-search-foot">
           <button onClick={onClose}>关闭</button>
         </div>
       </div>

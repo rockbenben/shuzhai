@@ -1648,6 +1648,72 @@ button.toc-more:hover {
   padding: 1.1rem 0 0;
   background: var(--bg);
 }
+.modal.library-notes { width: min(52rem, 100%); }
+.notes-title { align-items: baseline; flex-wrap: wrap; }
+.notes-count { margin-inline-start: auto; font-size: 0.8rem; }
+.notes-head .notes-query {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.25rem;
+  margin: 0.45rem 0 0;
+}
+.notes-organize {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0;
+}
+.notes-organize select {
+  max-width: 12rem;
+  font-size: 0.82rem;
+}
+.notes-group {
+  margin: 0.85rem 0 0.3rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.96rem;
+}
+.note-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.65rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+.note-result-content { flex: 1; min-width: 0; }
+.note-result .note-result-open {
+  display: block;
+  width: 100%;
+  padding: 0.15rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+  border: 0;
+  background: none;
+  color: var(--fg);
+}
+.note-result .note-result-open:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.note-result .note-result-open:disabled { opacity: 1; }
+.note-result-text,
+.note-result-excerpt,
+.note-result-meta { display: block; }
+.note-result-text {
+  margin-bottom: 0.35rem;
+  font-family: var(--say-font);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+.note-result-excerpt { font-size: 0.85rem; line-height: 1.55; }
+.note-result-meta { margin-top: 0.3rem; font-size: 0.78rem; }
+.note-result-link { color: var(--accent); margin-inline-start: 0.75rem; }
+.note-result-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
 
 /*
  * 弹窗底部的动作行——**粘住，别让人为了找「保存」滚半屏**。
@@ -1672,52 +1738,120 @@ button.toc-more:hover {
   border-top: 1px solid var(--line);
 }
 
-/*
- * 全库搜索结果那张表：**标签那一列会把作者挤扁。**
- *
- * 760×520 下量的：表宽 638，而标签列独占 373（58%），作者只剩 71px——
- * 「某位名字也很长的作者」十个字塞不下，折成两行，最后一行只剩一个字
- * （走查那条「最后一行只剩一个字」抓到的就是它）。
- *
- * 作者是**认书**用的（这个库里同名不同作者是常事），标签只是「为什么匹配上」，
- * 挤掉作者去铺标签是反的。所以给标签列一个上限，让作者先够用；
- * 作者再加 `text-wrap: balance`，真折两行也是匀开的，不会留一个孤字。
- * 同「正文净化」窄屏收掉正则列那条：**挤的时候先保住判断要用的那一栏。**
- */
-.search-meta td:nth-child(4) {
-  max-width: 14rem;
+.modal.library-search {
+  width: min(52rem, 100%);
+  height: min(43rem, 100%);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  padding: 0;
+}
+.library-search-head,
+.library-search .library-search-foot {
+  padding: 0.8rem 1.25rem;
+  background: var(--panel);
+}
+.library-search-head { border-bottom: 1px solid var(--line); }
+.library-search-head h2 { margin: 0 0 0.55rem; }
+.search-scopes,
+.search-query {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.search-scopes button {
+  min-height: 2rem;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.85rem;
+}
+.search-scopes button[aria-pressed='true'] {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  border-color: var(--accent);
+}
+.search-query { margin-top: 0.55rem; }
+.search-query .search-box { flex: 1; min-width: 0; min-height: 2.35rem; margin: 0; }
+.search-query > button { min-height: 2.35rem; white-space: nowrap; }
+.search-scope-hint { margin: 0.4rem 0 0; font-size: 0.8rem; }
+.library-search-body { overflow: auto; padding: 0.75rem 1.25rem; scrollbar-width: thin; }
+.library-search .library-search-foot {
+  position: static;
+  display: flex;
+  justify-content: flex-end;
+  margin: 0;
+}
+.search-feedback { font-size: 0.85rem; margin: 0 0 0.5rem; }
+.library-search-empty {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1.1rem 0;
+  font-size: 0.9rem;
+}
+.library-search-empty p { margin: 0; color: var(--muted); }
+.library-result-list,
+.search-index-list { list-style: none; margin: 0; padding: 0; }
+.library-result-list li { border-bottom: 1px solid var(--line); }
+.library-result {
+  display: block;
+  width: 100%;
+  padding: 0.65rem 0.55rem;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
   overflow-wrap: anywhere;
 }
-
-/*
- * 收成两行，多出来的用省略号。**加在一个普通 `<div>` 上**——
- * 加在 `<td>` 上时 Chromium 把 `display: -webkit-box` blockify 成 `flow-root`，
- * clamp 静默失效，那一格变成被硬切（见 `SearchPanel.tsx` 里那段）。
- */
-.clamp2 {
-  /*
-   * **标签多的书会把一行撑成八行。** 760 下量到 21 个标签折八行，
-   * 而搜索结果最坏能有一千行（真实库上「的」1022 行），
-   * 行高一旦不齐，扫这份列表就变成了上下找。
-   * 收成两行，全文在 title 里——同 `.book-note` 那条：
-   * 一行装不下的用户数据一律 clamp 两行，别让它顶开版面。
-   */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+.library-result:hover:not(:disabled) { background: var(--panel); border-color: var(--line); }
+.library-result-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  justify-content: space-between;
+  font-size: 0.96rem;
 }
-/*
- * 每一格都匀开。**先只给作者那一格加了 balance，结果问题挪到了书名上**——
- * 作者宽了，书名也宽了，于是换成十九个字的长书名折出一个孤字。
- * 中文在任意两个汉字之间都能断，这张表里没有一格是长篇正文，
- * 匀开永远比留一个孤字好。
- */
-.search-meta td {
-  text-wrap: balance;
+.library-result-heading .book-rating { flex: none; }
+.library-result-meta {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
-
+.library-result-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+}
+.library-result-tags > span { max-width: 100%; }
+.library-result-snippet {
+  display: block;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  margin-top: 0.35rem;
+}
+.search-indexes {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 0.8rem;
+  padding: 0.8rem;
+  font-size: 0.82rem;
+}
+.search-index-heading,
+.search-index-list li,
+.search-index-picks { display: flex; align-items: center; gap: 0.45rem; }
+.search-index-heading { flex-wrap: wrap; }
+.search-index-heading h3 { font-size: 0.96rem; margin: 0 auto 0 0; }
+.search-indexes p { margin: 0.45rem 0; }
+.search-index-list li { padding: 0.25rem 0; }
+.search-index-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-index-pick { width: 100%; }
+.search-index-picks { flex-wrap: wrap; margin-top: 0.5rem; }
+.search-index-picks button { overflow-wrap: anywhere; }
+.search-index-picks button span { font-size: 0.74rem; color: var(--muted); }
 
 /* 侧栏底部那个「更多 / 收起」：它是个开关，不是一档书架，所以压淡一点 */
 .nav-item.nav-more {

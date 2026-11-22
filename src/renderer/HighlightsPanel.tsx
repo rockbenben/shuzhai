@@ -446,12 +446,15 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
    */
   const 一屏 = 300;
   const [铺, set铺] = useState(一屏);
+  const scroller = useRef<HTMLDivElement>(null);
   /** 导出完把落盘路径摆出来——「导好了」和「导到哪儿了」是两件事 */
   const [导出到, set导出到] = useState<string | null>(null);
   const [用途草稿, set用途草稿] = useState<Record<string, string>>({});
 
   /** 只看某一种颜色。null＝都看 */
   const [只看, set只看] = useState<HighlightColor | null>(null);
+  const [只看标签, set只看标签] = useState('');
+  const 可筛标签 = [...new Set(all.flatMap((n) => n.tags ?? []))].sort((a, b) => a.localeCompare(b, 'zh'));
 
   /*
    * 换了筛选 / 排序 / 页签就从头铺——那时候用户看的是另一批东西了。
@@ -459,7 +462,10 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
    * `只看` / `找`，而这四个散落在这个组件的前后两截；挪到 `铺` 旁边看着更顺，
    * 但那是 TDZ，`tsc` 当场报「used before its declaration」。
    */
-  useEffect(() => { set铺(一屏); }, [tab, 排序, 只看, 找]);
+  useEffect(() => {
+    set铺(一屏);
+    scroller.current?.scrollTo({ top: 0 });
+  }, [tab, 排序, 只看, 只看标签, 找]);
   const 显示的划线 = rows
     .filter((r) => !只看 || r.color === 只看)
     .filter((r) => 中(r.excerpt, r.note, titleOf(r.chapter_idx)));
@@ -467,7 +473,8 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
   // 全库那档多搜一个书名：跨书回看时「哪本书里那句」是最自然的入口
   const 显示的全库 = all
     .filter((n) => !只看 || n.color === 只看)
-    .filter((n) => 中(n.excerpt ?? '', n.note, n.title))
+    .filter((n) => !只看标签 || n.tags?.includes(只看标签))
+    .filter((n) => 中(n.excerpt ?? '', n.note, n.title, ...(n.tags ?? [])))
     /*
      * 按时间那一档在这儿排，不在 SQL 里——`notesOf` 是 `union all` 两张表，
      * 再按时间排一次要么套子查询、要么让两边各排各的（那是错的）。
@@ -506,12 +513,19 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
    * **不选择「一筛选就清空选中」**：那会把用户刚勾的一批默默丢掉。
    * 现在是筛回去就又回来了，而数字始终说的是实话。
    */
+  const 组计数 = new Map<string, number>();
+  if (tab === 'all' && 排序 !== '最近') {
+    for (const n of 显示的全库) {
+      const 组 = 分组名(n);
+      组计数.set(组, (组计数.get(组) ?? 0) + 1);
+    }
+  }
   const 会改的 = 选中的();
   const 能改色的 = 会改的.filter((n) => n.kind === 'highlight');
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" style={{ width: 'min(44rem, 100%)' }} onClick={(e) => e.stopPropagation()}>
+      <div className={`modal${全库模式 ? ' library-notes' : ''}`} ref={scroller} onClick={(e) => e.stopPropagation()}>
         {/*
           * **标题 + 页签 + 搜索框钉在弹窗顶上**（`.notes-head` 是 sticky）。
           * 这个面板按设计直接在 `.modal` 里铺 300 行、翻到底再铺一截，
@@ -520,10 +534,15 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
           * 搜索框也收进这里：从书架进来的全库模式没有页签，光钉个标题没有用。
           */}
         <div className="notes-head">
-        <div className="row">
+        <div className="row notes-title">
           {/* 标题里要有「书签」：它是这三样里唯一能从别处（右轨那个图标、按 B）
               加进来的，而加完的人只会照着「书签」这两个字找 */}
           <h2 style={{ margin: 0, fontSize: '1.05rem' }}>{全库模式 ? '我的笔记' : '书签与划线'}</h2>
+          {tab === 'all' && all.length > 0 && (
+            <span className="muted notes-count" role="status">
+              {显示的全库.length === all.length ? `${all.length} 条笔记` : `匹配 ${显示的全库.length} / ${all.length} 条`}
+            </span>
+          )}
           {/* 全库模式只有一档，摆一排只有一个按钮的页签是噪音 */}
           {!全库模式 && (
           <div className="tabs">
@@ -541,14 +560,52 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
 
         {/* **搜索框只在真有一堆的时候才摆出来。** 三五条的时候它是噪音，
             而且会把上面那排页签往下挤。20 是拍的：一屏大概装得下十几条 */}
-        {(rows.length + marks.length + all.length > 20) && (
+        {(tab === 'all' ? all.length > 0 || !!找 : rows.length + marks.length > 20) && (
           <input
+            className="search-box notes-query"
+            type="search"
             value={找}
             onChange={(e) => set找(e.target.value)}
-            placeholder={tab === 'all' ? '搜摘录、笔记、书名' : '搜摘录、笔记、章名'}
+            placeholder={tab === 'all' ? '搜笔记 / 摘录 / 书名 / 标签' : '搜摘录、笔记、章名'}
             aria-label="在笔记里搜"
-            style={{ width: '100%', marginTop: '.4rem' }}
           />
+        )}
+
+        {tab === 'all' && all.length > 0 && (
+          <div className="notes-organize">
+            <span className="muted" style={{ fontSize: '0.78rem' }}>归组</span>
+            {(['按书', '按颜色', '按标签', '最近'] as const).map((k) => (
+              <button
+                key={k}
+                className="chip"
+                aria-pressed={排序 === k}
+                onClick={() => { set排序(k); 退出批量(); }}
+              >
+                {k}
+              </button>
+            ))}
+            {(可筛标签.length > 0 || 只看标签) && (
+              <select
+                aria-label="按标签筛选笔记"
+                value={只看标签}
+                onChange={(e) => set只看标签(e.target.value)}
+              >
+                <option value="">全部标签</option>
+                {只看标签 && !可筛标签.includes(只看标签) && <option value={只看标签}>{只看标签}</option>}
+                {可筛标签.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+              </select>
+            )}
+            {/* **批量改色 / 批量删。** 颜色就四个，用途一多就不够分，
+                「把这十条待查的都改成已查」原来得点二十下 */}
+            <button
+              className="chip"
+              style={{ marginLeft: 'auto' }}
+              aria-pressed={批量}
+              onClick={() => (批量 ? 退出批量() : set批量(true))}
+            >
+              {批量 ? '退出多选' : '多选'}
+            </button>
+          </div>
         )}
         </div>
 
@@ -625,31 +682,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
           */}
         {/* **按书 / 按颜色 / 最近。** 只在全库那一档摆——「本书」那一档本来就按章序排，
             而一本书里的笔记按时间看没有意义（读到哪儿记到哪儿，时间序≈章序） */}
-        {tab === 'all' && all.length > 1 && (
-          <div className="row" style={{ gap: '.3rem', marginBottom: '.5rem', alignItems: 'center' }}>
-            <span className="muted" style={{ fontSize: '0.78rem' }}>归组</span>
-            {(['按书', '按颜色', '按标签', '最近'] as const).map((k) => (
-              <button
-                key={k}
-                className="chip"
-                aria-pressed={排序 === k}
-                onClick={() => { set排序(k); 退出批量(); }}
-              >
-                {k}
-              </button>
-            ))}
-            {/* **批量改色 / 批量删。** 颜色就四个，用途一多就不够分，
-                「把这十条待查的都改成已查」原来得点二十下 */}
-            <button
-              className="chip"
-              style={{ marginLeft: 'auto' }}
-              aria-pressed={批量}
-              onClick={() => (批量 ? 退出批量() : set批量(true))}
-            >
-              {批量 ? '退出多选' : '多选'}
-            </button>
-          </div>
-        )}
+
 
         {/*
           * **选了几条、能对它们做什么，全写在这一条上。**
@@ -977,9 +1010,12 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
             {/* **「筛没了」和「本来就没有」是两句话。** 只说后一句的话，
                 筛剩 0 条的人会以为自己的笔记没了——同这个仓库
                 「不给入口好过给一个点了不动的」那一族判据 */}
-            {词 || 只看
+              {词 || 只看 || 只看标签
               ? '没有符合的笔记。'
               : '还没有写过笔记。在正文里划一段、或者加个书签，再给它写一句。'}
+            {(词 || 只看 || 只看标签) && (
+              <button className="mini" onClick={() => { set找(''); set只看(null); set只看标签(''); }}>清除筛选</button>
+            )}
           </p>
         ) : (
           // 按书分组。同书的行在 SQL 里已经排在一起，这里只在书名变化时插标题
@@ -996,14 +1032,14 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                   下标对不上，书名表头会插错地方（同下面那条老注释说的病，
                   当初是拿没过滤的数组比出的错） */}
               {排序 !== '最近' && (i === 0 || 分组名(这一屏[i - 1]) !== 分组名(n)) && (
-                <h3 style={{ fontSize: '0.9rem', margin: '0.7rem 0 0.3rem' }}>
+                <h3 className="notes-group">
                   {分组名(n)}
                   {/* **组里几条要写出来。** 归组的用处就是「蓝的那堆一共几条」，
                       不写数字的话得自己数——而且铺到一半时数不对，所以数的是
                       `显示的全库`（筛过但没截断那份），不是这一屏 */}
                   {' '}
                   <span className="muted" style={{ fontWeight: 'normal', marginLeft: '.4rem', fontSize: '0.8rem' }}>
-                    {显示的全库.filter((x) => 分组名(x) === 分组名(n)).length} 条
+                    {组计数.get(分组名(n))} 条
                   </span>
                 </h3>
               )}
@@ -1020,11 +1056,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                 * 现在拆成：文字那半仍然是跳转键，右边两个小键管改和删。
                 */}
               <div
-                className="card"
-                style={{
-                  marginBottom: '.4rem', padding: '0.45rem 0.7rem',
-                  display: 'flex', gap: '.5rem', alignItems: 'flex-start',
-                }}
+                className="note-result"
               >
                 {批量 && (
                   <input
@@ -1042,9 +1074,9 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                     }}
                   />
                 )}
+                <div className="note-result-content">
                 <button
-                  className="find-hit"
-                  style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', padding: 0 }}
+                  className="find-hit note-result-open"
                   disabled={!跳到别的书 || 批量}
                   /*
                    * ⚠️ **颜色也挂在这个按钮上，别挂到里面那层 div。**
@@ -1053,7 +1085,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                    * 而在「全库笔记」里那一跳正是这一行存在的理由。
                    */
                   title={[
-                    跳到别的书 ? `打开《${n.title}》，跳到这条${n.kind === 'bookmark' ? '书签' : '划线'}` : '',
+                    跳到别的书 ? `打开《${n.title}》中这条笔记所在的位置` : '',
                     n.color ? `划的是${色名[n.color as HighlightColor] ?? n.color}` : '',
                   ].filter(Boolean).join('　') || undefined}
                   onClick={() => { 跳到别的书?.(n.bookId, n.chapterIdx); onClose(); }}
@@ -1081,33 +1113,30 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                     * 颜色只负责认、不负责「看不看得清」。这一行没有那个控件，
                     * 一个纯展示的色块就只剩填充那一条路，而那条路走不通。
                     */}
-                  <div style={{ fontSize: '0.85rem' }}>
+                  {!(editing?.类 === (n.kind === 'bookmark' ? '书签' : '划线') && editing.id === n.id) && (
+                    <span className="note-result-text">{n.note}</span>
+                  )}
+                  <span className="note-result-excerpt">
                     {n.kind === 'bookmark' && <span aria-hidden style={{ marginRight: '.3rem' }}>🔖</span>}
                     {n.rect && 框选记号}
                     <span style={n.color ? { background: 底色(n.color), borderRadius: '2px', padding: '0 0.15rem' } : undefined}>
                       {n.excerpt?.trim() || (n.kind === 'bookmark' ? '书签' : '')}
                     </span>
-                  </div>
-                  {!(editing?.类 === (n.kind === 'bookmark' ? '书签' : '划线') && editing.id === n.id) && (
-                    <div className="muted" style={{ fontSize: '0.8rem', marginTop: '.15rem' }}>{n.note}</div>
-                  )}
-                  {/* **别把 `createdAt` 直接印出来**：它是 sqlite 的 UTC 文本，
-                      照搬会比本地时间早八个钟头，看起来像时钟坏了。
-                      判据在 `core/format.ts` 的 `whenAgo`——书签那一档早就这么做了，
-                      划线和全库一直没跟上 */}
-                  {/*
-                    * **标签摆在笔记下面。** 颜色只有四个，标签才是说得清楚的那一维。
-                    *
-                    * ⚠️ **标签长什么样只有一份：`chip sm`**（`App.tsx` 那排书的标签用的就是它）。
-                    * 这里原来写的是 `className="tag"`——而 **`.tag` 在整个应用里根本不是一个类**，
-                    * 于是它们渲染成了裸文字：既不像标签、也和书架上那批对不上。
-                    * 这种错**不报错也不影响测试**，只是看起来不对。
-                    *
-                    * ⚠️ 这一整块原来还**嵌在下面那个 `.muted` 里**（写《书名》·多久前那一行），
-                    * 标签跟着变淡、语义上也不对。现在提到它前面。
-                    */}
+                  </span>
+                  <span className="note-result-meta muted">
+                  {/* **组头没写书名的时候，每行自己写。** 按颜色归组时组头是用途，
+                        不写的话一屏摘录看不出来自哪本书（同「最近」那一档早就踩过的） */}
+                    {排序 !== '按书' && <>《{n.title}》</>}
+                    {whenAgo(n.createdAt) && (
+                      <span title={whenAgo(n.createdAt)!.title}>
+                        {排序 !== '按书' ? ' · ' : ''}{whenAgo(n.createdAt)!.text}
+                      </span>
+                    )}
+                    {!批量 && 跳到别的书 && <span className="note-result-link">打开原文</span>}
+                  </span>
+                </button>
                   {(n.tags?.length ?? 0) > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.2rem', marginTop: '.2rem' }}>
+                    <div className="note-result-tags">
                       {/*
                         * ⚠️ **打得上就要摘得下。** 只有「打标签」而没有「摘掉」的话，
                         * 把一批笔记标成「待查」之后**查完了就取不掉**，那个标签一直长。
@@ -1146,17 +1175,7 @@ export function HighlightsPanel({ bookId, chapters = [], onJump, onClose, 跳到
                       ))}
                     </div>
                   )}
-                  <div className="muted" style={{ fontSize: '0.75rem', marginTop: '.2rem' }}>
-                  {/* **组头没写书名的时候，每行自己写。** 按颜色归组时组头是用途，
-                        不写的话一屏摘录看不出来自哪本书（同「最近」那一档早就踩过的） */}
-                    {排序 !== '按书' && <>《{n.title}》</>}
-                    {whenAgo(n.createdAt) && (
-                      <span title={whenAgo(n.createdAt)!.title}>
-                        {排序 !== '按书' ? ' · ' : ''}{whenAgo(n.createdAt)!.text}
-                      </span>
-                    )}
-                  </div>
-                </button>
+                </div>
                 <div className="row" style={{ flexShrink: 0, gap: '.25rem', display: 批量 ? 'none' : undefined }}>
                   <button
                     className="mini"

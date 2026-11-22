@@ -250,7 +250,7 @@ const SURFACES = [
    *
    * 「书」能命中测试库里绝大多数书名，`wait` 要盖过输入框那 280ms 的防抖。
    */
-  { name: '全库搜索', wait: 7500, expect: '.modal table tbody tr',
+  { name: '全库搜索', wait: 7500, expect: '.library-search .library-result',
     open: "(() => { const b=[...document.querySelectorAll('.nav-tool')].find(x=>x.textContent.trim()==='全库搜索'); if(!b) return 0; b.click();"
       + " let n=0; const t=setInterval(() => { const i=document.querySelector('.modal input');"
       + " if (i) { clearInterval(t);"
@@ -516,7 +516,7 @@ const SURFACES = [
    * 那正是「走查量的全是空壳」那条老毛病。`seedReviewData` 只塞标签和书评，
    * 所以这里自己补两条带笔记的划线（`种笔记`），量完自己收掉（`关笔记`）。
    */
-  { name: '我的笔记', wait: 2500, expect: '.modal',
+  { name: '我的笔记', wait: 2500, expect: '.library-notes .note-result',
     open: 开笔记(''),
     close: 关笔记 },
 
@@ -528,7 +528,7 @@ const SURFACES = [
    * 760 宽那一档正是最容易先出事的。不单列一条的话这一排永远不会被量到——
    * 同这份清单里那条「走查一直在量空壳弹窗」，只不过这次空的不是内容是**状态**。
    */
-  { name: '我的笔记·多选', wait: 3000, expect: '.modal',
+  { name: '我的笔记·多选', wait: 3000, expect: '.library-notes .note-result input[type=checkbox]',
     /*
      * ⚠️ **这一屏自己种、自己收。** 原来它的注释写着「不在这里再造笔记——
      * 上一条每跑一遍就多两条，库里肯定已经有笔记了」，那是把上一屏的**泄漏

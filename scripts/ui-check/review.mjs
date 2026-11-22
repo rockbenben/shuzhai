@@ -973,8 +973,8 @@ const cardOf2 = (id) => `document.querySelector('.book[data-book-id="${id}"]')`;
     await openTool('全库搜索');
     await until("!!document.querySelector('.modal input')");
     await ev(setInput("document.querySelector('.modal input')", '崩了'));
-    await until("document.querySelectorAll('.modal table tbody tr').length > 0");
-    const hit = await ev(`(() => [...document.querySelectorAll('.modal table tbody tr td:first-child button')].map(b=>b.textContent.trim()).includes(${JSON.stringify(target.title)}))()`);
+    await until("!!document.querySelector('.library-search .library-result')");
+    const hit = await ev(`(() => [...document.querySelectorAll('.library-search .library-result-heading strong')].map(b=>b.textContent.trim()).includes(${JSON.stringify(target.title)}))()`);
     step('全库搜索按短评找得到那本书', hit === true, `搜「崩了」没找到《${target.title}》`);
 
     // 书架那个框不许跟着变宽——批量操作靠的是它
