@@ -10,7 +10,7 @@
  *   node scripts/ui-check/audit.mjs
  */
 import { readFileSync } from 'node:fs';
-import { connect, guardTestLibrary, seedReviewData, parseColor, contrast, rpc } from './cdp.mjs';
+import { connect, guardTestLibrary, seedReviewData, parseColor, contrast, rpc, 点批量操作 } from './cdp.mjs';
 
 /*
  * **第一档是窗口自己的下限**（`main.ts` 的 `minWidth: 760, minHeight: 520`）——
@@ -431,11 +431,15 @@ const SURFACES = [
   { name: '新建分类', wait: 1500, expect: '.cat-modal .cond-chips',
     open: "(() => { const b=[...document.querySelectorAll('button')].find(x=>/新建分类/.test(x.textContent||'')); if(!b) return 0; b.click(); return 1; })()" },
 
+  { name: '批量操作', wait: 1200, expect: '.batch-popover:popover-open',
+    open: "(() => { const b = document.querySelector('.batch-trigger:not(:disabled)'); if (!b) return 0; b.click(); return 1; })()",
+    close: "document.querySelector('.batch-popover:popover-open')?.hidePopover()" },
+
   { name: '批量打标签', wait: 1200, expect: '.modal',
-    open: "(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='批量打标签'); if(!b||b.disabled) return 0; b.click(); return 1; })()" },
+    open: 点批量操作('批量打标签') },
 
   { name: '批量改状态', wait: 1200, expect: '.modal',
-    open: "(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='批量改状态'); if(!b||b.disabled) return 0; b.click(); return 1; })()" },
+    open: 点批量操作('批量改状态') },
 
   /*
    * 设置的四个页签各一屏。**原来只有「书库」这一页单开了一屏**，因为它是唯一

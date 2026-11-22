@@ -203,6 +203,17 @@ export function 开工具(ev, until) {
   };
 }
 
+export const 点批量操作 = (name) => `(() => {
+  const trigger = document.querySelector('.batch-trigger');
+  const panel = trigger?.popoverTargetElement;
+  if (!panel || trigger.disabled) return 0;
+  if (!panel.matches(':popover-open')) trigger.click();
+  const button = [...panel.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(name)});
+  if (!button || button.disabled || !button.getClientRects().length) return 0;
+  button.click();
+  return 1;
+})()`;
+
 /** 连上页面。返回 { send, ev, wait, key, close } */
 export async function connect() {
   const list = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json();

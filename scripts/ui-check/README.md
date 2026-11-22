@@ -35,6 +35,8 @@ node scripts/bench.mjs          # 分段：snapshot → seed → run → kill �
 
 ## 三步跑起来
 
+`walk.mjs` 会在首次扫描前将自动备份指到独立临时目录。手动添加夹具目录时，也应先在测试实例的「备份与恢复」里选一个独立目录。Electron 的文档目录由系统提供，单独的 `--user-data-dir` 仍会使用同一默认备份位置。
+
 ```powershell
 # ① 造一个假书库（十来本，几百 KB；确切构成看它自己打印的那行）——**绝不能拿真实书库跑走查**，理由见下
 node scripts\ui-check\make-testlib.mjs D:\tmp\testlib

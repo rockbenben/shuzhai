@@ -499,6 +499,14 @@ export function App() {
   const ruleFromReader = useRef<number | null>(null);
   const [linksFor, setLinksFor] = useState<{ id: number; title: string } | null>(null);
   const [renaming, setRenaming] = useState<number[] | null>(null);
+  const batchButton = useRef<HTMLButtonElement>(null);
+  function closeBatchActions() {
+    const trigger = batchButton.current;
+    const panel = trigger?.popoverTargetElement;
+    if (panel instanceof HTMLElement) panel.hidePopover();
+    // 弹窗关闭后会还原打开前的焦点，触发键仍然可见。
+    trigger?.focus();
+  }
   /** 正在评价哪一本。浮层贴着卡片，不是全屏对话框 */
   const [rating, setRating] = useState<Book | null>(null);
   /** 当前筛选命中多少本（不是已加载多少本） */
@@ -1531,7 +1539,7 @@ export function App() {
         />
       )}
 
-      <nav className="nav">
+      <nav className="nav" aria-label="书库导航">
         <div className="nav-brand">
           书斋
           {/* 项目入口。开链接走主进程的 shell.openExternal（rpc 白名单里只放 http(s)），
@@ -1561,6 +1569,7 @@ export function App() {
             type="search"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
+            aria-label="搜书名、作者或别名"
             placeholder="搜书名 / 作者 / 别名"
           />
         )}
@@ -1748,8 +1757,10 @@ export function App() {
 
       <main className="main">
         <div className="main-head">
-          <h1>{SHELVES.find((s) => s.id === shelf)?.name}</h1>
-          <span className="sub">{matched ?? books.length} 本</span>
+          <div className="shelf-heading">
+            <h1>{shelf === 'all' ? '书架' : SHELVES.find((s) => s.id === shelf)?.name}</h1>
+            <span className="sub">{(matched ?? books.length).toLocaleString()} 本</span>
+          </div>
           {/*
             * **一本书都没有的时候，这一排控件全部不出现。**
             *
@@ -1770,7 +1781,8 @@ export function App() {
             * **除了重启应用没有别的出路**。用户报的就是后面这一种。
             * 补了个不受 `scope` 影响的 `total`，`library.test.ts` 一条钉着。
             */}
-          {(counts.total ?? 0) > 0 && (<>
+          {(counts.total ?? 0) > 0 && (
+          <div className="shelf-controls">
           {/*
             * **视图切换。** 和档位是两个轴：档位＝看哪一堆，视图＝怎么看这一堆。
             * 摆在计数后面、排序前面，因为它比排序常用。
@@ -1782,9 +1794,9 @@ export function App() {
             */}
           <div className="viewpick" role="group" aria-label="视图">
             {([
+              ['wall', '封面墙', '看封面找书'],
               ['table', '表格', '评分、评价、状态、读完年份一屏看全'],
               ['reviews', '书评册', '我写的那句话是正文，书是落款'],
-              ['wall', '封面墙', '看封面找书'],
             ] as const).map(([id, name, why]) => (
               <button
                 key={id}
@@ -1800,6 +1812,7 @@ export function App() {
             ))}
           </div>
           <select
+            className="shelf-sort"
             value={sort}
             onChange={(e) => {
               // **只有用户自己动这个下拉才算偏好。** 切书架也会改排序——
@@ -1813,7 +1826,6 @@ export function App() {
               // 不该让「全部」跟着变（`settings.ts` 的 `loadSort` 记着症状）
               saveSort(shelf, v);
             }}
-            style={{ fontSize: '0.82rem' }}
             /*
              * ⚠️ **这里原来把一句写给开发者的话塞进了 `title`**：
              * 「……SQLite 没有中文拼音排序，而八千本不可能拉到前端排」。
@@ -1857,6 +1869,35 @@ export function App() {
           >
             筛选
           </button>
+          <button
+            ref={batchButton}
+            className="batch-trigger"
+            popoverTarget="shelf-batch"
+            disabled={!matched}
+          >
+            批量操作
+          </button>
+          <div id="shelf-batch" className="batch-popover" popover="auto" role="group" aria-label="批量操作">
+            <p>作用于当前结果（{(matched ?? 0).toLocaleString()} 本）</p>
+            <button disabled={!matched} onClick={() => { closeBatchActions(); setDialog('batchTag'); }}>批量打标签</button>
+            <button disabled={!matched} onClick={() => { closeBatchActions(); setDialog('batchStatus'); }}>批量改状态</button>
+            <button
+              disabled={!matched}
+              title="按模板改文件名，先预览冲突"
+              onClick={() => {
+                closeBatchActions();
+                void rpc<number[]>('book.idsByFilter', { filter })
+                  .then(setRenaming)
+                  .catch((e: Error) => setError(e.message));
+              }}
+            >
+              批量改名
+            </button>
+          </div>
+          </div>
+          )}
+          {(counts.total ?? 0) > 0 && (shelf === 'updates' || shelf === 'problem') && (
+          <div className="shelf-maintenance">
           {shelf === 'updates' && (
             <button
               className="chip"
@@ -1930,58 +1971,8 @@ export function App() {
               </button>
             )
           )}
-          {/* 批量打标签作用于**整个筛选结果**。八千本平铺在一个目录下、没有子目录，
-              书名关键词搜索是唯一还剩的批量抓手（重生 / 穿越 / 华娱 / 大明……） */}
-          <button
-            onClick={() => setDialog('batchTag')}
-            disabled={!matched}
-            title="给当前筛选出的全部书打标签，不只是屏幕上这一页"
-            style={{ fontSize: '0.82rem' }}
-          >
-            批量打标签
-          </button>
-          {/*
-            * **批量改阅读状态。** 和批量打标签同一条规矩（整个筛选结果），
-            * 但它才是这个应用的正事：真实书库 8172 本里打过分的 1 本、
-            * 写过短评的 0 本——「下次不用再想这本我看过没」这句话，
-            * 在有办法一次说清「这批我读过」之前根本无从谈起。
-            * 逐本点开、逐本编辑、逐本手工添，对八千本的库等于没有入口。
-            */}
-          <button
-            onClick={() => setDialog('batchStatus')}
-            disabled={!matched}
-            title="把当前筛选出的全部书标成读过 / 弃坑 / 想读，不只是屏幕上这一页"
-            style={{ fontSize: '0.82rem' }}
-          >
-            批量改状态
-          </button>
-          {/*
-            * **批量改名一直进不去。**
-            *
-            * `RenameDialog` 从头到尾是按「一批」设计的：文件名模板、冲突判定、
-            * 超 50 个二次确认、按批撤销——而在补上下面这个按钮之前，`setRenaming`
-            * 全仓库只有卡片上那一处调用，永远只传**一本**。于是模板的全部意义
-            * （把八千个文件名规整成一套格式）在界面上做不到，
-            * `CONFIRM_THRESHOLD = 50` 更是永远触发不了。
-            * 这和 AGENTS.md 里记的「rpc 好使、界面上够不到」是同一类。
-            *
-            * 作用于**整个筛选结果**，和批量打标签同一条规矩：屏幕上只有 120 本，
-            * 而用户想改的是「搜出来的这 268 本」。
-            */}
-          <button
-            onClick={() => void (async () => {
-              // **只要 id，别走 `book.list`。** 那个一行选一长串列，
-              // 8172 本时是把整个书库序列化过一趟 IPC 只为拿一串数字。
-              // 另外两个批量压根不回传书；改名要出预览，所以退一步：回传的缩到只剩 id
-              setRenaming(await rpc<number[]>('book.idsByFilter', { filter }));
-            })()}
-            disabled={!matched}
-            title="按模板改这些书的文件名（不是书名）。会先摆预览、标出冲突，改完还能撤"
-            style={{ fontSize: '0.82rem' }}
-          >
-            批量改名
-          </button>
-          </>)}
+          </div>
+          )}
         </div>
 
         {/*

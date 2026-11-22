@@ -14,7 +14,7 @@
  *
  * **要一个已经有书的测试库**（先跑 walk.mjs，或自己 root.add 一个）。
  */
-import { connect, guardTestLibrary, rpc, setInput, 切档, 开工具} from './cdp.mjs';
+import { connect, guardTestLibrary, rpc, setInput, 切档, 开工具, 点批量操作 } from './cdp.mjs';
 
 /*
  * 开关上的标签文字。**只取文本节点，跳过 `.chip-n` 那个书数**——
@@ -58,31 +58,9 @@ const closeModal = async () => {
   await wait(500);
 };
 
-/**
- * 按钮名字点开一个弹窗。
- *
- * **不能只在 `.nav-tool` 里找**：侧栏那排是 `.nav-tool`，
- * 而「批量打标签」「批量改状态」在书架上方的 `.main-head` 里，一个类名都没有。
- * 第一版就是这么写的，报出来是「按钮点不开」——听着像功能坏了，
- * 其实是探针只翻了半个页面。
- */
 const openTool = async (name) => {
-  /*
-   * ⚠️ **低频的那几个收进侧栏的「更多工具」了**，主栏上直接找不到。
-   * （**别在这儿记个数**：那份名单会变，`cdp.mjs` 的 `开工具` 上记着为什么。）
-   * `开工具` 会先展开再点——不展开的话这里返回 false，
-   * 报出来是「按钮点不开」，而按钮好好地在折叠里。
-   */
-  if (!(await 开工具了(name))) {
-    // 不是侧栏工具（比如书架顶部那几个批量按钮）就照旧按文字找
-    const found = await ev(`(() => {
-      const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === ${JSON.stringify(name)});
-      if (!b || b.disabled) return 0;
-      b.click();
-      return 1;
-    })()`);
-    if (!found) return false;
-  }
+  const opened = name.startsWith('批量') ? await ev(点批量操作(name)) : await 开工具了(name);
+  if (!opened) return false;
   return until("!!document.querySelector('.modal')");
 };
 

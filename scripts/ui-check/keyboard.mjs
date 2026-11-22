@@ -48,6 +48,19 @@ for (let i = 0; i < STOPS; i++) {
   stops.push(o);
   if (o.元素 && !o.看得见) blind.push(o);
 }
+
+const batchReady = await until("!!document.querySelector('.batch-trigger:not(:disabled)')");
+let batchKeys = false;
+if (batchReady) {
+  await ev("document.querySelector('.batch-trigger').focus()");
+  await key(' ', 'Space', 32);
+  const opened = await ev("!!document.querySelector('.batch-popover:popover-open')");
+  await key('Tab', 'Tab', 9);
+  const reachedAction = await ev("document.activeElement.closest('.batch-popover') !== null");
+  await key('Escape', 'Escape', 27);
+  const backAtTrigger = await ev("!document.querySelector('.batch-popover:popover-open') && document.activeElement.matches('.batch-trigger')");
+  batchKeys = opened && reachedAction && backAtTrigger;
+}
 /*
  * ── 第二段：弹窗开着时，Tab 跑不跑得出去 ──────────────
  *
@@ -515,4 +528,5 @@ console.log(`
 每个控件都有能读的名字：${没名字.length ? '' : `${扫过的屏.length} 屏都干净（${扫过的屏.join('、')}）`}`);
 for (const x of 没名字) console.log('   ', JSON.stringify(x));
 
-process.exit(blind.length + leak.length + swap.length + tools.length + ax.length + 没名字.length + 没名字的弹窗.length ? 1 : 0);
+console.log(`\n批量操作：${batchKeys ? '空格展开，Tab 进入操作，Esc 收起并归还焦点' : '展开、进入操作或归还焦点失败'}`);
+process.exit(!batchKeys || blind.length + leak.length + swap.length + tools.length + ax.length + 没名字.length + 没名字的弹窗.length ? 1 : 0);

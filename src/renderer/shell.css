@@ -49,19 +49,24 @@
 .nav .search-box {
   /* 留在 `.nav-scroll` 外面：搜索是侧栏上最常用的动作，档位区再长它也不滚走 */
   flex: none;
-  width: 100%;
+  width: calc(100% - 1.5rem);
   box-sizing: border-box;
   /* ⚠️ **`min-width` 要一起覆盖掉。** 基础那条给的是 `min-width: 15rem`（240px），
      而侧栏只有 199px 宽——只写 `width: 100%` 的话 min-width 赢，输入框冒出侧栏，
      底下多一条**通栏的横滚条**。截图上那条我一开始以为是别的东西撑的。 */
   min-width: 0;
-  margin: 0 0 1rem;
+  margin: 0 0.75rem 0.65rem;
   /* 放大镜画在左边，所以左内边距要给它留位置（基础那条的 1.9rem） */
   padding: .45rem .8rem .45rem 1.9rem;
-  border-radius: 999px;
+  min-height: 2.25rem;
+  border-radius: 7px;
   font-size: .85rem;
 }
 
+.nav .search-box:focus {
+  border-color: var(--accent);
+  background-color: var(--panel);
+}
 
 /*
  * **继续阅读**：右下角一枚圆形浮钮（Material FAB 那种做法）。
@@ -183,10 +188,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem 0.6rem 0.7rem 1rem;
-  font-size: 1.02rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  padding: 1.15rem 0.75rem 0.85rem 1rem;
+  font-family: SimSun, 宋体, serif;
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
 }
 
 /* 品牌行右上角的 GitHub 入口：平时安静（muted），悬停才亮，不抢书架的注意力 */
@@ -217,7 +223,9 @@
 }
 
 .nav-group {
-  padding: 0.5rem 0 0.2rem;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.3rem 0.75rem;
 }
 
 .nav-item {
@@ -228,8 +236,9 @@
   text-align: left;
   background: none;
   border: none;
-  border-radius: 0;
-  padding: 0.42rem 1rem;
+  border-radius: 6px;
+  min-height: 2.15rem;
+  padding: 0.35rem 0.65rem;
   font-size: 0.87rem;
   color: var(--fg);
   cursor: pointer;
@@ -238,14 +247,18 @@
   background: var(--bg);
 }
 .nav-item[aria-current='true'] {
-  background: var(--bg);
-  box-shadow: inset 3px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 11%, var(--panel));
+  box-shadow: inset 2px 0 0 var(--accent);
   font-weight: 600;
 }
 .nav-item .count {
   margin-left: auto;
   font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
+}
+.nav-item[aria-current='true'] .count {
+  color: inherit;
 }
 
 .nav-spacer {
@@ -298,12 +311,11 @@
 
 /*
  * **主区是「固定头 + 自己滚的内容区」，不是整栏一起滚。**
- * 标题行（视图 / 排序 / 筛选 / 批量）、临时筛选条、分类标签页是壳，
+ * 标题、视图工具、临时筛选条、分类标签页是壳，
  * 八千本滚下去它们也得在——滚到中途想换排序、切分类不该先滚回顶部。
  * 滚动只发生在 `.main-scroll` 里。它和头部是 flex 兄弟，内容不会从头底下漏过去，
  * 所以头部不需要底色。左右 padding 留在 `.main` 上管固定头，内滚容器用负边距
- * 把自己撑到窗口边沿——滚动条贴右沿（和原来整栏滚时一致），再用自己的左右
- * padding 把内容对齐线放回 1.6rem。
+ * 把自己撑到窗口边沿，再用同一份 --shelf-gutter 对齐内容。
  * ⚠️ **书架哨兵的 IntersectionObserver root 是 `.main-scroll`**
  * （App.tsx 的 attachSentinel），改这个类名要一起改。
  */
@@ -313,7 +325,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 1.1rem 1.6rem 0;
+  --shelf-gutter: clamp(1rem, 2.4vw, 2rem);
+  padding: 1.35rem var(--shelf-gutter) 0;
 }
 
 /*
@@ -325,8 +338,8 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  margin: 0 -1.6rem;
-  padding: 0 1.6rem 3rem;
+  margin: 0 calc(-1 * var(--shelf-gutter));
+  padding: 0.55rem var(--shelf-gutter) 3rem;
 }
 
 /*
@@ -363,19 +376,99 @@
 .main-head {
   flex: none;
   display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  margin-bottom: 1rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.65rem 1.3rem;
+  margin-bottom: 0.85rem;
   flex-wrap: wrap;
 }
+.shelf-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  min-width: 0;
+}
 .main-head h1 {
-  font-size: 1.22rem;
+  font-size: 1.7rem;
+  line-height: 1.25;
   margin: 0;
-  font-weight: 600;
+  font-weight: 650;
 }
 .main-head .sub {
   color: var(--muted);
   font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.shelf-controls,
+.shelf-maintenance {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.shelf-maintenance {
+  flex-basis: 100%;
+}
+.shelf-controls .chip,
+.shelf-sort,
+.batch-trigger {
+  min-height: 2rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.shelf-sort {
+  background: var(--panel);
+  cursor: pointer;
+}
+.batch-trigger::after {
+  content: '';
+  display: inline-block;
+  width: 0.38em;
+  height: 0.38em;
+  margin: 0 0.1em 0.18em 0.55em;
+  border-right: 1px solid;
+  border-bottom: 1px solid;
+  transform: rotate(45deg);
+}
+.batch-trigger:has(+ .batch-popover:popover-open) {
+  border-color: var(--accent);
+}
+.batch-popover {
+  position-area: bottom span-left;
+  justify-self: end;
+  position-try-fallbacks: flip-block;
+  width: max-content;
+  max-width: calc(100vw - 2rem);
+  margin: 0.4rem 0;
+  padding: 0.45rem;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 16%);
+}
+.batch-popover p {
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.batch-popover button {
+  display: block;
+  width: 100%;
+  min-height: 2.1rem;
+  margin-top: 0.25rem;
+  padding: 0.3rem 0.6rem;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 0.85rem;
+}
+.batch-popover button:hover:not(:disabled) {
+  background: var(--bg);
 }
 
 /*
@@ -404,7 +497,7 @@
 .wall {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(8.2rem, 1fr));
-  gap: 1.3rem 1.1rem;
+  gap: 1.55rem clamp(0.9rem, 1.5vw, 1.45rem);
 }
 
 .book {
@@ -418,7 +511,7 @@
 }
 .book-art {
   position: relative;
-  border-radius: 5px;
+  border-radius: 3px 7px 7px 3px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
   transition: transform 0.14s ease-out;

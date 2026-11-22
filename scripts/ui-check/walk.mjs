@@ -9,7 +9,10 @@
  *
  *   node scripts/ui-check/walk.mjs <书库目录>
  */
-import { connect, guardTestLibrary, rpc, setInput, 切档} from './cdp.mjs';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { connect, guardTestLibrary, rpc, setInput, 切档 } from './cdp.mjs';
 
 const LIB = process.argv[2];
 if (!LIB) {
@@ -44,6 +47,15 @@ await reload();
 await wait(3000);
 
 // ① 加目录（rpc，因为界面那个按钮会弹系统对话框）
+// 独立 userData 不会改 Electron 的 documents 路径。首次扫描前隔离自动备份，
+// 否则保留策略会在用户的备份目录里清理旧文件。
+const backupDir = mkdtempSync(join(tmpdir(), 'shuzhai-walk-'));
+const configured = await rpc('setting.set', { key: 'backup.dir', value: backupDir });
+if (configured.err || (await rpc('backup.autoConfig')).r?.dir !== backupDir) {
+  console.error('✗ 未能隔离测试库的自动备份目录', configured.err ?? '');
+  close();
+  process.exit(1);
+}
 const add = await rpc('root.add', { path: LIB });
 step('加书库目录', !add.err, add.err ?? `收进来 ${add.r?.report?.added ?? '?'} 本`);
 await reload();
