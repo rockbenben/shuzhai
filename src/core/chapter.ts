@@ -769,7 +769,8 @@ export function scoreRule(hits: Line[], totalBytes: number): number {
   //   - 占了大半本：说明这条规则没把书分开
   //   - 而且这一「章」本身大得离谱：**只看占比会误伤小书**——
   //     一本两章的书，最后一章天然就是 50%，那是正常的
-  const biggest = Math.max(...gaps);
+  // 命中数可能超过 V8 单次函数调用的参数上限。
+  const biggest = gaps.reduce((max, gap) => Math.max(max, gap), -Infinity);
   if (biggest > ABSURD_CHAPTER_BYTES && biggest > totalBytes * 0.5) return 0;
 
   const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;

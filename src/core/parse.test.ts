@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { detectEncoding, decodeText, textScore } from './encoding.ts';
-import { splitLines, parseChapters, BUILTIN_RULES } from './chapter.ts';
+import { splitLines, parseChapters, scoreRule, BUILTIN_RULES } from './chapter.ts';
 
 /**
  * 真实 GBK 字节，用 Windows 936 代码页生成一次后固化在这里
@@ -141,6 +141,12 @@ test('命中多且均匀的规则，胜过命中少的', () => {
   // buildChapters 从第一处命中开始，命中不到第一章就等于那段内容凭空消失
   assert.equal(chapters.length, 4);
   assert.equal(chapters[0].offset, 0, '第一章必须从文件开头起，不许丢内容');
+});
+
+test('规则命中 15 万行时仍能按章节间距评分', () => {
+  const gap = 300;
+  const hits = Array.from({ length: 150_000 }, (_, i) => ({ text: '标题', byteOffset: i * gap }));
+  assert.equal(scoreRule(hits, hits.length * gap), hits.length);
 });
 
 // ── 纯数字标题（`1反动派？`）────────────────────────────
