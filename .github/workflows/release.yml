@@ -72,9 +72,10 @@ jobs:
         shell: pwsh
         run: |
           $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          if ("${{ github.ref_type }}" -eq 'tag') {
-            $tag = "${{ github.ref_name }}" -replace '^v', ''
-            if ($tag -ne $pkg) { throw "tag 是 $tag，package.json 里是 $pkg，对不上" }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            if ($env:GITHUB_REF_NAME -cne "v$pkg") {
+              throw "version mismatch: tag 是 $env:GITHUB_REF_NAME，期望 v$pkg"
+            }
           }
           "version=$pkg" >> $env:GITHUB_OUTPUT
           "版本 $pkg" >> $env:GITHUB_STEP_SUMMARY
@@ -93,11 +94,9 @@ jobs:
 
       # ⚠️ **闸门要在这儿再跑一遍。** `ci.yml` 的触发是 `branches: [main]`，
       # **打 tag 不会触发它**——不在这儿跑的话，tag 指到哪个提交都能发出去。
-      - name: 四道闸门
-        run: |
-          npm run typecheck
-          npm test
-          npm run lint:ui
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run lint:ui
 
       # `npm run dist` 自己带 `vite build`。
       #
