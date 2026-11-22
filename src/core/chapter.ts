@@ -3,7 +3,7 @@
 // **偏移量一律是字节，不是字符。** spec §11 的 chapter(offset, length) 要喂给 §12 的
 // `fs.read` 定点读，那是字节偏移；而正则匹配天然发生在字符上，GBK 下两者不等。
 // Node 的 TextEncoder 只支持 UTF-8，没法把字符位置换算回 GBK 字节位置——所以这里
-// **按字节切行、逐行解码**，行的字节偏移直接就是结果，不需要任何换算。
+// **按字节切行、分批解码**，行的字节偏移直接就是结果，不需要任何换算。
 //
 // 按 0x0A 切对 UTF-8 / GB18030 / Big5 都成立：这几种编码的尾字节都不会取到 0x0A。
 // UTF-16 不成立（每个 ASCII 字符都带一个 0x00），单独走一条路：它每个码元固定 2 字节，
@@ -18,7 +18,7 @@ export interface Line {
   byteOffset: number;
   /**
    * 这一行**长得像在标题位上**：顶格，或前一行是空行。
-   * 只有 `matchLines` 会填它（它才看得见原始行的缩进和空行），别的构造点留空=未知。
+   * 章节解析根据原始行的缩进和空行填写，别的构造点留空=未知。
    * 「句子样命中」那条判据拿它当豁免——见 `dropProseHits`。
    */
   headingShape?: boolean;
@@ -540,17 +540,29 @@ const FALLBACK_CHUNK_CHARS = 30_000;
  * UTF-16 走单独分支，理由见文件头注释。
  */
 export function splitLines(buf: Uint8Array, encoding: Encoding): Line[] {
+  const lines: Line[] = [];
+  for (const { texts, offsets } of lineBatches(buf, encoding)) {
+    for (let i = 0; i < offsets.length; i++) {
+      lines.push({ text: texts[i] ?? '', byteOffset: offsets[i] });
+    }
+  }
+  return lines;
+}
+
+function* lineBatches(buf: Uint8Array, encoding: Encoding): Generator<{ texts: string[]; offsets: number[] }> {
   const bom = bomLength(encoding, buf);
 
   if (encoding === 'utf-16le' || encoding === 'utf-16be') {
     const text = new TextDecoder(encoding).decode(buf.subarray(bom));
-    const lines: Line[] = [];
+    const texts = text.split('\n');
+    const offsets: number[] = [];
     let charIndex = 0;
-    for (const raw of text.split('\n')) {
-      lines.push({ text: raw, byteOffset: bom + charIndex * 2 });
+    for (const raw of texts) {
+      offsets.push(bom + charIndex * 2);
       charIndex += raw.length + 1; // +1 是那个被 split 吃掉的 \n
     }
-    return lines;
+    yield { texts, offsets };
+    return;
   }
 
   // **分块解码，不是逐行解码。**
@@ -568,19 +580,8 @@ export function splitLines(buf: Uint8Array, encoding: Encoding): Line[] {
   // 而这个库里单本最大 52MB。分块把峰值压住，同时 decode 调用次数从 92 万降到几十。
   const CHUNK = 1 << 20;
   const decoder = new TextDecoder(encoding);
-  const lines: Line[] = [];
-  let lineStart = bom;
   let groupStart = bom;
-  let pending: number[] = [];
-
-  const flush = (endExclusive: number) => {
-    if (pending.length === 0) return;
-    const parts = decoder.decode(buf.subarray(groupStart, endExclusive)).split('\n');
-    for (let k = 0; k < pending.length; k++) {
-      lines.push({ text: parts[k] ?? '', byteOffset: pending[k] });
-    }
-    pending = [];
-  };
+  let offsets: number[] = [bom];
 
   // 找 `\n` 用 `Buffer.indexOf` 而不是 JS 循环。前者是原生 memchr，
   // 实测扫 52MB **2ms**；后者在 JS 里逐字节比较 5200 万次，是几百毫秒。
@@ -589,23 +590,19 @@ export function splitLines(buf: Uint8Array, encoding: Encoding): Line[] {
     ? buf
     : Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength);
 
-  for (let i = bom; i <= b.length; ) {
-    const nl = i < b.length ? b.indexOf(0x0a, i) : -1;
-    const at = nl < 0 ? b.length : nl;
-    pending.push(lineStart);
-    lineStart = at + 1;
-    if (at === b.length) { flush(at); break; }
-    if (at + 1 - groupStart >= CHUNK) {
-      flush(at);
-      groupStart = at + 1;
+  for (let nl = b.indexOf(0x0a, bom); nl >= 0; nl = b.indexOf(0x0a, nl + 1)) {
+    if (nl + 1 - groupStart >= CHUNK) {
+      yield { texts: decoder.decode(buf.subarray(groupStart, nl)).split('\n'), offsets };
+      groupStart = nl + 1;
+      offsets = [];
     }
-    i = at + 1;
+    offsets.push(nl + 1);
   }
-  return lines;
+  yield { texts: decoder.decode(buf.subarray(groupStart)).split('\n'), offsets };
 }
 
 /**
- * markdown 风格的标题前缀。**在 `matchLines` 里统一剥掉，不写进每条规则**——
+ * markdown 风格的标题前缀。**在挑选候选标题时统一剥掉，不写进每条规则**——
  * 这是整个文件的写法（有的下载源直接导出成 md），跟具体是哪种章节格式无关。
  *
  * 全库普查 19 本这么写，而且都是大书：《示例书甲》19 MB 有 1603 处
@@ -729,23 +726,13 @@ function dropProseHits(hits: Line[]): Line[] {
   return hits.filter((h) => !正文句(h) || headMarkerOf(h.text) === dominant);
 }
 
-function matchLines(lines: Line[], rule: ParseRule, volumes: Line[] = []): Line[] {
+function matchLines(candidates: Line[], rule: ParseRule, volumes: Line[] = []): Line[] {
   const hits: Line[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const t = line.text.trim().replace(MD_HEADING, '');
-    if (t.length === 0 || t.length > MAX_TITLE_LEN) continue;
-    if (!rule.pattern.test(t)) continue;
-    /*
-     * 排版上的标题位：这一行**顶格**（正文段落以「　　」起头），或者它**前面是空行**。
-     * 原始行的样子只有这里看得到——`t` 已经 trim 过了，判形状必须拿 `line.text` 本身。
-     */
-    const 顶格 = !/^[ \t　]/.test(line.text);
-    const 前面空 = i === 0 || lines[i - 1].text.trim() === '';
-    hits.push({ text: t, byteOffset: line.byteOffset, headingShape: 顶格 || 前面空 });
+  for (const line of candidates) {
+    if (rule.pattern.test(line.text)) hits.push({ ...line });
   }
-  const candidates = dropProseHits(hits);
-  return rule.refine ? rule.refine(candidates, volumes) : candidates;
+  const filtered = dropProseHits(hits);
+  return rule.refine ? rule.refine(filtered, volumes) : filtered;
 }
 
 /**
@@ -886,31 +873,43 @@ function buildChapters(hits: Line[], totalBytes: number, volumes: Line[], minByt
   });
 }
 
-/** 完全解析不出章节时按固定字符数机械分段（spec §2.2 兜底策略） */
-function fallbackChunks(lines: Line[], totalBytes: number): Chapter[] {
-  const chapters: Chapter[] = [];
-  let chunkStart = 0;
+/** 只保留规则可能命中的标题行，以及机械分段需要的字节起点。 */
+function collectChapterCandidates(buf: Uint8Array, encoding: Encoding) {
+  const candidates: Line[] = [];
+  const chunkStarts = [0];
   let chars = 0;
-  for (const line of lines) {
-    if (chars >= FALLBACK_CHUNK_CHARS) {
-      chapters.push({
-        index: chapters.length,
-        title: fallbackTitle(chapters.length + 1),
-        offset: chunkStart,
-        length: line.byteOffset - chunkStart,
-      });
-      chunkStart = line.byteOffset;
-      chars = 0;
+  let previousBlank = true;
+  for (const { texts, offsets } of lineBatches(buf, encoding)) {
+    for (let i = 0; i < offsets.length; i++) {
+      const text = texts[i] ?? '';
+      const byteOffset = offsets[i];
+      if (chars >= FALLBACK_CHUNK_CHARS) {
+        chunkStarts.push(byteOffset);
+        chars = 0;
+      }
+      chars += text.length;
+
+      const trimmed = text.trim();
+      const title = trimmed.startsWith('#') ? trimmed.replace(MD_HEADING, '') : trimmed;
+      if (title.length > 0 && title.length <= MAX_TITLE_LEN) {
+        // 顶格或上一行为空。保留跨解码批次的上一行状态。
+        const headingShape = previousBlank || !/^[ \t　]/.test(text);
+        candidates.push({ text: title, byteOffset, headingShape });
+      }
+      previousBlank = trimmed.length === 0;
     }
-    chars += line.text.length;
   }
-  chapters.push({
-    index: chapters.length,
-    title: fallbackTitle(chapters.length + 1),
-    offset: chunkStart,
-    length: totalBytes - chunkStart,
-  });
-  return chapters;
+  return { candidates, chunkStarts };
+}
+
+/** 完全解析不出章节时按固定字符数机械分段（spec §2.2 兜底策略） */
+function fallbackChunks(chunkStarts: number[], totalBytes: number): Chapter[] {
+  return chunkStarts.map((offset, index) => ({
+    index,
+    title: fallbackTitle(index + 1),
+    offset,
+    length: (chunkStarts[index + 1] ?? totalBytes) - offset,
+  }));
 }
 
 /**
@@ -922,16 +921,16 @@ export function parseChapters(
   encoding: Encoding,
   rules: ParseRule[] = BUILTIN_RULES,
 ): ParseResult {
-  const lines = splitLines(buf, encoding);
+  const { candidates, chunkStarts } = collectChapterCandidates(buf, encoding);
   const totalBytes = buf.length;
 
-  const volumeHits = VOLUME_RULES.map((r) => matchLines(lines, r)).sort((a, b) => b.length - a.length)[0] ?? [];
+  const volumeHits = VOLUME_RULES.map((r) => matchLines(candidates, r)).sort((a, b) => b.length - a.length)[0] ?? [];
 
   let best: { rule: ParseRule; hits: Line[]; score: number } | null = null;
   // 「这条规则认出几行标题」和「最终用了哪条路」是两件事，见 `ParseResult.titleHits`
   let titleHits = 0;
   for (const rule of rules) {
-    const hits = dropRepeatedTitleLines(matchLines(lines, rule, volumeHits));
+    const hits = dropRepeatedTitleLines(matchLines(candidates, rule, volumeHits));
     if (hits.length > titleHits) titleHits = hits.length;
     const score = scoreRule(hits, totalBytes);
     if (score > 0 && (best === null || score > best.score)) best = { rule, hits, score };
@@ -962,7 +961,12 @@ export function parseChapters(
     };
   }
 
-  return { chapters: fallbackChunks(lines, totalBytes), ruleName: 'fallback-chunk', recognized: false, titleHits };
+  return {
+    chapters: fallbackChunks(chunkStarts, totalBytes),
+    ruleName: 'fallback-chunk',
+    recognized: false,
+    titleHits,
+  };
 }
 
 export interface Progress {

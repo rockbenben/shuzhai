@@ -536,7 +536,7 @@ test('正文里的顿号列举不会被当成章节——守的是 num-sep 自�
   //       两百来字节，任何规则都过不了 `MIN_MEAN_CHAPTER_BYTES`，`ruleName`
   //       永远是 `fallback-chunk`，跟长度上限毫无关系。
   //   三、**挡住它的根本是另一条规矩**。把样本放大、序号也递增之后，长句仍然
-  //       被拒——但拒它的是 `matchLines` 的 `MAX_TITLE_LEN = 40`（那条另有
+  //       被拒——但拒它的是候选标题的 `MAX_TITLE_LEN = 40`（那条另有
   //       四条测试守着），不是 num-sep 的 `.{0,30}`。破坏 `.{0,30}` 照样全绿。
   //
   // 所以标题长度必须落在**只有 `.{0,30}` 说了算**的那个窗口里：
@@ -594,6 +594,30 @@ test('分块解码和逐行解码结果完全一致', () => {
       naive(buf, 'utf-8').map((l) => [l.byteOffset, l.text]),
       `不一致：${JSON.stringify(text.slice(0, 30))}…（${buf.length} 字节）`,
     );
+  }
+});
+
+test('跨解码批次保留上一行是否为空及标题的字节位置', () => {
+  const title = '　　# 第一章 起';
+  const blockBytes = 1 << 20;
+  for (const separator of ['\n', '\n\n']) {
+    const prefix = '正文'.repeat(Math.floor((blockBytes - separator.length) / 6));
+    const padding = 'x'.repeat(blockBytes - Buffer.byteLength(prefix + separator));
+    const buf = Buffer.from(prefix + padding + separator + title, 'utf8');
+    let heading: { text: string; byteOffset: number; headingShape?: boolean } | undefined;
+    parseChapters(buf, 'utf-8', [{
+      name: 'custom',
+      pattern: /^第一章/,
+      refine(hits) {
+        [heading] = hits;
+        return hits;
+      },
+    }]);
+    assert.deepEqual(heading, {
+      text: '第一章 起',
+      byteOffset: blockBytes,
+      headingShape: separator.length === 2,
+    });
   }
 });
 

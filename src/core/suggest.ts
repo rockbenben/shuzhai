@@ -97,7 +97,7 @@ export function suggestRules(buf: Uint8Array, encoding: Encoding, limit = 5): Su
   const lines = splitLines(buf, encoding);
   const totalBytes = buf.length;
 
-  // 只看「像标题」的短行。和 matchLines 用同一套预处理，否则建议出来的正则
+  // 只看「像标题」的短行。和章节解析用同一套预处理，否则建议出来的正则
   // 在真正解析时会命中不同的行
   const cands: Array<{ text: string; shape: string; byteOffset: number }> = [];
   for (const line of lines) {
