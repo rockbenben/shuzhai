@@ -981,6 +981,17 @@ button.toc-more:hover {
 .reader-rail button[aria-current="true"],
 .reader-tools button[aria-current="true"] { background: var(--accent); color: var(--on-accent); }
 
+/* 工具轨裁圆角，外描边会被裁成横线。把键盘焦点圈画进按钮。 */
+.reader-rail button:focus-visible,
+.reader-tools button:focus-visible {
+  outline-color: var(--accent);
+  outline-offset: -3px;
+}
+.reader-rail button[aria-current="true"]:focus-visible,
+.reader-tools button[aria-current="true"]:focus-visible {
+  outline-color: var(--on-accent);
+}
+
 /* **和左轨长一个样，不是另立一套。** 原来这边是六个纯圆图标，一个字都没有——
    而左边同样一条竖轨每格都带文字。同一个界面两套规矩，普通人只能挨个悬停去猜，
    偏偏没名字的那几个正是书签、划线、朗读（书签和划线还是铁律 3 的不可再生数据）。
@@ -1570,7 +1581,8 @@ button.toc-more:hover {
   border-top: 1px solid var(--line);
   background: var(--panel);
   padding: 0.35rem max(var(--rail-clear), calc(50% - var(--read-col, 1113px) / 2));
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 0.8rem;
   align-items: center;
   font-size: 0.85rem;
@@ -1580,17 +1592,14 @@ button.toc-more:hover {
    浏览器默认的滑块，轨道仍是系统灰。上面 `.foot-range` 是整条自己画的 */
 
 
-/* 底部的翻页控件（只在左右翻页模式下出现）。
-   放底部而不是顶部工具栏：翻页是读的时候一直在用的高频动作，
-   手停在下面比每次抬到顶上顺手 */
-.pager {
-  display: inline-flex;
+.reader-position {
+  min-width: 0;
+  display: flex;
   align-items: center;
-  gap: 0.4rem;
-  flex-shrink: 0;
-  margin-inline-start: auto;
+  justify-content: center;
+  gap: 0.65rem;
 }
-.pager button {
+.reader-foot > button {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -1600,7 +1609,7 @@ button.toc-more:hover {
   font-size: 0.78rem;
   white-space: nowrap;
 }
-.pager svg {
+.reader-foot > button svg {
   width: 0.9rem;
   height: 0.9rem;
 }

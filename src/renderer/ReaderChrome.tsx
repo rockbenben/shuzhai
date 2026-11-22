@@ -15,18 +15,22 @@ import { ICO } from './icons.tsx';
 import { TtsEngines } from './TtsEngines.tsx';
 import { isNightTheme, type ReadSettings, type ThemeId } from './settings.ts';
 
-export function ReaderPager({ unit, previous, next, position }: {
+export function ReaderPager({ unit, previous, next, position, children }: {
   unit: '章' | '页';
   previous: { run: () => void; title: string; disabled?: boolean };
   next: { run: () => void; title: string; disabled?: boolean };
   position?: string;
+  children?: ReactNode;
 }) {
   return (
-    <div className="pager" role="group" aria-label={unit === '章' ? '章节导航' : '翻页'}>
+    <div className="reader-foot" role="group" aria-label={unit === '章' ? '章节导航' : '翻页'}>
       <button disabled={previous.disabled} onClick={previous.run} title={previous.title}>
         {ICO.prev}<span>上一{unit}</span>
       </button>
-      {position && <span className="pager-n">{position}</span>}
+      <div className="reader-position">
+        {children}
+        {position && <span className="pager-n">{position}</span>}
+      </div>
       <button disabled={next.disabled} onClick={next.run} title={next.title}>
         <span>下一{unit}</span>{ICO.next}
       </button>

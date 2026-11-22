@@ -3001,7 +3001,12 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
           />
         </div>
 
-        <div className="reader-foot">
+        <ReaderPager
+          unit="页"
+          position={viewer === 'pdf' ? `${page} / ${pages || '…'} 页` : pct == null ? undefined : `${pct}%`}
+          previous={{ run: () => api.current.prev?.(), disabled: viewer === 'pdf' && page <= 1, title: `上一页（${键('prev')}）` }}
+          next={{ run: () => api.current.next?.(), disabled: viewer === 'pdf' && page >= pages, title: `下一页（${键('next')}）` }}
+        >
           <span className="foot-at" title={当前章名 ?? undefined}>{当前章名 !== bookTitle ? 当前章名 : null}</span>
           {/*
             * **划线漂了要说一声**（判据抄 `Reader.tsx` 那一处）。
@@ -3035,13 +3040,7 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
             />
           )}
           {viewer === 'pdf' && <span className="foot-pct" title="缩放比例">{Math.round(zoom * 100)}%</span>}
-          <ReaderPager
-            unit="页"
-            position={viewer === 'pdf' ? `${page} / ${pages || '…'} 页` : pct == null ? undefined : `${pct}%`}
-            previous={{ run: () => api.current.prev?.(), disabled: viewer === 'pdf' && page <= 1, title: `上一页（${键('prev')}）` }}
-            next={{ run: () => api.current.next?.(), disabled: viewer === 'pdf' && page >= pages, title: `下一页（${键('next')}）` }}
-          />
-        </div>
+        </ReaderPager>
       </div>
 
       {/* 引擎管理。**和「设置 · 阅读」、txt 阅读器里是同一个组件**，不另抄一份 */}

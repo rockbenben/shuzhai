@@ -97,7 +97,7 @@
 | 划线卡里面长什么样 | `NoteCard.tsx` | 两个阅读界面各一份（曾分叉：一边一点就删） |
 | 共用面板里「这一章」的那个量词 | 调用方传 `位`（txt 章 / PDF 页 / EPUB 节），认的是 `book-format.ts` 的 `位置名` | 在 `TtsLayer` / `TtsPanel` / `ReadSettingsPanel` 里写死「章」——PDF 手里没有「章」，那句话就没有对应物 |
 | 阅读界面的壳（白天/夜间、引擎弹窗、目录头） | `ReaderChrome.tsx` | 只收「两边判据必须一样」的，算法不同的不硬并 |
-| 阅读页的书名与翻阅导航 | `TocHead` 和 `ReaderPager`（`ReaderChrome.tsx`） | 书名放在目录标题旁。连续阅读的上一章或上一页、下一章或下一页都在底栏。TXT 左右翻页模式还提供独立的跳章入口 |
+| 阅读页的书名与翻阅导航 | `TocHead` 和 `ReaderPager`（`ReaderChrome.tsx`） | 书名放在目录标题旁。底栏左端往前翻，右端往后翻，中间显示进度。TXT 左右翻页模式还提供独立的跳章入口 |
 | 浮层贴哪儿开 + 焦点规矩 | `anchor.ts` | 自己写定位 |
 | 弹窗键盘可达性 | `modal-a11y.ts`（一处管全部） | 每个弹窗各接一遍 |
 | 状态的中文说法 | `core/labels.ts`（全应用唯一一份） | 在渲染进程里写字面量 |

@@ -2268,7 +2268,16 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
 
         {/* 右下角那个百分比角标删了：**底部这条已经有百分比**，两处说同一件事。
             留下的是能拖的这条——它既是显示也是控件，角标只能看 */}
-        <div className="reader-foot">
+        <ReaderPager
+          unit={settings.mode === 'page' ? '页' : '章'}
+          position={settings.mode === 'page' ? `${page + 1} / ${pages} 页` : undefined}
+          previous={settings.mode === 'page'
+            ? { run: () => turn(-1), disabled: idx <= 0 && page <= 0, title: '上一页（翻到头会退到上一章）' }
+            : { run: () => go(idx - 1), disabled: idx <= 0, title: `上一章（${键('prev')}）` }}
+          next={settings.mode === 'page'
+            ? { run: () => turn(1), disabled: !chapter || (idx >= chapter.total - 1 && page >= pages - 1), title: '下一页（翻到底会进下一章）' }
+            : { run: () => go(idx + 1), disabled: !chapter || idx >= chapter.total - 1, title: `下一章（${键('next')}）` }}
+        >
           <span className="foot-at">第 {footIdx + 1} / {chapter?.total ?? '…'} 章</span>
           {/* 拖动条**只在松手时才跳章**。原来绑 onChange，拖过去的每一章都会真的
               去读一次正文——12058 章的书上拖一下发几十次请求，界面直接卡住。
@@ -2296,21 +2305,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
             title="拖到哪一章，松手才跳"
           />
           <span className="foot-pct">{pct}%</span>
-          {settings.mode === 'page' ? (
-            <ReaderPager
-              unit="页"
-              position={`${page + 1} / ${pages} 页`}
-              previous={{ run: () => turn(-1), disabled: idx <= 0 && page <= 0, title: '上一页（翻到头会退到上一章）' }}
-              next={{ run: () => turn(1), disabled: !chapter || (idx >= chapter.total - 1 && page >= pages - 1), title: '下一页（翻到底会进下一章）' }}
-            />
-          ) : (
-            <ReaderPager
-              unit="章"
-              previous={{ run: () => go(idx - 1), disabled: idx <= 0, title: `上一章（${键('prev')}）` }}
-              next={{ run: () => go(idx + 1), disabled: !chapter || idx >= chapter.total - 1, title: `下一章（${键('next')}）` }}
-            />
-          )}
-        </div>
+        </ReaderPager>
       </div>
 
       {/* 引擎管理。**和「设置 · 阅读」里是同一个组件**，不另抄一份——
