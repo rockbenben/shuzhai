@@ -85,6 +85,8 @@ mkdirSync(join(ROOT, 'Archive'), { recursive: true });
 write(join(ROOT, '示例 作者：示例某人甲.txt'), book(45));
 write(join(ROOT, '示例书甲乙 作者：示例某人甲.txt'), book(60, { volume: true }));
 write(join(ROOT, '短篇集 作者：佚名.txt'), book(12));
+write(join(ROOT, '长章连续阅读夹具 作者：佚名.txt'),
+  [1, 2].map((i) => `第${i}章 长章\r\n${prose(900)}\r\n续读定位标记${i}\r\n${prose(1200)}`).join('\r\n'));
 write(join(ROOT, '这本书名字特别长长长长长长长长到会换行 作者：某位名字也很长的作者.txt'), book(30));
 write(join(ROOT, '没有章节的散文 作者：某人.txt'), prose(900));
 write(join(ROOT, '未完', '正在连载的书 作者：连载中.txt'), book(25));
@@ -123,7 +125,7 @@ writeFileSync(join(ROOT, '双格式的书 作者：某某.epub'), 最小EPUB());
 write(join(ROOT, '双格式的书 作者：某某.txt'), book(14));
 
 console.log(`造好了：${ROOT}`);
-console.log('  8 本 txt（含带卷的、没有章节标题的、书名超长的、子目录里的、和 epub 同名的）'
+console.log('  9 本 txt（含带卷的、长章、没有章节标题的、书名超长的、子目录里的、和 epub 同名的）'
   + ' + 1 个 pdf + 2 个 epub');
 console.log('\n接着就可以：');
 console.log(`  node_modules\\electron\\dist\\electron.exe --user-data-dir=<测试档案> --remote-debugging-port=9876 .`);

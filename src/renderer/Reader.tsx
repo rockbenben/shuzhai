@@ -65,6 +65,48 @@ function bodyOf(text: string, title: string): string {
   return text.startsWith(title) ? text.slice(title.length) : text;
 }
 
+function prepareChapter(chapter: ChapterText) {
+  return { ...chapter, renderKey: Symbol(), paras: splitParagraphs(bodyOf(chapter.text, chapter.title)) };
+}
+
+type ReaderChapter = ReturnType<typeof prepareChapter>;
+
+function scrollCharacterOffset(box: HTMLElement, article: HTMLElement): number {
+  return anchorOffset(
+    [...article.querySelectorAll<HTMLElement>('p[data-offset]')].map((el) => ({
+      offset: Number(el.dataset.offset),
+      pos: el.offsetTop - box.offsetTop,
+    })),
+    box.scrollTop + ANCHOR_SLACK_PX,
+  );
+}
+
+function settleScrollTarget(
+  box: HTMLElement, article: HTMLElement, target: HTMLElement, onRelease: () => void,
+): () => void {
+  const align = () => {
+    const top = Math.max(0, Math.min(target.offsetTop - box.offsetTop - 8, box.scrollHeight - box.clientHeight));
+    if (Math.abs(box.scrollTop - top) >= 1) box.scrollTop = top;
+  };
+  const observer = new ResizeObserver(align);
+  const release = () => {
+    observer.disconnect();
+    clearTimeout(timeout);
+    window.removeEventListener('pointerdown', release, true);
+    window.removeEventListener('wheel', release, true);
+    window.removeEventListener('keydown', release, true);
+    onRelease();
+  };
+  const timeout = window.setTimeout(release, 600);
+  window.addEventListener('pointerdown', release, { capture: true });
+  window.addEventListener('wheel', release, { capture: true, passive: true });
+  window.addEventListener('keydown', release, { capture: true });
+  // 远处的段落用预估高度。进入视口后重新排版，章内目标会移动。
+  observer.observe(article);
+  align();
+  return release;
+}
+
 /** 一批铺多少段。够铺满几屏，又不至于卡顿——实测这个量级建节点在 20ms 内 */
 /**
  * 无限下滑同时挂几章。**这是个滑动窗口，不是上限**：接满了就从视野上方卸掉几章
@@ -77,6 +119,7 @@ function bodyOf(text: string, title: string): string {
 const MAX_WINDOW = 12;
 
 const PARA_BATCH = 600;
+const FLOW_PREFETCH_PX = 1200;
 
 // 划线那四种颜色只此一份，见 `highlight-view.ts`
 
@@ -132,7 +175,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
    * 「无限下滑」滚到底就往后接一章——**接上来不是换一章**，
    * 上面那几章仍然在 DOM 里，所以往回滚也是无缝的。
    */
-  const [chapters, setChapters] = useState<ChapterText[]>([]);
+  const [chapters, setChapters] = useState<ReaderChapter[]>([]);
   const [idx, setIdx] = useState(startAt);
   /** 正在读的那一章：底栏、进度、划线、朗读、书签全跟着它 */
   const chapter = useMemo(() => chapters.find((c) => c.idx === idx) ?? null, [chapters, idx]);
@@ -230,8 +273,8 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
    * 搜索结果「跳过来」要落到本章第几处。**只用一次**，兑现完就自己清。
    *
    * 为什么不当场算出偏移、走 `restoreTo` 那条现成的路：偏移要在**这一章的段落表**
-   * 上数出来（`第n处`），而换章时那一章还没加载、`flow` 里还没有它。
-   * 所以这里存的是「计划」，等下面那条 effect 看见 `flow` 里有这一章了再兑现。
+   * 上数出来（`第n处`），而换章时目标章可能还在加载。
+   * 所以先记下计划，等目标章进窗口后再定位。
    */
   const [落点计划, set落点计划] = useState<{ 章: number; 词: string; 第几: number } | null>(null);
   /**
@@ -243,7 +286,12 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
    * 先试过 CSS 的 `content-visibility`（让浏览器跳过屏幕外的排版绘制），
    * 8.3s 只降到 7.6s，说明瓶颈根本不在排版，就在「建这么多节点」本身。
    */
-  const [shownParas, setShownParas] = useState(PARA_BATCH);
+  const tailKey = tail?.renderKey;
+  const [visibleTail, setVisibleTail] = useState<{ key: symbol | undefined; count: number } | null>(null);
+  const shownParas = visibleTail && visibleTail.key === tailKey ? visibleTail.count : PARA_BATCH;
+  const setShownParas = useCallback((count: number) => {
+    setVisibleTail((prev) => prev && prev.key === tailKey && prev.count >= count ? prev : { key: tailKey, count });
+  }, [tailKey]);
   const moreRef = useRef<HTMLDivElement>(null);
 
   // 念完一章要不要接着念下一章——只有阅读器知道有没有下一章，所以由它来判
@@ -465,7 +513,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     rpc<ChapterText>('chapter.read', { bookId, idx })
       .then((c) => {
         if (!alive) return;
-        setChapters([c]);
+        setChapters([prepareChapter(c)]);
         setMarks({});
         setError(null);
         setNotice(null);
@@ -487,22 +535,8 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     return () => { alive = false; };
   }, [bookId, idx]);
 
-  // 换书、跳章、接上新的一章，都从头铺起。
-  // **不变式：窗口里只有最后一章是分批铺的**，上面那几章你已经滚过去了，一定铺全了
-  useEffect(() => setShownParas(PARA_BATCH), [bookId, chapters.length, chapters[0]?.idx]);
-
-  /** 切段是纯字符串操作，marks 变了不该重切——那是每次划线都要在 215 万字上重跑一遍 */
-  const flow = useMemo(
-    () => chapters.map((c) => ({
-      idx: c.idx, title: c.title, paras: splitParagraphs(bodyOf(c.text, c.title)),
-    })),
-    [chapters],
-  );
   /** 正在读的那一章的段落。下面跟读高亮、恢复位置、划线全是按它算的 */
-  const paragraphs = useMemo(
-    () => flow.find((f) => f.idx === idx)?.paras ?? [],
-    [flow, idx],
-  );
+  const paragraphs = useMemo(() => chapter?.paras ?? [], [chapter]);
 
   /**
    * **跟读高亮**：正在念的那一段标出来，滚出视野就带回来。
@@ -530,14 +564,14 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     if (!box) return;
     // 长章是分批铺的，念过了当前这批就先补一批，否则那个 <p> 根本不存在
     const i = paragraphs.findIndex((p) => p.offset === speakingOffset);
-    if (i >= shownParas) {
+    if (chapter === tail && i >= shownParas) {
       setShownParas(Math.min(paragraphs.length, i + PARA_BATCH));
       return;
     }
     // 翻页模式是 transform 横向位移，scrollIntoView 在它上面不成立——
     // 那边只高亮不跟随。高亮本身两种模式都在
     if (settings.mode === 'page') return;
-    const el = box.querySelector<HTMLElement>(`p[data-offset="${speakingOffset}"]`);
+    const el = textRef.current?.querySelector<HTMLElement>(`p[data-offset="${speakingOffset}"]`);
     if (!el) return;
     const r = el.getBoundingClientRect();
     const b = box.getBoundingClientRect();
@@ -545,7 +579,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     if (r.top < b.top + 8 || r.bottom > b.bottom - 8) {
       el.scrollIntoView({ block: 'center', behavior: 滚动方式() });
     }
-  }, [speakingOffset, shownParas, paragraphs, settings.mode]);
+  }, [speakingOffset, shownParas, paragraphs, settings.mode, chapter, tail, setShownParas]);
 
   /**
    * 滚到底就多铺一批。哨兵进视口即触发，和书架的无限滚动同一套。
@@ -554,7 +588,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
    * 哨兵可能一直"在视口里"或一直不在），所以那边改看页码：翻到倒数第二页就续。
    */
   /** 窗口里最后那一章有多少段——哨兵盯的是它，不是「正在读的那一章」 */
-  const tailParas = flow[flow.length - 1]?.paras.length ?? 0;
+  const tailParas = tail?.paras.length ?? 0;
 
   /**
    * 无限下滑：把下一章接到窗口末尾。
@@ -580,7 +614,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     })),
     box.scrollTop,
     want,
-    idx,
+    idxRef.current,
   );
 
   /**
@@ -613,34 +647,48 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     return a ? { idx: Number(a.dataset.chapter), delta: box.scrollTop - (a.offsetTop - box.offsetTop) } : null;
   };
 
-  const appending = useRef(false);
-  const appendNext = useCallback(async () => {
-    if (appending.current) return;
-    const last = chapters[chapters.length - 1];
-    if (!last || last.idx + 1 >= last.total) return;
-    appending.current = true;
+  const [failedTail, setFailedTail] = useState<symbol | null>(null);
+  const flowFailed = failedTail === tailKey;
+  const flowReady = settings.mode === 'flow' && !!chapter && chapter.bookId === bookId;
+  const contextRef = useRef<{ bookId: number; tail: ReaderChapter | undefined } | null>(null);
+  const appending = useRef<typeof contextRef.current>(null);
+  useLayoutEffect(() => {
+    const context = flowReady ? { bookId, tail } : null;
+    contextRef.current = context;
+    return () => {
+      contextRef.current = null;
+      if (appending.current === context) appending.current = null;
+    };
+  }, [bookId, flowReady, tail]);
+
+  const appendNext = useCallback(async (retry = false) => {
+    const context = contextRef.current;
+    if (!context || context.tail !== tail || appending.current === context) return;
+    // 上一章完整铺好才接新章，否则换了章尾会一次性建出上一章的剩余段落。
+    if (!tail || !hasNext || shownParas < tailParas || (flowFailed && !retry)) return;
+    appending.current = context;
+    if (retry) setFailedTail(null);
     try {
-      const c = await rpc<ChapterText>('chapter.read', { bookId, idx: last.idx + 1 });
+      const c = await rpc<ChapterText>('chapter.read', { bookId: context.bookId, idx: tail.idx + 1 });
+      if (contextRef.current !== context) return;
+      const prepared = prepareChapter(c);
       const box = bodyRef.current;
       const drop = box ? 窗口该卸几章(box, chapters.length + 1 - MAX_WINDOW) : 0;
       if (drop > 0 && box) anchorRef.current = 当前锚点(box);
-      // 期间窗口要是被重置过（跳章、换书），这一章就不属于这儿了
-      setChapters((cs) => (cs[cs.length - 1]?.idx === last.idx ? [...cs.slice(drop), c] : cs));
+      setChapters((cs) => (cs[cs.length - 1] === tail ? [...cs.slice(drop), prepared] : cs));
     } catch {
-      // 取不到就算了，下次滚到底再试。这里报错只会在正文中间插一句吓人的话
-    } finally {
-      appending.current = false;
+      if (contextRef.current === context) {
+        setFailedTail(tail.renderKey);
+        appending.current = null;
+      }
     }
-    // ⚠️ **`idx` 要在依赖里**：「正在读哪一章」是卸章判据的一半（那一章不许卸），
-    // 少这一项，`appendNext` 揣着的还是上一次渲染的那个字面量——
-    // 进度已经滚过去三章了而它不知道，照样能把当前章卸掉。
-  }, [bookId, chapters, idx]);
+  }, [chapters.length, flowFailed, hasNext, shownParas, tail, tailParas]);
 
   /**
    * 无限下滑接下一章有**两条**触发路径，缺一条都读不下去：
    *
    * 1. **快滚到底了** —— 在下面那个滚动监听里，正常读下去走的就是这条；
-   * 2. **这一章填不满一屏**（这个 effect）—— 那时候容器根本没得滚，
+   * 2. **正文铺完或正文盒变化时已靠近底部**（这个 effect）。短章的容器可能根本没得滚，
    *    一个 scroll 事件都不会有，只靠第 1 条的话短章节会**卡死在「下一章…」上**。
    *    真实书库里这种章节成片地有（章节体检报的「1489 章不到 200 字节」就是它们）。
    *
@@ -654,29 +702,27 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
    * 不该由阅读器一路把整本书拉进 DOM。
    */
   useEffect(() => {
-    if (settings.mode !== 'flow' || !hasNext) return;
-    if (shownParas < tailParas) return;               // 这一章还没铺完，先铺完
+    if (!flowReady || pendingScroll !== null) return;
     const box = bodyRef.current;
-    if (!box || box.scrollHeight > box.clientHeight + 40) return;  // 有得滚，交给滚动那条
-    void appendNext();
-  }, [settings.mode, hasNext, shownParas, tailParas, chapters, appendNext]);
+    if (box && box.scrollHeight - box.scrollTop - box.clientHeight < FLOW_PREFETCH_PX) void appendNext();
+  }, [flowReady, pendingScroll, appendNext]);
 
   useEffect(() => {
-    if (settings.mode === 'page') return;
+    if (settings.mode === 'page' || shownParas >= tailParas) return;
     const el = moreRef.current;
     if (!el) return;
     const io = new IntersectionObserver(
-      (es) => { if (es[0]?.isIntersecting && shownParas < tailParas) setShownParas((n) => n + PARA_BATCH); },
+      (es) => { if (es[0]?.isIntersecting) setShownParas(shownParas + PARA_BATCH); },
       { root: bodyRef.current, rootMargin: '800px' },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [shownParas, tailParas, settings.mode, chapters]);
+  }, [shownParas, tailParas, settings.mode, setShownParas]);
 
   useEffect(() => {
     if (settings.mode !== 'page') return;
-    if (shownParas < paragraphs.length && page >= pages - 2) setShownParas((n) => n + PARA_BATCH);
-  }, [page, pages, shownParas, paragraphs.length, settings.mode]);
+    if (shownParas < paragraphs.length && page >= pages - 2) setShownParas(shownParas + PARA_BATCH);
+  }, [page, pages, shownParas, paragraphs.length, settings.mode, setShownParas]);
 
   /**
    * 恢复到上次读到的段落。
@@ -685,17 +731,28 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
    * （那本书章节没切开，整本算一章），回到章首等于进度全丢。
    * 段落上带着 `data-offset`，直接按它定位。
    */
+  const releaseScrollTarget = useRef<(() => void) | null>(null);
+  useEffect(() => () => releaseScrollTarget.current?.(), [bookId, idx, settings.mode]);
+
   useEffect(() => {
     if (pendingScroll === null || !chapter) return;
     const box = bodyRef.current;
     if (!box) return;
+    const art = textRef.current;
+    releaseScrollTarget.current?.();
     // **0 = 回到章首，不是「回到第一段」。** 第一段上面还有 `<h2>` 章节标题
     // （70px），按段落定位会把它顶出视野——**翻开一章看不见自己在读第几章**，
     // 而正文区是唯一写着章节名的地方（底栏只有序号、目录还未必开着）。
     // 实测：新开一本书 scrollTop 停在 605，正文从第 6 段开始。
     if (pendingScroll === 0) {
-      if (settings.mode === 'page') setPage(0); else box.scrollTo({ top: 0 });
+      if (settings.mode === 'page') setPage(0);
+      else box.scrollTo({ top: art && chapter !== chapters[0] ? art.offsetTop - box.offsetTop : 0 });
       setPendingScroll(null);
+      return;
+    }
+    const targetIndex = Math.max(0, paragraphs.findLastIndex((p) => p.offset <= pendingScroll));
+    if (chapter === tail && targetIndex >= shownParas) {
+      setShownParas(Math.min(paragraphs.length, targetIndex + PARA_BATCH));
       return;
     }
     // 划线的 offset 是「段起点 + 段内字符数」，不是段落对齐的——选中的句子只要
@@ -706,41 +763,35 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     // **只在这一章里面找。** 无限下滑时屏幕上不止一章，而 `data-offset` 是
     // **章内**偏移——不圈住范围的话，几章的偏移混在一起，`findLast` 会挑到
     // 后面某一章里一个数值碰巧更大的段落，正文当场跳到别处去
-    const art = box.querySelector<HTMLElement>(`article[data-chapter="${idx}"]`) ?? box;
-    const target = [...art.querySelectorAll<HTMLElement>('p[data-offset]')].findLast(
-      (el) => Number(el.dataset.offset) <= pendingScroll,
-    ) ?? art.querySelector<HTMLElement>('p[data-offset]');
+    const offset = paragraphs[targetIndex]?.offset;
+    const target = offset === undefined ? null : art?.querySelector<HTMLElement>(`p[data-offset="${offset}"]`);
 
     if (settings.mode === 'page') {
       // 翻页模式是 CSS 多列，「位置」是第几列。offsetLeft 除以列宽就是页码
-      const textEl = textRef.current;
-      setPage(target && textEl ? Math.floor(target.offsetLeft / pageStride(textEl)) : 0);
+      setPage(target && art ? Math.floor(target.offsetLeft / pageStride(art)) : 0);
+    } else if (target && art) {
+      releaseScrollTarget.current = settleScrollTarget(box, art, target, () => { releaseScrollTarget.current = null; });
+      // 复位产生的 scroll 事件不应把精确位置改成视口上方露出一角的上一段。
+      clearTimeout(写进度定时器.current);
+      void rpc('reading.save', { bookId, chapterIdx: chapter.idx, charOffset: pendingScroll });
     } else {
-      box.scrollTo({ top: target ? target.offsetTop - box.offsetTop - 8 : 0 });
+      box.scrollTo({ top: 0 });
     }
     setPendingScroll(null);
-  }, [pendingScroll, chapter, idx, settings.mode]);
+  }, [pendingScroll, chapter, chapters, settings.mode, tail, paragraphs, shownParas, setShownParas, bookId]);
 
   /**
-   * 兑现搜索命中的落点——**等这一章铺进 `flow` 才数得出「第几处」**。
-   *
-   * ⚠️ **长章要先补一批段**，否则目标那个 `<p>` 还没建出来，下面那条按
-   * `data-offset` 找段落的 effect 只会落到这批的最后一段。不能指望
-   * 「滚到底自动接一批」那个 IntersectionObserver——它等的是**滚到底**，
-   * 而这里要的是**先有那一段才滚得过去**。同朗读跟读那处（`speakingOffset`）
-   * 是分两批铺的同一个道理。
+   * 等待目标章的段落表，数出搜索命中。与续读、划线跳转共用位置恢复。
    */
   useEffect(() => {
     if (!落点计划) return;
-    const 节 = flow.find((f) => f.idx === 落点计划.章);
-    if (!节) return; // 这一章还在路上；`flow` 变了这个 effect 会再跑
+    const 节 = chapters.find((f) => f.idx === 落点计划.章);
+    if (!节) return;
     set落点计划(null);
     const 落 = 第n处(节.title ?? '', 节.paras, 落点计划.词, 落点计划.第几);
     if (落 === null) return; // 数不到就留在章首——猜一处比留在原地更难被发现
-    const i = 节.paras.findIndex((p) => p.offset === 落);
-    if (i >= shownParas) setShownParas(Math.min(节.paras.length, i + PARA_BATCH));
     setPendingScroll(落);
-  }, [落点计划, flow, shownParas]);
+  }, [落点计划, chapters]);
 
   /**
    * 记住章内位置。**节流到停下来才存**——滚动事件每帧都来，
@@ -785,7 +836,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
       // **接下一章不等那 700ms 的节流**：那个节流是给写库用的，
       // 而这一下要赶在用户真滚到底之前，不然章节交界处会顿一下
       if (settings.mode === 'flow'
-        && box.scrollHeight - box.scrollTop - box.clientHeight < 1200) void appendRef.current();
+        && box.scrollHeight - box.scrollTop - box.clientHeight < FLOW_PREFETCH_PX) void appendRef.current();
       /*
        * **「读到哪一章了」也当场认，不等那 700ms。**
        *
@@ -806,6 +857,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
         const ci = Number(art.dataset.chapter);
         if (ci !== idxRef.current) { idxRef.current = ci; setIdx(ci); }
       }
+      if (releaseScrollTarget.current) return;
       clearTimeout(写进度定时器.current);
       写进度定时器.current = setTimeout(() => {
         // 阅读器已经关掉了：那个盒子脱离了文档，量出来全是 0，别拿它写库
@@ -814,16 +866,9 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
         // 和翻页模式共用同一份——这两件事以前在两个 effect 里各写了一遍
         const a = 顶上那一章();
         if (!a) return;
-        const top = box.scrollTop + ANCHOR_SLACK_PX;
         const ci = Number(a.dataset.chapter);
-        const offset = anchorOffset(
-          [...a.querySelectorAll<HTMLElement>('p[data-offset]')].map((el) => ({
-            offset: Number(el.dataset.offset),
-            pos: el.offsetTop - box.offsetTop,
-          })),
-          top,
-        );
-        const atEnd = atEndScrolling(box.scrollTop, box.clientHeight, box.scrollHeight);
+        const offset = scrollCharacterOffset(box, a);
+        const atEnd = !moreRef.current && atEndScrolling(box.scrollTop, box.clientHeight, box.scrollHeight);
         void rpc<{ finished: boolean }>('reading.save', { bookId, chapterIdx: ci, charOffset: offset, atEnd })
           .then((r) => r.finished && askReview());
       }, 700);
@@ -890,11 +935,16 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
   }, []);
 
   const go = useCallback(
-    (to: number) => {
+    (to: number, offset?: number) => {
       if (chapter && (to < 0 || to >= chapter.total)) return;
       // 无限下滑：要去的那一章已经铺好了，滚过去就是了。
       // 重新取一遍会把窗口砍成一章，下面已经铺好的全丢掉
-      if (chapters.some((c) => c.idx === to)) scrollToChapter(to);
+      if (chapters.some((c) => c.idx === to)) {
+        if (offset === undefined) scrollToChapter(to);
+        else setPendingScroll(offset);
+      } else {
+        restoreTo.current = offset ?? null;
+      }
       setIdx(to);
     },
     [chapter, chapters, scrollToChapter],
@@ -1177,7 +1227,6 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     const el = textRef.current;
     const box = bodyRef.current;
     if (!el || !box) return;
-    el.style.transform = 'translateX(0)';
     const n = Math.max(1, Math.round(el.scrollWidth / pageStride(el)));
     setPages(n);
     // **原来这里无条件 `setPage(0)`，把上面「恢复位置」那个 effect 刚算好的页码
@@ -1187,14 +1236,14 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     // 这里只管两件它管不了的：翻到章首往回翻，和字号变了页数缩水要夹住。
     if (toLastPage.current) { toLastPage.current = false; setPage(n - 1); }
     else setPage((p) => Math.min(p, n - 1));
-  }, [settings.mode, settings.size, settings.line, chapter]);
+  }, [settings.mode, settings.size, settings.line, chapter, shownParas]);
 
   useEffect(() => {
     if (settings.mode !== 'page') return;
     const el = textRef.current;
     const box = bodyRef.current;
     if (el && box) el.style.transform = `translateX(-${page * pageStride(el)}px)`;
-  }, [page, settings.mode]);
+  }, [page, settings.mode, chapter]);
 
   /**
    * 翻页：滚动模式下直接换章；翻页模式下先在章内翻，翻到头再换章。
@@ -1301,8 +1350,9 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
         // 无限下滑：下一章还在路上，等它接上来接着滚。
         // 这里要是照旧 `setScrolling(false)`，自动滚会在每个章节交界处停一次——
         // 而「无限下滑 + 自动滚」正是最该一路到底的那个组合
-        if (settings.mode === 'flow' && hasNext) {
-          raf = requestAnimationFrame(step);
+        if (moreRef.current) {
+          if (settings.mode === 'flow' && flowFailed) setScrolling(false);
+          else raf = requestAnimationFrame(step);
           return;
         }
         setScrolling(false);
@@ -1313,7 +1363,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [scrolling, settings.autoScroll, settings.mode, go, idx, hasNext]);
+  }, [scrolling, settings.autoScroll, settings.mode, go, idx, flowFailed]);
 
   useEffect(() => setPage(0), [idx]);
 
@@ -1440,8 +1490,15 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
 
   const tocSlice = useMemo(() => shown.slice(tocFrom, tocTo), [shown, tocFrom, tocTo]);
 
-  const set = <K extends keyof ReadSettings>(k: K, v: ReadSettings[K]) =>
+  const set = <K extends keyof ReadSettings>(k: K, v: ReadSettings[K]) => {
+    if (k === 'mode' && settings.mode === 'flow' && v !== 'flow' && chapter) {
+      const box = bodyRef.current;
+      const article = textRef.current;
+      if (box && article) setPendingScroll(scrollCharacterOffset(box, article));
+      setChapters([chapter]);
+    }
     setSettings((s) => ({ ...s, [k]: v }));
+  };
 
   /**
    * 浮层里的一行「标签 当前值 [−][＋]」。
@@ -1873,7 +1930,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
                   // 恢复位置那个 effect；这条路不是换章，是同一章换个字体转换，
                   // 落到 `setPage(p => Math.min(p, n-1))` 保住当前页正是想要的。
                   // 再加 setChapter 的地方要想清楚落哪一页，别默认照抄这一处。
-                  setChapters([await rpc<ChapterText>('chapter.read', { bookId, idx })]);
+                  setChapters([prepareChapter(await rpc<ChapterText>('chapter.read', { bookId, idx }))]);
                 },
               }}
             />
@@ -2076,10 +2133,10 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
           {!chapter && !error && <p className="muted" style={{ textAlign: 'center' }}>正在读取…</p>}
           {/* 一章一张纸。「按章」和「左右翻」永远只有一张，DOM 和以前一样；
               「无限下滑」滚到底就在后面再接一张 */}
-          {flow.map((f, fi) => {
+          {chapters.map((f, fi) => {
             const mine = marks[f.idx] ?? [];
             // **只有最后一张是分批铺的**，上面那几张你已经滚过去了，一定铺全了
-            const shown = fi === flow.length - 1 ? f.paras.slice(0, shownParas) : f.paras;
+            const shown = fi === chapters.length - 1 && shownParas < tailParas ? f.paras.slice(0, shownParas) : f.paras;
             return (
             <article
               key={f.idx}
@@ -2180,7 +2237,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
                 <p
                   key={para.offset}
                   data-offset={para.offset}
-                  className={para.offset === speakingOffset ? 'speaking' : undefined}
+                  className={f.idx === idx && para.offset === speakingOffset ? 'speaking' : undefined}
                 >
                   {sliceByMarks(para, mine).map((piece, i) =>
                     piece.mark ? (
@@ -2236,9 +2293,12 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
               那边分批由页码驱动（多列布局下这个 div 会白占一整列） */}
           {settings.mode !== 'page' && (shownParas < tailParas || (settings.mode === 'flow' && hasNext)) && (
             <div ref={moreRef} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
-              {shownParas < tailParas
-                ? `正在铺开后面的内容…（本章 ${tailParas} 段，已显示 ${shownParas} 段）`
-                : '下一章…'}
+              {shownParas < tailParas ? '正在加载正文…' : flowFailed ? (
+                <>
+                  <span role="status">下一章加载失败。</span>
+                  {' '}<button className="mini" onClick={() => void appendNext(true)}>重试</button>
+                </>
+              ) : '正在加载下一章…'}
             </div>
           )}
         </div>
@@ -2324,16 +2384,7 @@ export function Reader({ bookId, bookTitle, startAt, startOffset, onOpenBook, on
             // 面板里能删书签，删完右轨那个图标得跟着灭
             void rpc<Bookmark[]>('bookmark.list', { bookId }).then(setBookmarks);
           }}
-          onJump={(ci, off) => {
-            // 复用「进书恢复位置」的同一条路：restoreTo 会在章节加载后
-            // 被消费成 pendingScroll，按 data-offset 定位到段落
-            if (ci === idx) {
-              setPendingScroll(off);
-            } else {
-              restoreTo.current = off;
-              go(ci);
-            }
-          }}
+          onJump={go}
         />
       )}
     </div>

@@ -1427,6 +1427,95 @@ const cardOf2 = (id) => `document.querySelector('.book[data-book-id="${id}"]')`;
   }
 }
 
+// 长章先分批铺正文，只有前一章铺完才接下一章。续读也要能找回尚未铺出的段落。
+{
+  const fixture = ((await rpc('book.list', { filter: { keyword: '长章连续阅读夹具' } })).r ?? [])[0];
+  if (!fixture || fixture.chapter_count !== 2) {
+    step('无限下滑：长章分批加载、续读定位', false, '需要重新生成走查夹具');
+  } else {
+    const openAt = async (offset) => {
+      await ev(`(() => {
+        const k = 'novel.read-settings';
+        const settings = JSON.parse(localStorage.getItem(k) || '{}');
+        localStorage.setItem(k, JSON.stringify({ ...settings, mode: 'flow' }));
+      })()`);
+      await rpc('reading.save', { bookId: fixture.id, chapterIdx: 0, charOffset: offset });
+      await reload();
+      const card = `.book[data-book-id="${fixture.id}"] .book-art`;
+      if (!await until(`!!document.querySelector(${JSON.stringify(card)})`)) return false;
+      await ev(`document.querySelector(${JSON.stringify(card)}).click()`);
+      return until("!!document.querySelector('.flow-mode article[data-chapter=\"0\"] p[data-offset]')");
+    };
+    const paragraphs = (idx) => ev(`document.querySelectorAll('article[data-chapter="${idx}"] p[data-offset]').length`);
+    const scrollBottom = (gap) => ev(`(() => {
+      const box = document.querySelector('.reader-body');
+      box.scrollTop = box.scrollHeight - box.clientHeight - ${gap};
+      box.dispatchEvent(new Event('scroll'));
+    })()`);
+    if (await openAt(0)) {
+      const initial = await paragraphs(0);
+      // 在接章的预取距离内，离分批哨兵仍有一段距离。
+      await scrollBottom(1000);
+      const saved = await until(`window.novel.rpc('reading.last', { bookId: ${fixture.id} })
+        .then((r) => r.charOffset > 0)`);
+      const early = await paragraphs(1);
+      const firstBatch = await paragraphs(0);
+      for (let i = 0; i < 5 && (await paragraphs(1)) === 0; i++) {
+        const before = await paragraphs(0);
+        await scrollBottom(0);
+        await until(`document.querySelectorAll('article[data-chapter="0"] p[data-offset]').length > ${before}
+          || !!document.querySelector('article[data-chapter="1"]')`);
+      }
+      const first = await paragraphs(0);
+      const second = await paragraphs(1);
+      step('无限下滑：长章按批铺完后才接上下一章',
+        saved && early === 0 && firstBatch === initial && first > initial && second === initial,
+        `首批 ${initial} 段，提前接入 ${early} 段，接续后 ${first}/${second} 段`);
+
+      const anchor = await ev(`(() => {
+        const box = document.querySelector('.reader-body');
+        const top = box.getBoundingClientRect().top + 4;
+        const para = [...box.querySelectorAll('article[data-chapter="0"] p[data-offset]')]
+          .findLast(p => p.getBoundingClientRect().top <= top);
+        return para?.dataset.offset ?? null;
+      })()`);
+      await ev(`[...document.querySelectorAll('.reader-rail button')].find(b => b.textContent.trim() === '设置')?.click()`);
+      const modeButton = "[...document.querySelectorAll('.reader-panel button')].find(b => b.textContent.trim() === '按章')";
+      const hasMode = await until(`!!(${modeButton})`);
+      if (hasMode) await ev(`(${modeButton})?.click()`);
+      const preserved = hasMode && anchor !== null && await until(`(() => {
+        const box = document.querySelector('.reader-body');
+        const target = box?.querySelector('article[data-chapter="0"] p[data-offset="${anchor}"]');
+        if (!target || box.classList.contains('flow-mode') || box.querySelectorAll('article').length !== 1) return false;
+        const shifted = target.getBoundingClientRect().top - box.getBoundingClientRect().top - 8;
+        const clamped = box.scrollTop >= box.scrollHeight - box.clientHeight - 1;
+        return Math.abs(shifted) < 5 || (clamped && shifted >= 0 && shifted < box.clientHeight);
+      })()`);
+      step('切回按章：只保留当前章并停在原段落', preserved, `段落偏移 ${anchor}`);
+    } else {
+      step('无限下滑：长章按批铺完后才接上下一章', false, '没打开夹具');
+    }
+
+    const { text, title } = (await rpc('chapter.read', { bookId: fixture.id, idx: 0 })).r;
+    const offset = text.indexOf('续读定位标记1') - (text.startsWith(title) ? title.length : 0);
+    const opened = offset > 0 && await openAt(offset);
+    const restored = opened && await until(`(() => {
+      const box = document.querySelector('.reader-body');
+      const target = box?.querySelector('article[data-chapter="0"] p[data-offset="${offset}"]');
+      return !!target && Math.abs(target.getBoundingClientRect().top - box.getBoundingClientRect().top) < 20;
+    })()`);
+    step('无限下滑：续读准确落到首批正文之后的段落', restored, `段落偏移 ${offset}`);
+
+    await ev(`(() => {
+      const k = 'novel.read-settings';
+      const settings = JSON.parse(localStorage.getItem(k) || '{}');
+      localStorage.setItem(k, JSON.stringify({ ...settings, mode: 'scroll' }));
+    })()`);
+    await reload();
+    await rpc('reading.save', { bookId: fixture.id, chapterIdx: 0, charOffset: 0 });
+  }
+}
+
 close();
 console.log(fail.length ? `\n✗ 断在：${fail.join('、')}` : '\n✔ 全程走通');
 process.exit(fail.length ? 1 : 0);
