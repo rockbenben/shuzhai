@@ -2105,6 +2105,73 @@ button.toc-more:hover {
 .modal.editor {
   width: min(56rem, 100%);
   container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.editor-head {
+  padding: 0.95rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.editor-head h2 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-body {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  padding: 1rem 1.25rem;
+}
+.editor-file-warning { margin-bottom: 0.85rem; }
+.editor-cover {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.editor-cover[data-dragging='true'] {
+  outline: 2px dashed var(--accent);
+  outline-offset: -3px;
+}
+.editor-cover-content {
+  min-width: 0;
+  flex: 1;
+}
+.editor-cover-content h3,
+.editor-section-heading h3 {
+  font-size: 0.98rem;
+  margin: 0;
+}
+.editor-cover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.45rem 0;
+}
+.editor-cover-actions > button {
+  min-height: 1.9rem;
+  margin: 0;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.82rem;
+}
+.editor-source-link {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 0.35rem;
+  font-size: 0.82rem;
 }
 
 .editor-grid {
@@ -2113,10 +2180,52 @@ button.toc-more:hover {
   gap: 0 1.1rem;
   align-items: start;
 }
+.editor-grid > section + section {
+  border-left: 1px solid var(--line);
+  padding-left: 1.1rem;
+}
+.editor-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.3rem 0.75rem;
+  padding-bottom: 0.55rem;
+  margin-bottom: 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
 
 .editor-col-hint {
   font-size: 0.78rem;
+  margin: 0;
+}
+
+.editor .editor-footer {
+  position: static;
+  flex: none;
+  margin: 0;
+  padding: 0.6rem 1.25rem;
+  background: var(--panel);
+}
+.editor-footer-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.45rem;
+}
+.editor-unsaved {
+  margin: 0 0 0.35rem;
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+.editor-footer-buttons .editor-unsaved { margin: 0 auto 0 0; }
+.editor-feedback {
   margin: 0 0 0.4rem;
+  max-height: 4rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
 }
 
 /* 两个短字段并排一行（连载状态 + 本地章数）。
@@ -2133,7 +2242,15 @@ button.toc-more:hover {
 }
 
 @container (max-width: 46rem) {
-  .editor-grid, .editor-pair { grid-template-columns: minmax(0, 1fr); }
+  .editor-grid { grid-template-columns: minmax(0, 1fr); }
+  .editor-grid > section + section {
+    padding-left: 0;
+    margin-top: 0.85rem;
+    border-left: 0;
+  }
+}
+@container (max-width: 28rem) {
+  .editor-pair { grid-template-columns: minmax(0, 1fr); }
 }
 
 /*

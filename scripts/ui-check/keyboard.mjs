@@ -306,12 +306,10 @@ const scanNames = async (哪一屏) => {
     ['筛选', "(() => { const b=[...document.querySelectorAll('.main-head .chip')].find(x=>x.textContent.trim()==='筛选'); if(b) b.click(); return b?1:0; })()"],
   ];
   const 切到页签 = async (名) => {
-    const 找 = `[...document.querySelectorAll('.tabs button')].find(x=>x.textContent.trim()===${JSON.stringify(名)})`;
-    if (!(await ev(`!!${找}`))) {
-      await ev(`(() => { const b=${找}; if(b) b.click(); return 1; })()`);
-    }
-    for (let i = 0; i < 30 && !(await ev(`!!${找}:not([aria-selected="false"])`)); i++) await wait(150);
-    return !!(await ev(`!!${找}`));
+    const 找 = `[...document.querySelectorAll('.settings-nav button')].find(x=>x.textContent.trim()===${JSON.stringify(名)})`;
+    if (!(await until(`!!(${找})`))) return false;
+    await ev(`(${找}).click()`);
+    return until(`(${找})?.getAttribute('aria-current') === 'true'`);
   };
   const 没开成 = [];
   /*

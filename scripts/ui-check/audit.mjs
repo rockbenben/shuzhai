@@ -113,7 +113,7 @@ if (要的分辨率.length && RES.length !== 要的分辨率.length) {
  */
 const 开设置页 = (页签, 再点) =>
   "(() => { const s=[...document.querySelectorAll('.nav-tool')].find(x=>x.textContent.trim()==='设置'); if(!s) return 0; s.click();"
-  + " let n=0; const t=setInterval(() => { const b=[...document.querySelectorAll('.tabs button')].find(x=>x.textContent.trim()==="
+  + " let n=0; const t=setInterval(() => { const b=[...document.querySelectorAll('.settings-nav button')].find(x=>x.textContent.trim()==="
   + JSON.stringify(页签) + ');'
   + '   if (b) { b.click(); clearInterval(t);'
   + (再点

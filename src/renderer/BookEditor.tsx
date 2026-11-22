@@ -102,7 +102,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
   const [rereadAsk, setRereadAsk] = useState(false);
   /** 有关掉会丢的改动时，问一句「放弃还是继续」。三条关法（遮罩 / 关闭键 / Esc）
       都走 `requestClose`，Esc 在下面 onKeyDown 里靠 preventDefault 拦下 App 那张总表 */
-  const [confirmClose, setConfirmClose] = useState(false);
+  const [confirmClose, setConfirmClose] = useState<{ next?: (title: string, changed: boolean) => void } | null>(null);
   /** 文件不见了时点「清理这条失效记录」的二次确认（同 confirmClose 的两段式，不用原生 confirm） */
   const [confirmCleanup, setConfirmCleanup] = useState(false);
   const [coverVer, setCoverVer] = useState(0);
@@ -250,7 +250,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
    * **保存成功就是编辑结束，弹窗关掉**（底栏「保存」和未保存卡片里的「保存并关闭」
    * 同一条路）；评分/状态那些即时生效的不受影响。
    */
-  const save = async (): Promise<boolean> => {
+  const save = async (): Promise<Detail | null> => {
     setBusy(true);
     setError(null);
     try {
@@ -273,12 +273,12 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
       setD(fresh);
       setForm(fresh);
       setOverrideText(fresh.chapter_count_override != null ? String(fresh.chapter_count_override) : '');
-      setConfirmClose(false);
+      setConfirmClose(null);
       setChanged(true);
-      return true;
+      return fresh;
     } catch (e) {
       setError((e as Error).message);
-      return false;
+      return null;
     } finally {
       setBusy(false);
     }
@@ -333,6 +333,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
     );
   }
 
+  const fileMissing = !!d.path && d.file_status === 'missing';
   const reading = {
     status: d.reading_status ?? 'none',
     rating: d.rating,
@@ -366,8 +367,16 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
 
   /** 三条关法都从这儿走：有没存的改动先问一句，没有就直接关 */
   const requestClose = () => {
-    if (dirty) { setConfirmClose(true); return; }
+    if (dirty) { setConfirmClose({}); return; }
     onClose(changed);
+  };
+  const openTool = (next: (title: string) => void) => {
+    const leave = (title: string, hasChanged: boolean) => {
+      onClose(hasChanged);
+      next(title);
+    };
+    if (dirty) setConfirmClose({ next: leave });
+    else leave(d.title, changed);
   };
 
   const field = (label: string, key: keyof Detail, placeholder = '') => (
@@ -389,30 +398,22 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
       onKeyDown={(e) => {
         if (e.key !== 'Escape') return;
         // 确认正开着：Esc = 收回确认、接着编辑（别让 App 那张 Esc 总表把弹窗整个关掉）
-        if (confirmClose) { e.preventDefault(); setConfirmClose(false); return; }
+        if (confirmClose) { e.preventDefault(); setConfirmClose(null); return; }
         // 有没存的改动：拦下 App 的关闭，先问。干净就不拦，交给 App 那张总表关
-        if (dirty) { e.preventDefault(); setConfirmClose(true); }
+        if (dirty) { e.preventDefault(); requestClose(); }
       }}
     >
-      <div className="modal editor" onClick={(e) => e.stopPropagation()}>
-        <h2 style={{ margin: '0 0 0.8rem', fontSize: '1.1rem' }}>编辑《{d.title}》</h2>
+      <div className="modal editor" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+        <header className="editor-head">
+          <h2 title={d.title}>编辑《{d.title}》</h2>
+        </header>
 
-        {/*
-         * 封面压成**一行**：原来 92px 的书衣 + 一句两行的解释 + 三颗键，
-         * 整块 147px，而它是低频操作。现在 64px 的书衣、三颗键并排、
-         * 解释留一行（「拖进来」这件事键上那个 title 也说得出）。
-         * 拖放区还是整块这一行，判据没动：拿到路径才 `cover.set`，拿不到报错。
-         */}
-        <div
-          className="row"
-          style={{
-            alignItems: 'center',
-            gap: '.7rem',
-            marginBottom: '.8rem',
-            flexWrap: 'wrap',
-            outline: dragging ? '2px dashed var(--accent)' : 'none',
-            outlineOffset: 4,
-          }}
+        <div className="editor-body">
+        {/* 封面和在线地址管同一本书。整块都可接收拖入的封面图片。 */}
+        <section
+          className="editor-cover"
+          aria-labelledby="editor-cover-heading"
+          data-dragging={dragging}
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={(e) => {
@@ -435,13 +436,14 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
           }}
         >
           <Cover bookId={bookId} title={d.title} version={coverVer} width={64} />
-          <div style={{ flex: '1 1 12rem', minWidth: 0 }}>
-            <div className="row" style={{ gap: '.35rem', flexWrap: 'wrap' }}>
+          <div className="editor-cover-content">
+            <h3 id="editor-cover-heading">封面与来源</h3>
+            <div className="editor-cover-actions">
               {/* 联网补全是**点一下补一本**，不是后台自动跑全库。
                   书名作者会发到搜索源去，那是用户该自己决定的事 */}
               <button
-                className="primary"
                 disabled={fetching}
+                title="将书名和作者发送到搜索源以查找封面和书籍资料"
                 onClick={() => void (async () => {
                   setFetching(true);
                   setFetchMsg(null);
@@ -464,6 +466,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
                 {fetching ? '正在补全…' : '联网补全'}
               </button>
               <button
+                title="也可以把图片拖到封面区域"
                 onClick={() => void (async () => {
                   const path = await rpc<string | null>('ui.pickImage');
                   if (!path) return;
@@ -487,15 +490,27 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
               >
                 清除封面
               </button>
+              <button type="button" className="mini" disabled={busy} onClick={() => openTool(onLinks)}>在线地址…</button>
             </div>
-            <p className="muted" style={{ fontSize: '0.8rem', margin: '.25rem 0 0' }}>
-              这三下不用点「保存」，当场就生效。也可以把图片直接拖到这一行上。没有封面时用书名画一件素色书衣顶上。
-            </p>
+            {d.primary_url && (
+              <a
+                className="editor-source-link"
+                href={d.primary_url}
+                title={d.primary_url}
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.open(d.primary_url!, '_blank');
+                }}
+              >
+                {d.primary_site ? `${d.primary_site} · ` : ''}{d.primary_url}
+              </a>
+            )}
+            <p className="muted editor-col-hint">封面即时更新。联网补全会向搜索源发送书名和作者。</p>
             {fetchMsg && (
               <p className="muted" style={{ fontSize: '0.8rem', margin: '.25rem 0 0' }}>{fetchMsg}</p>
             )}
           </div>
-        </div>
+        </section>
 
         {/*
          * ── 两栏：左边点「保存」才生效，右边改了就生效 ──────────
@@ -506,50 +521,15 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
          * 现在这句话由栏目标题统一说，各块里就不重复了。
          */}
         <div className="editor-grid">
-          <div>
-            <p className="muted editor-col-hint">下面这些改完要点「保存」才生效</p>
+          <section aria-labelledby="editor-metadata-heading">
+            <div className="editor-section-heading">
+              <h3 id="editor-metadata-heading">书籍资料</h3>
+              <span className="muted editor-col-hint">点「保存」后生效</span>
+            </div>
 
         {field('书名', 'title')}
         {field('作者', 'author')}
-        {field('别名（多个用逗号分隔，参与搜索匹配）', 'aliases')}
-        {/*
-          * 「来源站点」＝主在线地址，**不是一个能打字的框**。
-          * 它原来就是个自由文本框，写的和 online_link 表里那条主地址是同一件事，
-          * 两份记录必然分叉（真实库里 875 本写着站点 id、6 本写着 URL，而链接表里
-          * 全都有）。地址统一在「在线地址…」里管（多条、主站、探活、取封面），
-          * 这儿只读显示；没地址时「联网补全」命中也会自动带上。
-          */}
-        <label style={{ display: 'block', marginBottom: '.6rem' }}>
-          <span className="muted" style={{ fontSize: '0.85rem' }}>来源站点</span>
-          {d.primary_url ? (
-            <div style={{ marginTop: '.15rem', fontSize: '0.82rem', overflowWrap: 'anywhere' }}>
-              <a
-                href={d.primary_url}
-                onClick={(e) => {
-                  e.preventDefault();
-                  window.open(d.primary_url!, '_blank');
-                }}
-                title="在浏览器里打开"
-              >
-                {d.primary_site ? `${d.primary_site} · ` : ''}{d.primary_url}
-              </a>
-            </div>
-          ) : (
-            <div className="muted" style={{ marginTop: '.15rem', fontSize: '0.82rem' }}>
-              未记录——在「在线地址…」里添加，或由「联网补全」带上
-            </div>
-          )}
-        </label>
-        {/* 书名从这儿传出去：这个弹窗手里就有 `d.title`，而 App 那头只能去
-            当前那一页（最多 120 本）里 find 一遍，翻页之后的书会找不到、
-            标题落成空串 */}
-        <p style={{ margin: '-.3rem 0 0.7rem' }}>
-          <button type="button" className="mini" title="粘一个新网址进来，可以一键补全封面和信息"
-            onClick={() => onLinks(d.title)}>在线地址…</button>
-          <span className="muted" style={{ fontSize: '0.8rem' }}>
-            　存多条网址、标主站、查打不打得开
-          </span>
-        </p>
+        {field('别名', 'aliases', '用逗号分隔，可用别名搜书')}
 
         {/* 两个短字段并一行：这两格原来各占一整行、各只装得下一个下拉框，
             左栏就是被这种「一行一个、右边全空」撑长的 */}
@@ -610,15 +590,19 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
         </label>
 
         {field('备注', 'note')}
-          </div>
+          </section>
 
-          <div>
-            <p className="muted editor-col-hint">下面这些改了就生效，不跟着「保存」走</p>
+          <section aria-labelledby="editor-reading-heading">
+            <div className="editor-section-heading">
+              <h3 id="editor-reading-heading">阅读记录</h3>
+              <span className="muted editor-col-hint">改动即时生效</span>
+            </div>
 
         <div className="card" style={{ marginBottom: '.6rem' }}>
           <div className="row">
             <span className="muted" style={{ fontSize: '0.85rem' }}>阅读状态</span>
             <select
+              aria-label="阅读状态"
               value={reading.status}
               onChange={(e) => {
                 /*
@@ -777,14 +761,14 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             </button>
           </div>
           <p className="muted" style={{ fontSize: '0.8rem', margin: '0.15rem 0 0.4rem' }}>
-            分类平时是一条规则，符合的书自己就进去；这里勾的是额外把它放进去。标着「规则」的那些本来就命中，摘不掉——要去掉得改那条规则。
+            勾选可手动加入。标有「规则」的分类由规则自动决定。
           </p>
 
           {shelves === null ? (
             <span className="muted" style={{ fontSize: '0.82rem' }}>正在读取…</span>
           ) : shelves.length === 0 ? (
             <span className="muted" style={{ fontSize: '0.82rem' }}>
-              还没有分类。点上面的「＋ 新建分类」建一个；要建按规则自动收书的那种，去侧栏的「＋ 新建分类」，那儿能一边改规则一边看圈中了谁。
+              还没有分类，可以在这里新建手动分类。
             </span>
           ) : (
             <div className="chip-row">
@@ -832,7 +816,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
             </div>
           )}
         </div>
-          </div>
+          </section>
         </div>
 
         {/*
@@ -852,31 +836,7 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
          * 它们和「打开文件 / 重新解析 / 按编码重解」说的是同一件事（这个文件），
          * 原来被切成两段、中间隔着九格。
          */}
-        {d.path && d.file_status === 'missing' ? (
-          /*
-           * **文件没了：打开、重解都无从谈起，给一条能直接了结它的路。**
-           * 原来这儿只印一个红的 `missing`，点开书报错时给的引导又是「整理数据库」——
-           * 而自己删掉的唯一文件整理数据库也清不掉，它只能挂一辈子「文件不见了」。
-           * 两段式确认同 confirmClose：这一下会删记录（你的评价进度都留着，变「只有记录」）。
-           */
-          <div className="card" style={{ fontSize: '0.85rem', borderColor: 'var(--danger)' }}>
-            <div className="danger" style={{ fontWeight: 600 }}>文件已经不在原位置了</div>
-            <div className="muted" style={{ overflowWrap: 'anywhere', marginTop: '.2rem' }}>{d.path}</div>
-            <div style={{ marginTop: '.4rem' }}>
-              你可能在应用外删了它、或挪走了文件夹。清理会删掉这条记录：你写过评价、进度、标签的，书留着变成「只有记录」；你什么都没记过的，这条记录也一起删掉（文件本来就已经不在了）。
-            </div>
-            {confirmCleanup ? (
-              <div className="row" style={{ marginTop: '.5rem', gap: '.4rem' }}>
-                <button onClick={() => setConfirmCleanup(false)} disabled={busy}>取消</button>
-                <button className="danger" disabled={busy} onClick={() => void doCleanup()}>确实清理</button>
-              </div>
-            ) : (
-              <div className="row" style={{ marginTop: '.5rem' }}>
-                <button className="danger" onClick={() => setConfirmCleanup(true)}>清理这条失效记录…</button>
-              </div>
-            )}
-          </div>
-        ) : d.path ? (
+        {d.path && !fileMissing ? (
           <details className="editor-more">
             <summary>
               文件与解析
@@ -934,18 +894,19 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
               */}
             <div className="row" style={{ marginTop: '.5rem', gap: '.35rem', flexWrap: 'wrap' }}>
               {formatOf(d.path) !== 'catalog' && (
-                <button type="button" className="mini" title="这本书的章节怎么切——切得不对时可以换一条规则，先试算再决定"
-                  onClick={() => onChapters(d.title)}>章节怎么切…</button>
+                <button type="button" className="mini" disabled={busy} title="这本书的章节怎么切——切得不对时可以换一条规则，先试算再决定"
+                  onClick={() => openTool(onChapters)}>章节怎么切…</button>
               )}
-              <button type="button" className="mini" title="按模板改这本书在磁盘上的文件名。先试算给你看，改完还能撤销"
-                onClick={() => onRename()}>改文件名…</button>
+              <button type="button" className="mini" disabled={busy} title="按模板改这本书在磁盘上的文件名。先试算给你看，改完还能撤销"
+                onClick={() => openTool(onRename)}>改文件名…</button>
               {formatOf(d.path) !== 'catalog' && (
-                <button type="button" className="mini" title="把这本书导成 EPUB 或 txt。原 txt 一个字节都不会动"
-                  onClick={() => onExport(d.title)}>导出…</button>
+                <button type="button" className="mini" disabled={busy} title="把这本书导成 EPUB 或 txt。原 txt 一个字节都不会动"
+                  onClick={() => openTool(onExport)}>导出…</button>
               )}
             </div>
           </details>
         ) : null}
+        </div>
 
         {/*
           * **有关掉会丢的改动时拦一道。** 两段式内联确认，同下拉里「已读完→在读」
@@ -955,37 +916,50 @@ export function BookEditor({ bookId, onClose, onLinks, onChapters, onRename, onE
           * 「放弃修改」是会丢东西的那个，所以它是 danger。焦点默认落在「继续编辑」
           * 上——手滑敲回车也是安全的那一边。
           */}
-        {confirmClose && (
-          <div className="card" style={{ marginBottom: '.6rem', borderColor: 'var(--danger)' }}>
-            <div style={{ fontSize: '0.9rem' }}>
-              书名、作者、简介这些改动还没保存，关掉就丢了。要怎么办？
-            </div>
-            <div className="row" style={{ gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
-              <button autoFocus onClick={() => setConfirmClose(false)}>继续编辑</button>
+        <div className="modal-actions editor-footer">
+          {error && <p className="danger editor-feedback" role="alert">{error}</p>}
+          {msg && <p className="editor-feedback" role="status">{msg}</p>}
+          {confirmClose ? (
+            <>
+              <p className="editor-unsaved">书籍资料还有未保存的改动。</p>
+              <div className="editor-footer-buttons">
+                <button autoFocus onClick={() => setConfirmClose(null)}>继续编辑</button>
+                <button
+                  className="primary"
+                  disabled={busy || !form.title?.trim()}
+                  onClick={() => void save().then((saved) => {
+                    if (!saved) return;
+                    if (confirmClose.next) confirmClose.next(saved.title, true);
+                    else onClose(true);
+                  })}
+                >
+                  {confirmClose.next ? '保存并继续' : '保存并关闭'}
+                </button>
+                <button
+                  className="danger"
+                  disabled={busy}
+                  onClick={() => {
+                    if (confirmClose.next) confirmClose.next(d.title, changed);
+                    else onClose(changed);
+                  }}
+                >
+                  {confirmClose.next ? '放弃修改并继续' : '放弃修改并关闭'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="editor-footer-buttons">
+              {dirty && <span className="editor-unsaved" role="status">书籍资料未保存</span>}
+              <button onClick={requestClose}>关闭</button>
               <button
                 className="primary"
-                disabled={busy || !form.title}
-                onClick={() => void save().then((ok) => { if (ok) onClose(true); })}
+                onClick={() => void save().then((saved) => { if (saved) onClose(true); })}
+                disabled={busy || !dirty || !form.title?.trim()}
               >
-                保存并关闭
+                保存
               </button>
-              <button className="danger" onClick={() => onClose(changed)}>放弃修改并关闭</button>
             </div>
-          </div>
-        )}
-
-        {error && <p className="danger" style={{ marginBottom: 0 }}>{error}</p>}
-        {msg && <p style={{ color: 'var(--accent)', marginBottom: 0 }}>{msg}</p>}
-
-        <div className="row modal-actions" style={{ justifyContent: 'flex-end' }}>
-          <button onClick={requestClose}>关闭</button>
-          <button
-            className="primary"
-            onClick={() => void save().then((ok) => { if (ok) onClose(true); })}
-            disabled={busy || !form.title}
-          >
-            保存
-          </button>
+          )}
         </div>
       </div>
     </div>

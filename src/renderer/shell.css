@@ -1726,44 +1726,94 @@
 
 
 /* 设置弹窗。分两页、全部即时生效；结构是「头 / 滚动体 / 底栏」三段 flex——
-   原来整个弹窗一个滚动条 + sticky 底栏，最后一行正文滚到折缝处会被
-   底栏切掉半个字（朗读引擎那句「自己加」常年只剩半截），标题行也跟着滚走。
-   宽度用所有弹窗的基准 44rem：原来单独收在 38rem 是初次提交带进来的值、没有判据，
-   书库页「按文件夹设连载状态」的长目录名在 566px 内容宽里折成了好几行。 */
+   标题、导航和关闭按钮都在滚动体之外，分类切换不改变弹窗高度。 */
 .modal.settings {
-  max-width: 44rem;
+  width: min(54rem, 100%);
+  height: min(42rem, 86vh);
   max-height: 82vh;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  container-type: inline-size;
   overflow: hidden;
-  padding-bottom: 0;
+  padding: 0;
 }
 .settings-head {
-  flex: none;
-  margin-bottom: 0.8rem;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.95rem 1.25rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.settings-head h2 { margin: 0; }
+.settings-head > span { font-size: 0.78rem; }
+.settings-layout {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+}
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.8rem 0.65rem;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+.settings-nav button {
+  min-height: 2.25rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid transparent;
+  background: none;
+  font-size: 0.87rem;
+  text-align: left;
+}
+.settings-nav button[aria-current='true'] {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  box-shadow: inset 2px 0 var(--accent);
+  font-weight: 600;
 }
 .settings-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
+  overflow: auto;
   scrollbar-width: thin;
-  /* 负边距把滚动条送回弹窗边缘，padding 把内容拉回对齐线，同 .main-scroll */
-  margin: 0 -1.3rem;
-  padding: 0.1rem 1.3rem 0.9rem;
+  padding: 1rem 1.25rem;
 }
 .modal.settings .modal-actions {
-  /* 覆盖 styles.css 里所有弹窗共享的 sticky 底栏：这一个的底栏在滚动体外 */
   position: static;
-  flex: none;
-  margin: 0 -1.3rem;
-  padding: 0.6rem 1.3rem 1.1rem;
-  background: var(--bg);
+  margin: 0;
+  padding: 0.65rem 1.25rem;
+  background: var(--panel);
 }
 .modal.settings h3 {
-  font-size: 0.92rem;
-  margin: 1.1rem 0 0.4rem;
-  padding-top: 0.6rem;
+  font-size: 1rem;
+  margin: 1.15rem 0 0.6rem;
+  padding-top: 0.75rem;
   border-top: 1px solid var(--line);
+}
+.modal.settings h3:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.settings-appearance { flex-wrap: wrap; }
+.settings-scope { font-size: 0.78rem; }
+.settings-reading-hint {
+  margin: 0.8rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+@container (max-width: 44rem) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .settings-nav {
+    flex-direction: row;
+    padding: 0.45rem 1.25rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .settings-nav button[aria-current='true'] {
+    box-shadow: inset 0 -2px var(--accent);
+  }
 }
 .tabs {
   display: inline-flex;

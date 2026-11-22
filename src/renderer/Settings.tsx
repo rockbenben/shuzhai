@@ -23,7 +23,7 @@
 //    和在线朗读会把正文发到第三方。其余移进 title 里——
 //    ⚠️ **但「这一格改了要重启」这种话不许只放 title**：那正是假话的藏身处。
 //    低频的长说明收进 `<details>`，`<summary>` 上留结论。
-// 4. **弹窗是「头 / 滚动体 / 底栏」三段 flex**（settings-head / settings-body /
+// 4. **弹窗的标题、分类和底栏固定，内容单独滚动**（settings-head / settings-body /
 //    modal-actions）：原来整个弹窗一个滚动条，sticky 底栏浮在内容上，最后一行
 //    正文正好滚到折缝时被切掉半个字（朗读引擎那句「自己加」常年只剩半截）。
 //    底栏放到滚动体外就没有「压字」这回事，页签标题行也一起固定了。
@@ -77,7 +77,7 @@ type Tab = 'read' | 'keys' | 'library' | 'net';
 
 /** 四个页签装什么。切法按「什么时候会动它」，不按代码模块 */
 const TABS: Array<{ id: Tab; 名: string }> = [
-  { id: 'read', 名: '阅读' },
+  { id: 'read', 名: '阅读与外观' },
   { id: 'keys', 名: '键盘' },
   { id: 'library', 名: '书库' },
   { id: 'net', 名: '联网' },
@@ -89,6 +89,7 @@ export interface FontFile { name: string; file: string; size: number; bundled?: 
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<Tab>('read');
+  const body = useRef<HTMLDivElement>(null);
 
   const [mode, setMode] = useState('off');
   const [hours, setHours] = useState('6');
@@ -277,25 +278,37 @@ export function Settings({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal settings" onClick={(e) => e.stopPropagation()}>
-        <div className="row settings-head">
-          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>设置</h2>
-          <div className="tabs">
-            {TABS.map((t) => (
-              <button key={t.id} aria-current={tab === t.id} onClick={() => setTab(t.id)}>{t.名}</button>
-            ))}
-          </div>
-          <span style={{ flex: 1 }} />
-          <span className="muted" style={{ fontSize: '0.78rem' }}>改动即时生效</span>
-        </div>
+        <header className="settings-head">
+          <h2>设置</h2>
+          <span className="muted">改动即时生效</span>
+        </header>
 
-        <div className="settings-body">
+        <div className="settings-layout">
+          <nav className="settings-nav" aria-label="设置分类">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                aria-current={tab === t.id}
+                onClick={() => {
+                  if (tab === t.id) return;
+                  if (body.current) body.current.scrollTop = 0;
+                  setTab(t.id);
+                }}
+              >
+                {t.名}
+              </button>
+            ))}
+          </nav>
+
+        <div className="settings-body" ref={body}>
         {tab === 'read' ? (
           <>
             {/* **外观和纸色是两件事，界面上也要分开摆。**
                 合成一项的时候，选「护眼」连书架都变绿——那不是配色方案，
                 那是把两个决定塞进了一个下拉框 */}
-            <div className="field">
-              <span className="muted" id="set-appearance">应用外观</span>
+            <h3 id="set-appearance">应用外观</h3>
+            <div className="field settings-appearance">
+              <span className="muted">配色</span>
               {/* 三档写成一个表，别再抄第三遍 aria-current 那套。
                   ⚠️ `role="group"` + `aria-labelledby`：这一排三颗键的可及名是
                   「亮 / 暗 / 跟随系统」，光念这三个字听不出**这是在问什么**——
@@ -317,7 +330,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   </button>
                 ))}
               </div>
-              <span className="muted" style={{ fontSize: '0.78rem' }}>书架、侧栏、对话框</span>
+              <span className="muted settings-scope">书架、侧栏和对话框</span>
             </div>
 
             {/* 阅读器里调的东西在这儿只指路、不放控件：在书架上调字号，屏幕上
@@ -325,16 +338,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 ⚠️ **逐个点名，别写「都」**：列出来的每一项都得真在阅读界面里
                 （齿轮管排版，朗读弹窗管换引擎），多一个少一个都会把指路变成假话。
                 这段的历史（两栏 / 说大话的「都」）在 docs/lessons.md 搜「设置弹窗」。 */}
-            {/* ⚠️ 这句原来写的是「这里只管书架外观，以及字体和引擎装了哪些」——
-                漏了纸色，而它是这一页唯一一句「这页管什么」。改成实话：
-                这一页管**装了哪些**，用哪个不归这里管。
-                两行之间用 `<br />` 而不是换行续写：JSX 会把两行文本用一个空格
-                连起来，中文句子里凭空多一道缝（`scripts/cjk-join.mjs` 盯的就是它）。 */}
-            <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.7rem' }}>
-              这一页管的是<strong>装了哪些</strong>：书架外观、字体、纸色、朗读引擎。
-              <br />
-              <strong>用哪一个</strong>——字号、行距、纸色选哪张、繁简、自动滚动、换哪个引擎念——都在阅读界面里边看边调：齿轮管排版，朗读弹窗管换引擎，改一下整页当场变。
-            </p>
+            <p className="muted settings-reading-hint">在阅读页打开「设置」调整字体、纸色、字号、行距、繁简、阅读方式和自动滚动。朗读引擎在阅读页的「朗读」中选择。</p>
 
             <h3>字体</h3>
             {/* 装字体。**应用不下载任何字体**——用户自己把文件装进来，
@@ -1002,6 +1006,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             {updateErr && <p className="danger" style={{ fontSize: '0.82rem', margin: '0.2rem 0 0' }}>{updateErr}</p>}
           </>
         )))}
+        </div>
         </div>
 
         <div className="row modal-actions" style={{ justifyContent: 'flex-end' }}>
