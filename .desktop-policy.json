@@ -1,0 +1,21 @@
+{
+  "platforms": [
+    "windows-x64"
+  ],
+  "deviations": [
+    {
+      "rule": "platforms",
+      "value": [
+        "windows-x64"
+      ],
+      "reason": "产品只做 Windows：安装包是 NSIS（electron-builder.yml 的 win.target），用户数据目录是 %APPDATA%\\shuzhai，扫描靠 fs.watch({recursive:true})，发布工作流（.github/workflows/release.yml）只跑 windows-latest、只发一个 NSIS 加一个便携 zip。全量测试从来没有在 Linux/macOS 上跑过——ci.yml 里写着「加 ubuntu 要当一件事单独做」，不是顺手加一行。",
+      "revisitWhen": "有用户要 macOS/Linux，或 ci.yml 在 ubuntu 上第一次跑绿；那时补对应构建矩阵，并按发布流程从已安装的 N 实测更新到 N+1。"
+    },
+    {
+      "rule": "nsis-installer-language",
+      "value": "zh_CN",
+      "reason": "应用界面只有中文，安装/卸载向导跟着中文走（installerLanguages: [zh_CN]，displayLanguageSelector: false 避免随系统语言切换）。house style 默认的英文向导对这个用户群是一句外语。scripts/verify-release.mjs 用断言钉着这条配置，改它要连那条断言一起改。",
+      "revisitWhen": "界面开始提供英文（i18n-landing）时，或 electron-builder 的 zh_CN 向导文案开始出现缺翻译、中英混排时。"
+    }
+  ]
+}

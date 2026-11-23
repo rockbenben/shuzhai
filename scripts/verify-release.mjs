@@ -11,6 +11,15 @@ const config = load(readFileSync(join(ROOT, 'electron-builder.yml'), 'utf8'));
 assert.equal(pkg.name, 'shuzhai', 'name 决定用户数据目录，不能改');
 assert.deepEqual(config.nsis.installerLanguages, ['zh_CN']);
 assert.equal(config.nsis.displayLanguageSelector, false);
+
+// **渲染进程的 CSP 只在打包时注入**（`vite.config.ts` 里那个插件，判据在
+// `src/renderer/csp.ts`）。产物里没这一条，等于这次发出去的安装包没有安全策略——
+// 而它和「有策略、只是恰好什么都放行」在下载下来的 html 里长得一模一样。
+assert.match(
+  readFileSync(join(ROOT, 'dist', 'index.html'), 'utf8'),
+  /<meta http-equiv="Content-Security-Policy" content="[^"]*default-src 'none'/,
+  '渲染进程产物里没有 CSP',
+);
 const dir = join(ROOT, 'release');
 const info = load(readFileSync(join(dir, 'latest.yml'), 'utf8'));
 const installer = `${pkg.name}-${pkg.version}-x64-setup.exe`;
@@ -29,4 +38,4 @@ assert.equal(info.sha512, digest, '旧版 updater 的 SHA-512 不符');
 for (const name of [`${installer}.blockmap`, `${pkg.name}-${pkg.version}-x64.zip`]) {
   assert.ok(statSync(join(dir, name)).size > 0, `发布资产为空：${name}`);
 }
-console.log(`发布校验通过：${pkg.version} · NSIS + ZIP + blockmap · 更新清单大小/SHA-512 · 中文安装配置`);
+console.log(`发布校验通过：${pkg.version} · NSIS + ZIP + blockmap · 更新清单大小/SHA-512 · 中文安装配置 · 产物带 CSP`);
