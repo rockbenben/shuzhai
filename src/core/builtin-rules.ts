@@ -36,6 +36,9 @@
 
 import type { CleanRule } from './clean.ts';
 
+// 内置排版规则的进程内标记，导入规则和 RPC 参数无法通过同名或 JSON 字段获得。
+export const HTML_LAYOUT_RULE = Symbol('HTML layout rule');
+
 export const PURIFY_RULES: CleanRule[] = [
   // ── 默认开：实测在真实书库上只动页脚，不碰正文 ────────────
   {
@@ -91,7 +94,7 @@ export const PURIFY_RULES: CleanRule[] = [
      * `<img src="https://aigcc.yuewen.com/imgChapter/…_hd.webp">` 光尖括号里就
      * **146 个字符**——短标签删得掉，它原样漏进正文，屏幕上是一行光秃秃的 HTML。
      * 限长的用意是「别让一个落单的 `<` 吃掉半段正文」，那个用意 400 一样成立，
-     * 而 400 装得下带 URL 的标签。（`[^>` 已经保证不会跨过下一个 `>`。）
+     * 而 400 装得下带 URL 的标签。碰到新的尖括号或换行就停止匹配。
      *
      * ⚠️ **`img` 排除在外**：它不是残留，是内容。删了用户看到的是**图凭空消失**，
      * 而他知道那儿本来有图。留给 `paragraphs.ts` 的 `splitImages` 去渲染；
@@ -106,7 +109,7 @@ export const PURIFY_RULES: CleanRule[] = [
      * ⚠️ **别拿 `\b` 代替这个前瞻。** 汉字不是 `\w`，所以 `\b` 在 `P聣` 之间
      * 成立——那条路试过，正是它放进来这些碎片的。
      */
-    pattern: '<\\/?(?!img[\\s>/])[a-zA-Z][a-zA-Z0-9]*(?=>|[/ \\t\\u3000])[^>\\n]{0,400}>|&(?:nbsp|quot|amp|lt|gt|ldquo|rdquo|#\\d{1,5}|#x[0-9a-fA-F]{1,4});',
+    pattern: '<\\/?(?!img[\\s>/])[a-zA-Z][a-zA-Z0-9]*(?=>|[/ \\t\\u3000])[^<>\\r\\n]{0,400}>|&(?:nbsp|quot|amp|lt|gt|ldquo|rdquo|#\\d{1,5}|#x[0-9a-fA-F]{1,4});',
     replacement: '',
     enabled: true,
   },
@@ -193,14 +196,14 @@ export const PURIFY_RULES: CleanRule[] = [
     //
     // ⚠️ **两处收窄都是防「吃正文」的，和上面「HTML 残留」那条同一个理由：**
     // 标签名要整词（`(?=>|[/ \t　])`，`\b` 在汉字前也算边界，挡不住乱码碎片），
-    // 而且**不许跨过换行**去找那个 `>`（原来是 `[^>]`，能跨过行——
-    // 一个没有闭合的 `<p` 碎片会一路吞到下一段的 `>`，中间整段正文没了）。
+    // 新的尖括号或换行表示前面的标签未闭合，不能一路匹配到下一个 `>`。
     // 上限从 60 放到 120：带属性的段落标签比 60 长，而这两条一收紧，
     // 长一点也不再有可能吃到正文。
-    pattern: '<\\s*/?(?:br|p|div|h[1-6]|li|tr)(?=>|[/ \\t\\u3000])[^>\\n]{0,120}>',
+    pattern: '</?(?:br|p|div|h[1-6]|li|tr)(?=>|[/ \\t\\u3000])[^<>\\r\\n]{0,120}>',
     replacement: '\n',
     whole: true,
     enabled: true,
+    [HTML_LAYOUT_RULE]: true,
   },
   {
     name: 'HTML 的空格实体换成空格',
@@ -209,6 +212,7 @@ export const PURIFY_RULES: CleanRule[] = [
     replacement: ' ',
     whole: true,
     enabled: true,
+    [HTML_LAYOUT_RULE]: true,
   },
 
   /*

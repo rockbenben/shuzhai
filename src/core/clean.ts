@@ -8,6 +8,7 @@
 // 而这正是 diff 预览要显示的东西。
 
 export interface CleanRule {
+  [HTML_LAYOUT_RULE]?: true;
   id?: number;
   name: string;
   /** 正则源码 */
@@ -79,13 +80,18 @@ export interface CleanedLine {
   by?: string;
 }
 
-function compile(rules: CleanRule[]): Array<{ name: string; re: RegExp; replacement: string }> {
-  const out: Array<{ name: string; re: RegExp; replacement: string }> = [];
+function compile(rules: CleanRule[]) {
+  const out: Array<{ name: string; re: RegExp; replacement: string; htmlLayout: boolean }> = [];
   for (const r of rules) {
     if (!r.enabled) continue;
     try {
       // 导进来的规则自带 flags（可能有 i/m/s）；内置的沿用老规矩 gu
-      out.push({ name: r.name, re: new RegExp(r.pattern, r.flags ?? 'gu'), replacement: r.replacement });
+      out.push({
+        name: r.name,
+        re: new RegExp(r.pattern, r.flags ?? 'gu'),
+        replacement: r.replacement,
+        htmlLayout: r[HTML_LAYOUT_RULE] === true,
+      });
     } catch {
       // 坏正则跳过而不是让整章打不开。规则编辑器那边会单独校验并报错
     }
@@ -116,6 +122,7 @@ export interface WholeResult {
  *
  * **逐条检查缩水比例**：某条规则一下子删掉四成以上正文，就当它没生效。
  * 逐条判而不是最后统一判——一条坏规则不该让其它十几条一起作废。
+ * 内置 HTML 排版规则缩短的是标签和实体，可在切行之前还原为换行和空格。
  */
 export function applyWholeRulesDetailed(text: string, rules: CleanRule[]): WholeResult {
   let out = text;
@@ -127,7 +134,7 @@ export function applyWholeRulesDetailed(text: string, rules: CleanRule[]): Whole
       ? out.replace(rule.re, (m) => runJsReplacement(rule.replacement.slice(4), m))
       : out.replace(rule.re, rule.replacement);
 
-    if (before.length > 0 && next.length < before.length * (1 - MAX_SHRINK)) {
+    if (!rule.htmlLayout && before.length > 0 && next.length < before.length * (1 - MAX_SHRINK)) {
       rejected.push(rule.name);
       continue; // 保留 before，当这条没生效
     }
@@ -232,7 +239,7 @@ export function validateRule(pattern: string): void {
 import type { DatabaseSync } from 'node:sqlite';
 import { getSetting, setSetting } from './db.ts';
 import { runJsReplacement } from './legado.ts';
-import { PURIFY_RULES } from './builtin-rules.ts';
+import { HTML_LAYOUT_RULE, PURIFY_RULES } from './builtin-rules.ts';
 
 /**
  * 全部内置规则。**顺序就是负数 id 的来源**（见 listCleanRules），

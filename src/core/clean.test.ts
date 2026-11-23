@@ -9,6 +9,7 @@ import {
   cleanText,
   cleanLines,
   cleanDiff,
+  applyWholeRulesDetailed,
   validateRule,
   listCleanRules,
   loadCleanRules,
@@ -171,8 +172,7 @@ test('会大段删除的规则必须默认关着', () => {
   /*
    * ⚠️ **判据是「会不会删」，不是「是不是整章模式」。** 原来这里只判 `r.whole`，
    * 而这条测试自己的名字写的是「会大段删除的」——两者不是一回事：
-   * 「HTML 段落标签还原成换行」也是整章模式，但它把标签**换成换行**，
-   * 文本只会变长；按老判据它会被拦下来，而拦的理由是假的。
+   * 「HTML 段落标签还原成换行」也是整章模式，但缩短的是标签，换行仍保留段落。
    *
    * 空替换才是「删」。下面这条诱饵防的是「把判据放松成永远为真」。
    */
@@ -238,8 +238,6 @@ test('网文里的 <系统> 不是 HTML，不能删', () => {
   const on = PURIFY_RULES.filter((r) => r.enabled);
   assert.equal(cleanText('<系统>提示：你升级了', on).trim(), '<系统>提示：你升级了');
   assert.equal(cleanText('<主线任务>已完成', on).trim(), '<主线任务>已完成');
-  assert.equal(cleanText('正文<br/>还在', on).trim(), '正文还在');
-  assert.equal(cleanText('空&nbsp;格', on).trim(), '空格');
 });
 
 test('CRLF 的 \r 不算改动——它是文件格式，不是内容', () => {
@@ -279,6 +277,56 @@ test('txt 里的 HTML：段落标签还原成换行，&nbsp; 还原成空格', (
   assert.deepEqual(行, ['第一段。', '第二段。', '第二段的下一行。', '第三段 带个空格'],
     '每个 <p> / <br> / <div> 都该断成一行，&nbsp; 该是一个空格');
   assert.ok(!out.includes('<'), '标签本身不该留下');
+});
+
+test('短 HTML 片段的标签和实体换成排版字符，预览也照常生效', () => {
+  withDb((db) => {
+    const rules = loadCleanRules(db);
+    const paragraphs = '<p>他没有回头</p><p>天色还早</p>';
+    assert.deepEqual(applyWholeRulesDetailed(paragraphs, rules), {
+      text: '\n他没有回头\n\n天色还早\n',
+      rejected: [],
+    });
+    assert.deepEqual(cleanText(paragraphs, rules).split('\n').filter(Boolean), ['他没有回头', '天色还早']);
+    assert.equal(cleanText('正文<br/>还在', rules), '正文\n还在');
+    for (const entity of ['&nbsp;', '&#160;', '&#xA0;']) {
+      assert.equal(cleanText(`A${entity}B`, rules), 'A B');
+    }
+  });
+});
+
+test('两条 HTML 排版规则分别遵守已保存的启停设置', () => {
+  withDb((db) => {
+    const input = '<p class="example">A&nbsp;B</p>';
+    const paragraphs = 'HTML 段落标签还原成换行';
+    const spaces = 'HTML 的空格实体换成空格';
+    setBuiltinEnabled(db, paragraphs, false);
+    assert.deepEqual(applyWholeRulesDetailed(input, loadCleanRules(db)), {
+      text: '<p class="example">A B</p>',
+      rejected: [],
+    });
+
+    setBuiltinEnabled(db, paragraphs, true);
+    setBuiltinEnabled(db, spaces, false);
+    assert.deepEqual(applyWholeRulesDetailed(input, loadCleanRules(db)), { text: '\nA&nbsp;B\n', rejected: [] });
+  });
+});
+
+test('同名自定义整章规则仍受缩水保护', () => {
+  withDb((db) => {
+    const name = 'HTML 段落标签还原成换行';
+    db.prepare('insert into clean_rule(name, pattern, replacement, whole) values(?, ?, ?, 1)')
+      .run(name, '^.+$', '\n');
+    const input = '他没有回头，天色还早。';
+    assert.deepEqual(applyWholeRulesDetailed(input, loadCleanRules(db)), { text: input, rejected: [name] });
+  });
+});
+
+test('HTML 残片遇到新的尖括号或换行时保留原文', () => {
+  const rules = [...BUILTIN_CLEAN_RULES, ...PURIFY_RULES];
+  for (const input of ['左<p 未闭合<系统>右', '左<span 未闭合<主线任务>右', '左<\np>右']) {
+    assert.equal(cleanText(input, rules), input);
+  }
 });
 
 /*

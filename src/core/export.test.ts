@@ -9,7 +9,7 @@ import { inflateRawSync } from 'node:zlib';
 import type { DatabaseSync } from 'node:sqlite';
 import { openDb } from './db.ts';
 import { scanRoot } from './scan.ts';
-import { FileCache } from './reader.ts';
+import { FileCache, readChapter } from './reader.ts';
 import { exportEpub, exportTxt, exportCsv, exportJson, exportNotes, exportAllNotes, exportFilename, freeName, pngFromDataUrl, writeExportFile } from './export.ts';
 import { setColorNames } from './highlight.ts';
 import { tagBooks } from './library.ts';
@@ -198,6 +198,24 @@ test('导出默认套用清洗规则，和读到的一致', async () => {
 
   const raw = await exportTxt(db, cache, id, { clean: false });
   assert.ok(raw.includes('手机站阅读'), '明确要原文时不清洗');
+});
+
+test('短 HTML 章节在阅读和导出中保留换行和空格，原文件字节一致', async () => {
+  const lib = join(dir, 'books');
+  const name = '示例书甲';
+  const path = join(lib, name + '.txt');
+  const html = '<p>A&nbsp;B</p><p>C&#160;D</p><p>E&#xA0;F</p><p>G&nbsp;H</p>';
+  const raw = Buffer.from('第一章 起\n' + html);
+  writeFileSync(path, raw);
+  const rootId = (db.prepare('select id from library_root').get() as { id: number }).id;
+  await scanRoot(db, { id: rootId, path: lib }, { minBytes: 1 });
+  const id = (db.prepare('select id from book where title = ?').get(name) as { id: number }).id;
+
+  const expected = 'A B\n\nC D\n\nE F\n\nG H';
+  assert.ok((await readChapter(db, cache, id, 0)).text.includes(expected));
+  assert.ok((await exportTxt(db, cache, id)).endsWith(expected));
+  assert.ok((await exportTxt(db, cache, id, { clean: false })).endsWith(html));
+  assert.deepEqual(readFileSync(path), raw);
 });
 
 test('CSV 带 BOM 且正确转义', () => {
