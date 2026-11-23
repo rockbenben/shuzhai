@@ -427,3 +427,30 @@ test('裁尾巴的尾巴里不许有句末标点——那是正文跟在广告�
   const 广告后还有正文 = '他睡了。请牢记收藏。后来他又醒了一次，把门带上。';
   assert.equal(cleanText(广告后还有正文, tailOnly), 广告后还有正文, '广告后面那段正文被裁掉了');
 });
+
+test('同一条广告尾规则裁剪简体、繁体和混排话术，可带单个句末标点', () => {
+  const name = '行尾广告尾巴（只裁尾巴）';
+  withDb((db) => {
+    const body = '他合上書，推門走了出去。';
+    const tails = ['请牢记收藏。', '請牢記收藏！', '請牢记收藏', '首發網址', '記住本站？', '最快更新請瀏覽器'];
+    for (const tail of tails) assert.equal(cleanText(body + tail, loadCleanRules(db)), body + tail);
+
+    setBuiltinEnabled(db, name, true);
+    const rules = loadCleanRules(db);
+    for (const tail of tails) assert.equal(cleanText(body + tail, rules), body, tail);
+  });
+});
+
+test('广告尾后仍有正文或正文未收句时保留原行', () => {
+  withDb((db) => {
+    setBuiltinEnabled(db, '行尾广告尾巴（只裁尾巴）', true);
+    const rules = loadCleanRules(db);
+    for (const line of [
+      '他睡了。請牢記收藏。後來他又醒了一次。',
+      '他睡了。請牢記收藏她遞來的舊書。',
+      '他正要出門請牢記收藏',
+    ]) {
+      assert.equal(cleanText(line, rules), line);
+    }
+  });
+});
