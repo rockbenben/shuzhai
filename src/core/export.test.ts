@@ -204,7 +204,7 @@ test('短 HTML 章节在阅读和导出中保留换行和空格，原文件字�
   const lib = join(dir, 'books');
   const name = '示例书甲';
   const path = join(lib, name + '.txt');
-  const html = '<p>A&nbsp;B</p><p>C&#160;D</p><p>E&#xA0;F</p><p>G&nbsp;H</p>';
+  const html = '<P>A&nbsp;B</p><p>C&#160;D</P><p>E&#xA0;F</p><p>G&nbsp;H</p>';
   const raw = Buffer.from('第一章 起\n' + html);
   writeFileSync(path, raw);
   const rootId = (db.prepare('select id from library_root').get() as { id: number }).id;

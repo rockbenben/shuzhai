@@ -18,6 +18,7 @@ import {
 } from './clean.ts';
 import { PURIFY_RULES } from './builtin-rules.ts';
 import { openDb, setSetting } from './db.ts';
+import { splitImages } from './paragraphs.ts';
 
 const R = BUILTIN_CLEAN_RULES;
 
@@ -295,6 +296,12 @@ test('短 HTML 片段的标签和实体换成排版字符，预览也照常生�
   });
 });
 
+test('大写和混合大小写的 HTML 段落标签同样保留换行', () => {
+  const rules = [...BUILTIN_CLEAN_RULES, ...PURIFY_RULES];
+  const input = '<P>他没有回头<BR/>左边</p><DiV>天色还早</dIv>';
+  assert.deepEqual(cleanText(input, rules).split('\n').filter(Boolean), ['他没有回头', '左边', '天色还早']);
+});
+
 test('两条 HTML 排版规则分别遵守已保存的启停设置', () => {
   withDb((db) => {
     const input = '<p class="example">A&nbsp;B</p>';
@@ -324,7 +331,7 @@ test('同名自定义整章规则仍受缩水保护', () => {
 
 test('HTML 残片遇到新的尖括号或换行时保留原文', () => {
   const rules = [...BUILTIN_CLEAN_RULES, ...PURIFY_RULES];
-  for (const input of ['左<p 未闭合<系统>右', '左<span 未闭合<主线任务>右', '左<\np>右']) {
+  for (const input of ['左<p 未闭合<系统>右', '左<P 未闭合<系统>右', '左<span 未闭合<主线任务>右', '左<\np>右']) {
     assert.equal(cleanText(input, rules), input);
   }
 });
@@ -367,12 +374,16 @@ test('没有闭合的 <p 碎片不许跨过换行吞掉整段', () => {
 test('带 URL 的 <img>（阅文每章注入的 AIGC 标识）在默认规则下一动不动', () => {
   const img = '　　<img src="https://aigcc.yuewen.com/imgChapter/5702202403064801/33842841507593809/10636014/9ca9d117c4.webp">';
   const on = [...BUILTIN_CLEAN_RULES, ...PURIFY_RULES].filter((r) => r.enabled);
-  const out = cleanText(img + '\n正文一段。', on);
-  assert.ok(out.includes('aigcc.yuewen.com'), '「含网址的整行」把 AIGC 标识整行删了');
-  assert.ok(out.includes('正文一段。'));
   // 而想关掉插图的人有地方关：那条规则本来就是给他开的
   const withImgDrop = on.concat(PURIFY_RULES.filter((r) => r.name === '正文里的图片').map((r) => ({ ...r, enabled: true })));
-  assert.ok(!cleanText(img, withImgDrop).includes('imgChapter'), '开了「正文里的图片」就该删掉');
+  for (const tag of ['img', 'IMG', 'ImG']) {
+    const marker = img.replace('<img', `<${tag}`);
+    const out = cleanText(marker + '\n正文一段。', on);
+    assert.ok(out.includes(marker.trim()), tag);
+    assert.equal(splitImages(out).images.length, 1, tag);
+    assert.ok(out.includes('正文一段。'), tag);
+    assert.equal(cleanText(marker, withImgDrop), '', tag);
+  }
 });
 
 test('「提醒您」这类台词词不在默认开的推广行里', () => {

@@ -96,7 +96,7 @@ export const PURIFY_RULES: CleanRule[] = [
      * 限长的用意是「别让一个落单的 `<` 吃掉半段正文」，那个用意 400 一样成立，
      * 而 400 装得下带 URL 的标签。碰到新的尖括号或换行就停止匹配。
      *
-     * ⚠️ **`img` 排除在外**：它不是残留，是内容。删了用户看到的是**图凭空消失**，
+     * ⚠️ **各种大小写的 `img` 都排除在外**：它不是残留，是内容。删了用户看到的是**图凭空消失**，
      * 而他知道那儿本来有图。留给 `paragraphs.ts` 的 `splitImages` 去渲染；
      * 不想看图的人开下面那条「正文里的图片」。
      */
@@ -109,14 +109,15 @@ export const PURIFY_RULES: CleanRule[] = [
      * ⚠️ **别拿 `\b` 代替这个前瞻。** 汉字不是 `\w`，所以 `\b` 在 `P聣` 之间
      * 成立——那条路试过，正是它放进来这些碎片的。
      */
-    pattern: '<\\/?(?!img[\\s>/])[a-zA-Z][a-zA-Z0-9]*(?=>|[/ \\t\\u3000])[^<>\\r\\n]{0,400}>|&(?:nbsp|quot|amp|lt|gt|ldquo|rdquo|#\\d{1,5}|#x[0-9a-fA-F]{1,4});',
+    pattern: '<\\/?(?![iI][mM][gG][\\s>/])[a-zA-Z][a-zA-Z0-9]*(?=>|[/ \\t\\u3000])[^<>\\r\\n]{0,400}>|&(?:nbsp|quot|amp|lt|gt|ldquo|rdquo|#\\d{1,5}|#x[0-9a-fA-F]{1,4});',
     replacement: '',
     enabled: true,
   },
   {
     name: '正文里的图片',
     note: '从网站扒下来的 txt 里带的插图。默认**留着**——开了这条就连图带地址一起删掉',
-    pattern: '<img\\b[^>\\n]{0,400}>',
+    pattern: '<img(?=[\\s>/])[^<>\\r\\n]{0,400}>',
+    flags: 'giu',
     replacement: '',
     // **默认关**：图是内容不是垃圾。这条在的意义是「不想看图的人有地方关」——
     // 用已经有的净化规则当开关，不为它单开一个设置项
@@ -200,6 +201,7 @@ export const PURIFY_RULES: CleanRule[] = [
     // 上限从 60 放到 120：带属性的段落标签比 60 长，而这两条一收紧，
     // 长一点也不再有可能吃到正文。
     pattern: '</?(?:br|p|div|h[1-6]|li|tr)(?=>|[/ \\t\\u3000])[^<>\\r\\n]{0,120}>',
+    flags: 'giu',
     replacement: '\n',
     whole: true,
     enabled: true,
