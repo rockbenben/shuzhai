@@ -777,13 +777,13 @@ node scripts/ui-check/resume.mjs     # 端到端：继续阅读浮钮（悬停�
 
 - **先 push `main` 等 CI 绿，再打 tag。**
 - **release 由流水线直接发出去**（不再是草稿）：发完 `releases/latest` 就指着它，应用内更新器立刻看得见。**发版这一步不再有人按按钮。**
-- **「先把 exe（和 zip）下下来真跑一次」挪到打 tag 之前**（本地跑）。它不再是流水线上的闸门——闸门是 `release.yml` 里那几道 CI（typecheck / test / lint / 四道闸门）。理由还是原来那个：CI 打的包在你按下发布之前没有人运行过它；只是这个检查属于**打 tag 之前**，不属于**发版**。
+- **打 tag 前先试包**。在 Actions 的 Release 流程选待发布的分支，填入将要发布的版本（如 `1.3.2`）。从该次运行的 Artifacts 下载 exe 和 zip，在本地运行确认。手动运行只出试包，版本留空时用 `package.json` 的版本。
 - **release 正文只有固定说明 + `generate_release_notes` 自动生成的 commit 列表。** 原来那条「Publish 之前写 release notes，贴到草稿 body 开头」随草稿一起去掉了：发布不再有人工环节，正文里也就没有人工段落；这次改了什么，看 commit 列表就够。
-- **tag 必须等于 `package.json` 的 `version`**，workflow 里有一步专门对，对不上当场停。
+- **正式发版版本只由推送的 `v主版本.次版本.补丁` tag 决定**。`release.yml` 在 runner 的检出目录同步 `package.json` 和 `package-lock.json`。提交前无需手动升版本。
 - **有意为之的偏离写进 `.desktop-policy.json`**，不在注释里说了算：只发 windows-x64、安装包不签名、不装 Dependabot 这三条都写在那儿，**每条带 `reason` + `revisitWhen`**（缺一个就被巡检重新报成漂移）。**改了取舍就改那个文件**——注释是给人看的，那个文件是工具读的那份，两边说不一样时以文件为准。
 - **发版资产里的文本文件一律 LF。** 用 PowerShell 的 `Set-Content` 写出来的是 CRLF，而 `sha256sum -c` 会把那个 `\r` 算进文件名 → 非 Windows 的用户按正文照做，第一条验证命令就报 FAILED，**摘要明明是对的**。`SHA256SUMS.txt` 撞过一次（判据在 `release.yml` 的「校验和」那一步，正本只在那儿）。
 - **YAML 块标量里不能放注释行。** `files: |` 里的 `#` 行是**内容**：action-gh-release 拿每一行当 glob 模式去匹配，匹配不到就按 `fail_on_unmatched_files` 把这一步打挂，release 根本建不出来。（2026-10-20 那次把 `latest.yml` 与 blockmap 加进上传清单时，注释就写进了块标量里——下一次发版会当场炸。）
-- 改过这个 workflow 或打包链之后，先 `workflow_dispatch` 手跑一次（没 tag 时**上传与发布两步都跳过**，整趟是绿的——发布那步有 `refs/tags/` 守卫；少了它，手跑一次会因为找不到 tag 而红）。
+- 改过这个 workflow 或打包链之后，先用 `workflow_dispatch` 跑一次试包。来源证明和 GitHub Release 只由 tag push 触发。
 
 写它时撞的三个坑还记在 `release.yml` 头注释里，别再踩：PowerShell here-string 与 YAML 块标量互斥、`Get-ChildItem release -Include` 不带 `\*` 返回 0 个、通配符不给外部命令展开。
 

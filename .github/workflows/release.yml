@@ -5,7 +5,7 @@
 # 两件事分开：**CI 守的是「代码还编得过」，这里守的是「包发得出去」**。
 #
 # **改了这个文件或打包链之后**手动跑一次 `workflow_dispatch`——
-# 没有 tag 时上传那几步自己跳过，不会误发。
+# 可输入待发版本，试包从运行记录的 Artifacts 下载。
 #
 # 每次发版仍然成立的两条：
 #   1. **release 由这条流水线直接发出去**（`draft: false`），发完 `releases/latest` 就指着它
@@ -43,6 +43,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: '试打包版本（如 1.3.2，留空使用 package.json）'
+        type: string
+        required: false
 
 # 默认令牌只读。逐项给，不用 write-all。
 permissions:
@@ -60,31 +65,39 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # ⚠️ **版本对不上就当场停，别等打完几百 MB 再发现。**
-      # 打 v1.0.1 而 package.json 还写着 1.0.0 的话，产物名叫 shuzhai-1.0.0-…，
-      # 传上去就是「tag 说 1.0.1、文件说 1.0.0」——而那时候包已经打完了。
-      #
-      # ⚠️ **这一步不加 `if`，无论有没有 tag 都要跑**：下面 Release 那步要用它吐出来的
-      # 版本号去拼资产名（产物走 `${name}-${version}`，名字里**没有** tag 那个 v）。
-      # 加了 `if` 的话手跑一次（workflow_dispatch）这个 output 就是空的。
-      - name: 版本
-        id: ver
-        shell: pwsh
-        run: |
-          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          if ($env:GITHUB_REF_TYPE -eq 'tag') {
-            if ($env:GITHUB_REF_NAME -cne "v$pkg") {
-              throw "version mismatch: tag 是 $env:GITHUB_REF_NAME，期望 v$pkg"
-            }
-          }
-          "version=$pkg" >> $env:GITHUB_OUTPUT
-          "版本 $pkg" >> $env:GITHUB_STEP_SUMMARY
-
       - uses: actions/setup-node@v7
         with:
           # 构建工具使用 Active LTS；Electron 内置 Node 24 另由 CI 矩阵覆盖。
           node-version: '26'
           cache: npm
+
+      # electron-builder 从 package.json 读取应用版本。先在 runner 上同步两个清单，
+      # 后续打包、更新校验和上传使用同一个版本。
+      - name: 版本
+        id: ver
+        shell: pwsh
+        env:
+          TRIAL_VERSION: ${{ inputs.version }}
+        run: |
+          $pattern = '(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)'
+          if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF_TYPE -eq 'tag') {
+            if ($env:GITHUB_REF_NAME -cnotmatch "\Av($pattern)\z") {
+              throw '发版 tag 必须形如 v1.3.2'
+            }
+            $version = $Matches[1]
+          } elseif ($env:TRIAL_VERSION) {
+            if ($env:TRIAL_VERSION -cnotmatch "\A(?:$pattern)\z") {
+              throw '试打包版本必须形如 1.3.2'
+            }
+            $version = $env:TRIAL_VERSION
+          } else {
+            $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          }
+
+          npm version $version --no-git-tag-version --ignore-scripts --allow-same-version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "版本 $version" >> $env:GITHUB_STEP_SUMMARY
 
       - run: npm ci
 
@@ -110,7 +123,16 @@ jobs:
         run: npm run dist
 
       - name: 校验更新清单与真实产物
-        run: node scripts/verify-release.mjs
+        shell: pwsh
+        env:
+          EXPECTED_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          node scripts/verify-release.mjs $env:EXPECTED_VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installer = Get-Item -LiteralPath "release/shuzhai-$env:EXPECTED_VERSION-x64-setup.exe"
+          if ($installer.VersionInfo.ProductVersion -cne $env:EXPECTED_VERSION) {
+            throw '安装包内的产品版本与打包版本不符'
+          }
 
       # ⚠️ **校验和只覆盖安装包和免安装 zip。** `.blockmap` 和 `latest.yml` 是给
       # 应用内更新用的两样东西：latest.yml 写着「去哪儿下、下的是哪个版本」，
@@ -140,6 +162,20 @@ jobs:
             (($lines -join "`n") + "`n"))
           Get-Content release/SHA256SUMS.txt | ForEach-Object { $_ >> $env:GITHUB_STEP_SUMMARY }
 
+      # 试包留在 Actions 运行记录里，供打 tag 前下载试装。
+      - name: 上传试打包产物
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: shuzhai-${{ steps.ver.outputs.version }}-x64-trial
+          path: |
+            release/shuzhai-${{ steps.ver.outputs.version }}-x64-setup.exe
+            release/shuzhai-${{ steps.ver.outputs.version }}-x64.zip
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
       # **来源证明，比 SHA256SUMS 强一档**（同 020 / 033，它们记的那条判据）：
       # sums 和它校验的文件挂在**同一个 release 页**上，能换资产的人也能换 sums；
       # 而来源证明存在 GitHub 那边，用户跑
@@ -148,14 +184,12 @@ jobs:
       # **两者串起来用，不是二选一。** 对这个项目尤其算数——安装包没有代码签名，
       # 这是离「能验明正身」最近的一样东西。
       #
-      # `subject-checksums` 吃的就是上一步那个文件：它按里面的 (摘要, 名字) 逐条签，
+      # `subject-checksums` 直接拿 SHA256SUMS.txt 里的 (摘要, 名字) 逐条签，
       # **不需要再去磁盘上找那些文件**，所以 sums 里写的是裸文件名也不要紧。
       #
-      # ⚠️ **和 Release 同一个 `if`**：证明是写回仓库的**副作用**，
-      # 而 `workflow_dispatch` 那条路存在的意义就是「手跑一次什么都不会留下」。
-      # 代价是这一步只在真打 tag 时才跑得到——它是三行第一方 action，认下这个代价。
+      # 来源证明和 Release 都由 tag push 触发。手跑时即使选择 tag 作为 ref，也只会出试包。
       - uses: actions/attest-build-provenance@v4
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         with:
           subject-checksums: release/SHA256SUMS.txt
 
@@ -175,7 +209,7 @@ jobs:
       # 更新说明由 `generate_release_notes` 自动生成（commit 列表）：发布不再有草稿可改，
       # 正文里也就没有人工段落了。
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         uses: softprops/action-gh-release@v3
         with:
           # 应用内更新要用的两样：latest.yml 写着「去哪儿下、下的是哪个版本」，
@@ -234,12 +268,7 @@ jobs:
       # 判据是**看 API 指到谁**，不是看 release 的字段：字段全对而指针没挪，端点照样 404。
       # CDN 那层重定向会再滞后几分钟，属正常——这里判 API，不判 CDN。
       - name: 发布这个 release，并把 latest 指到它
-        # ⚠️ **这个 `if` 不能省。**
-        # `workflow_dispatch` 时 `github.ref_name` 是**分支名**（main），不是 tag——
-        # 下面按 tag_name 找 release 找不到，`id` 为空就当失败退出了。而
-        # `release.yml` 头注释和 AGENTS.md「发版规矩」都写着「改过之后手跑一次
-        # workflow_dispatch」：**没有这道守卫，手跑一次会以红收场**（发不出去倒是真的）。
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -274,7 +303,7 @@ jobs:
       # 拿它当闸门会误伤）。要判的就是「这个 release 上挂着那三样东西」——
       # 清单（latest.yml）、被下的那个安装包、增量下载用的 blockmap。
       - name: 确认更新器要的东西真的挂在 release 上
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.ver.outputs.version }}

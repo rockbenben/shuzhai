@@ -9,6 +9,7 @@ import { ROOT } from './repo-root.mjs';
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 const config = load(readFileSync(join(ROOT, 'electron-builder.yml'), 'utf8'));
 assert.equal(pkg.name, 'shuzhai', 'name 决定用户数据目录，不能改');
+assert.equal(pkg.version, process.argv[2] ?? pkg.version, '应用版本与打包版本不符');
 assert.deepEqual(config.nsis.installerLanguages, ['zh_CN']);
 assert.equal(config.nsis.displayLanguageSelector, false);
 
