@@ -19,7 +19,7 @@
  * | `default-src` | `'none'` | 没列到的资源类型一律不许，新加资源时被迫回来这里想一遍 |
  * | `script-src` | `'self'` | 产物只有 Vite 打出来的那几个 module；源码里 `eval` / `new Function` 一个都没有 |
  * | `style-src` | `'self' 'unsafe-inline'` | React 的 `style=` 属性，加上 `applyFontFaces` 那个 `<style>` |
- * | `img-src` | `'self' data: blob: https:` | 封面是 data URL（`cover.ts` 刻意不让渲染进程引 `file://`）；epub.js 把章节里的图片换成 `blob:`；正文里的外链图是 `https:` |
+ * | `img-src` | `'self' data: blob: http: https:` | 封面是 data URL；EPUB 内嵌图片走 `blob:`，正文里的外链图片可用 HTTP 或 HTTPS |
  * | `font-src` | `'self' data: blob: file:` | 用户字体和随包发布的 HarmonyOS 都是 `file:///`（`settings.ts` 的 `applyFontFaces`）；EPUB 自带的字体是 `blob:` |
  * | `media-src` | `'self' data: blob:` | 在线朗读引擎由主进程取回、交回来的就是 data URL（`useTts.ts` 的 `new Audio(dataUrl)`） |
  * | `connect-src` | `'self' book: blob:` | 渲染进程只 fetch 这一个跨源协议（`FileViewer` 的 `book://f/<id>`），其余全走 IPC |
@@ -47,7 +47,7 @@ export const CSP = [
   "default-src 'none'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
+  "img-src 'self' data: blob: http: https:",
   "font-src 'self' data: blob: file:",
   "media-src 'self' data: blob:",
   "connect-src 'self' book: blob:",

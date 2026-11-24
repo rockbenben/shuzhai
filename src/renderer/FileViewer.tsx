@@ -1072,6 +1072,14 @@ export function FileViewer({ bookId, bookTitle, path, viewer, startAt, onOpenBoo
           try {
             const 挂 = (doc: Document) => {
               doc.addEventListener('keydown', (e) => 按键.current(e));
+              // 书内的 iframe 保持禁用弹窗，由阅读器把用户点的网页链接交给主进程。
+              doc.addEventListener('click', (e) => {
+                const href = (e.target as Element | null)?.closest?.('a[href]')?.getAttribute('href')?.trim();
+                if (!href || !/^https?:\/\//i.test(href) || !e.isTrusted) return;
+                e.preventDefault();
+                e.stopPropagation();
+                void rpc('ui.openExternal', { url: href }).catch((err) => console.warn('[external]', err));
+              }, true);
               doc.addEventListener('click', (e) => {
                 const w = doc.documentElement?.clientWidth || doc.body?.clientWidth || 0;
                 const 选 = doc.getSelection?.();
